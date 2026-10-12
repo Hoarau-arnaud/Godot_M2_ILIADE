@@ -4,7 +4,7 @@
 
 Le projet consiste à réaliser sous **Godot 4.7.2** une simulation 3D de systèmes multi-agents dans un environnement spatial.
 
-L'objectif est d'observer comment plusieurs agents autonomes se déplacent, perçoivent leur environnement, évitent des dangers et conservent un comportement collectif. Le projet est développé progressivement : chaque milestone ajoute une difficulté ou un nouveau type d'agent sans rendre le modèle inutilement complexe.
+L'objectif est d'observer comment plusieurs agents autonomes se déplacent, perçoivent leur environnement, évitent des dangers et réagissent à d'autres agents. Le projet est développé progressivement afin de conserver un modèle simple, compréhensible et facile à présenter.
 
 À terme, la simulation devra comporter au moins **4 types d'agents** et mettre en évidence au moins **un phénomène émergent**.
 
@@ -45,15 +45,15 @@ Validation du scénario normal avec la seed `20261012` :
 - distance moyenne au voisin le plus proche : **11,41 m** ;
 - rapprochement minimal ponctuel : **5,52 m**.
 
-Ces résultats indiquent que la survie est actuellement le comportement normal, tout en conservant la possibilité d'une collision réelle dans une situation difficile.
+La survie est donc actuellement le comportement normal, tout en conservant la possibilité d'une collision réelle dans une situation difficile.
 
 ---
 
-## 3. Types d'agents actuels
+## 3. Agents et environnement actuels
 
 ### Agent 1 — Chasseur bleu
 
-Le chasseur est l'agent principal.
+Le chasseur bleu est pour le moment **le seul véritable type d'agent** de la simulation.
 
 Il peut :
 
@@ -75,13 +75,13 @@ Son déplacement est obtenu par la combinaison de règles locales simples :
 
 Aucune formation géométrique précise n'est imposée.
 
-### Agent 2 — Astéroïde / obstacle spatial
+### Obstacles de l'environnement — Astéroïdes
 
-Les astéroïdes forment actuellement la deuxième catégorie d'entités du modèle.
+Les astéroïdes ne sont **pas considérés comme des agents** dans le modèle actuel.
 
-Ils existent en plusieurs tailles et formes, tournent lentement et constituent les principaux dangers à éviter.
+Ils constituent des éléments de l'environnement que les chasseurs doivent percevoir et éviter. Ils existent en plusieurs tailles et formes et tournent lentement.
 
-Leur comportement sera enrichi progressivement afin que certains obstacles puissent devenir mobiles ou plus complexes.
+De futurs types d'agents mobiles viendront perturber activement le groupe.
 
 ---
 
@@ -93,7 +93,7 @@ Le diagramme suivant représente le comportement général d'un chasseur sans d�
 stateDiagram-v2
     [*] --> Navigation
 
-    Navigation --> Evitement : obstacle détecté
+    Navigation --> Evitement : danger détecté
     Evitement --> Navigation : danger dépassé
 
     Navigation --> EvitementCritique : obstacle très proche
@@ -107,27 +107,11 @@ stateDiagram-v2
     Detruit --> [*]
 ```
 
-Pendant les états Navigation et Évitement, les règles de séparation, cohésion, alignement et wander continuent d'influencer le mouvement.
+Pendant la navigation et l'évitement, les règles de séparation, cohésion, alignement et wander continuent d'influencer le mouvement.
 
 ---
 
-## 5. Diagramme simple — Agent 2
-
-Dans la version actuelle, l'astéroïde possède surtout un comportement environnemental simple.
-
-```mermaid
-stateDiagram-v2
-    [*] --> Actif
-    Actif --> Actif : rotation lente
-    Actif --> HorsZone : fin du champ / suppression future
-    HorsZone --> [*]
-```
-
-Ce comportement sera enrichi dans un milestone ultérieur pour certains types d'obstacles mobiles.
-
----
-
-## 6. Interaction principale entre les agents
+## 5. Interaction actuelle entre l'agent et son environnement
 
 ```mermaid
 flowchart LR
@@ -145,7 +129,7 @@ flowchart LR
 
 ---
 
-## 7. Paramètres importants
+## 6. Paramètres importants
 
 Le rapport final ne cherchera pas à détailler tout le code. Les paramètres principaux à étudier sont :
 
@@ -158,11 +142,11 @@ Le rapport final ne cherchera pas à détailler tout le code. Les paramètres pr
 - force d'évitement ;
 - vitesse moyenne des chasseurs.
 
-Leur influence sera étudiée avec quelques configurations simples plutôt qu'avec une analyse exhaustive.
+Leur influence sera étudiée avec quelques configurations simples.
 
 ---
 
-## 8. Caméra et observation
+## 7. Caméra et observation
 
 Deux modes de caméra sont disponibles :
 
@@ -178,17 +162,73 @@ Commandes principales :
 - PageUp / PageDown : déplacement vertical ;
 - **G** ou **Home** : recentrer la caméra sur le groupe.
 
-La caméra est uniquement un outil d'observation et n'influence pas les agents.
+La caméra sert uniquement à observer la simulation et n'influence pas les agents.
 
 ---
 
-## 9. Phénomène émergent étudié
+## 8. Phénomène émergent étudié
 
-Le phénomène émergent retenu est le **maintien et la reformation spontanée du groupe**.
+Le phénomène émergent principal est le **maintien et la reformation spontanée du groupe**.
 
 Aucune position fixe n'est attribuée aux chasseurs. Chaque agent applique seulement des règles locales. Malgré cela, les chasseurs ont tendance à rester dans une même zone, à se séparer lorsqu'ils sont trop proches, à contourner les obstacles puis à retrouver le groupe.
 
-Le phénomène sera étudié plus précisément dans les prochains milestones avec différentes difficultés et différents états initiaux.
+Ce phénomène sera étudié plus précisément lorsque de nouveaux agents perturbateurs seront introduits.
+
+---
+
+## 9. Futurs types d'agents envisagés
+
+Les astéroïdes resteront des obstacles de l'environnement. Pour atteindre les quatre types d'agents demandés, trois comportements autonomes différents sont envisagés.
+
+### Agent 2 — Drone de patrouille
+
+Agent mobile simple qui suit plusieurs points de passage en 3D et peut traverser la trajectoire des chasseurs.
+
+Comportement prévu :
+
+```mermaid
+stateDiagram-v2
+    [*] --> Patrouille
+    Patrouille --> ChangementPoint : point atteint
+    ChangementPoint --> Patrouille : nouveau point choisi
+```
+
+Il crée une perturbation mobile prévisible sans poursuivre directement les chasseurs.
+
+### Agent 3 — Intercepteur hostile
+
+Agent réactif qui patrouille, détecte un chasseur proche, le poursuit pendant un temps limité puis se désengage.
+
+Comportement prévu :
+
+```mermaid
+stateDiagram-v2
+    [*] --> Patrouille
+    Patrouille --> Poursuite : chasseur détecté
+    Poursuite --> Desengagement : durée atteinte ou cible perdue
+    Desengagement --> Patrouille : zone sûre retrouvée
+```
+
+Cet agent introduira une perturbation directement liée au comportement des chasseurs.
+
+### Agent 4 — Poseur de mines
+
+Agent qui traverse une zone, choisit un point de dépôt, crée un danger statique puis quitte la zone ou recommence ailleurs.
+
+Les mines créées seront des **obstacles de l'environnement**, pas des agents supplémentaires.
+
+Comportement prévu :
+
+```mermaid
+stateDiagram-v2
+    [*] --> Entree
+    Entree --> Deplacement : zone atteinte
+    Deplacement --> Depot : point de dépôt atteint
+    Depot --> Sortie : mine déposée
+    Sortie --> Entree : nouveau passage
+```
+
+Ces trois types restent simples à expliquer et apportent trois perturbations différentes : trajectoire mobile, poursuite active et modification de l'environnement.
 
 ---
 
@@ -199,12 +239,12 @@ La version actuelle comporte plusieurs simplifications :
 - champ spatial fini ;
 - évitement local sans planification complète de trajectoire ;
 - hitboxes simplifiées ;
-- obstacles encore principalement statiques ;
-- seulement deux catégories d'agents pour le moment ;
+- obstacles principalement statiques ;
+- un seul type d'agent pour le moment ;
 - aucune arme ;
 - aucun adversaire actif.
 
-Ces limites sont volontaires afin de conserver un modèle simple et compréhensible.
+Ces limites sont volontaires afin de construire la simulation progressivement.
 
 ---
 
@@ -216,28 +256,31 @@ Chasseurs, astéroïdes, espace 3D, comportements de base, collision et HUD.
 ### M2 — Mouvement, espacement, graphismes et caméra ✅
 Mouvement 3D plus naturel, meilleure séparation, évitement renforcé, environnement visuel et caméra libre.
 
-### M3 — Variété des obstacles et difficulté progressive
-Créer plusieurs familles de dangers et plusieurs configurations de difficulté, tout en gardant les chasseurs comme agents principaux.
+### M3 — Obstacles et difficulté progressive
+Enrichir les configurations d'obstacles et créer plusieurs niveaux de difficulté sans ajouter encore de nouveau type d'agent.
 
-### M4 — Agent 3 : danger mobile
-Ajouter un nouveau type d'agent mobile capable de traverser ou perturber le groupe.
+### M4 — Agent 2 : drone de patrouille
+Ajouter un agent mobile simple suivant des points de passage et perturbant le groupe par sa trajectoire.
 
-### M5 — Agent 4 : agent hostile / perturbateur
-Ajouter un quatrième type d'agent avec un comportement clairement différent.
+### M5 — Agent 3 : intercepteur hostile
+Ajouter un agent capable de détecter puis poursuivre temporairement un chasseur.
 
-### M6 — Événements déclenchés et scénarios
-Ajouter des touches permettant de provoquer volontairement certains dangers pendant la démonstration.
+### M6 — Agent 4 : poseur de mines
+Ajouter un agent capable de modifier l'environnement en déposant de nouveaux dangers.
 
-### M7 — Étude expérimentale
-Comparer plusieurs valeurs de paramètres, plusieurs états initiaux et différents niveaux de difficulté. Mesurer les survivants, les morts et la dispersion.
+### M7 — Événements interactifs et scénarios
+Ajouter des touches permettant de déclencher volontairement des vagues d'obstacles ou l'arrivée de certains agents pendant la démonstration.
 
-### M8 — Armes des chasseurs
-Dans les niveaux les plus difficiles seulement :
+### M8 — Étude expérimentale
+Comparer plusieurs paramètres, états initiaux et niveaux de difficulté. Mesurer notamment les survivants, les morts, l'espacement et la dispersion.
+
+### M9 — Armes des chasseurs
+Dans les niveaux avancés seulement :
 - tir frontal ;
 - détection de cible ;
 - bombes limitées avec zone d'effet plus importante.
 
-### M9 — Finalisation
+### M10 — Finalisation
 Stabilisation, vidéo de démonstration, rapport final, diagrammes et PowerPoint de 10 minutes.
 
 ---
