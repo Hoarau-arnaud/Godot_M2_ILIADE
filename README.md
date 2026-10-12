@@ -1,6 +1,6 @@
-# Simulation SMA spatiale — milestone 4
+# Simulation SMA spatiale — milestone 5
 
-Projet pédagogique **Godot 4.7.2 / GDScript**. Dix chasseurs bleus progressent vers **Z négatif**, comme un banc de poissons dans un champ d'astéroïdes. Le milestone 4 ajoute **deux drones verts de patrouille autonomes**, deuxième type d'agent, et le choix de difficulté au clavier. Le regroupement local, le champ continu, les graphismes et la caméra des milestones précédents sont conservés. Aucun asset externe, sol ou formation imposée.
+Projet pédagogique **Godot 4.7.2 / GDScript**. Dix chasseurs bleus progressent vers **Z négatif**, comme un banc de poissons dans un champ d'astéroïdes. Le milestone 5 ajoute un **tir frontal bleu**, des drones hostiles destructibles et un compteur de destructions. Le regroupement local, le streaming, la difficulté AUTO/MANUEL et les commandes de caméra sont conservés. Deux types d'agents existent : BlueShip et PatrolDrone. Aucun asset externe, sol ou formation imposée.
 
 ## Lancement
 
@@ -13,7 +13,7 @@ La caméra démarre en **Suivi** : elle suit le barycentre des survivants et s'�
 | Commande | Effet en mode libre |
 |---|---|
 | Clic droit maintenu + souris | Orbite autour du point d'observation |
-| Molette haut / bas | Zoom avant / arrière, distance limitée à 6–180 m |
+| Molette haut / bas | Zoom avant / arrière, distance limitée à 6–220 m |
 | Flèches haut / bas, ou W / Z et S | Pan avant / arrière sur le plan horizontal de la vue |
 | Flèches gauche / droite, ou A / Q et D | Pan gauche / droite |
 | PageUp ou E | Monter |
@@ -26,7 +26,7 @@ Les touches sont définies par des **Input Actions dans `project.godot`**, modif
 ## Agents et obstacles actuels
 
 - **Type 1 — BlueShip** : `CharacterBody3D`, chasseur bleu construit avec des boîtes, cônes, prismes et une sphère aplatie pour le cockpit. Nez allongé vers −Z, cockpit bombé bleu sombre/cyan sur un cadre clair, ailes triangulaires fines dont les pointes sont rejetées vers l'arrière, deux dérives et deux moteurs visibles. Les cônes cyan des réacteurs pulsent avec des phases individuelles. L'orientation et le roulis interpolés concernent le nœud visuel ; les deux petites boîtes physiques restent stables.
-- **Type 2 — PatrolDrone** : `CharacterBody3D`, drone vert avec un corps hexagonal court, un capteur lumineux vert-cyan, de petites ailes, une dérive et deux propulseurs. Sa route intentionnelle suit des waypoints, avec des corrections locales face aux astéroïdes et aux chasseurs très proches.
+- **Type 2 — PatrolDrone** : `CharacterBody3D`, drone vert avec un corps hexagonal court, un capteur lumineux vert-cyan, de petites ailes, une dérive et deux propulseurs. Il conserve sa patrouille par waypoints et son évitement local. Il devient le premier **agent hostile destructible**, avec **4 HP**, sans poursuite ni tirs ennemis.
 - **Obstacle environnemental — SpaceAsteroid** : `StaticBody3D` indépendant. Deux à quatre volumes low-poly déformés composent un rocher irrégulier ; les grands combinent aussi des blocs anguleux. Petits : 1–2 m ; moyens : 2–4 m ; grands : 4–7 m de diamètre nominal. Échelles, orientations des lobes et palettes gris foncé/gris clair/brun varient par graine. Chaque volume possède une enveloppe convexe qui reprend les points déformés du mesh. La racine physique n'est pas mise à l'échelle. Chaque astéroïde tourne autour d'un axe individuel à environ 0,055–0,12 rad/s ; visuels et collisions tournent ensemble au pas physique, sans translation. **Les astéroïdes sont des obstacles, pas des agents.**
 
 ## Comportement des chasseurs
@@ -67,6 +67,37 @@ Les hitboxes des chasseurs sont volontairement plus petites que leurs ailes : fu
 
 Un PatrolDrone n'est jamais un voisin de flocking : il ne contribue ni à la cohésion, ni à l'alignement, ni à la récupération. BlueShip filtre les drones dans une portée de **44 m**, puis estime leur approche la plus proche sur **3 s**, à partir de la position et de la vitesse relatives. Si le passage prédit est trop proche, une correction X/Y de poids **7** commence avant le contact. Le côté choisi est mémorisé pendant la rencontre ; la référence est effacée quand le drone disparaît ou sort de portée. Les compteurs de réaction du test comptent des ticks-agent avec un danger anticipé, pas un nombre de collisions qui auraient forcément eu lieu.
 
+## Combat frontal des BlueShip
+
+Le combat est parallèle au déplacement. L'enum `CombatState` contient **NO_TARGET**, **TARGET_VISIBLE** et **COOLDOWN** ; la machine de navigation reste NAVIGATION / AVOIDANCE / REGROUPING / DESTROYED. Aucun état SHOOTING, changement de vitesse, poursuite ou rotation pour viser n'est ajouté.
+
+BlueShip recherche seulement les membres de **`hostile_agents`**, vivants et exposant `take_damage(amount)`. Il sélectionne le plus proche visible dans un cône frontal de **6° de demi-angle**, avec une perception de **60 m**. La portée de tir est limitée à **44 m depuis Muzzle** : une cible peut être visible mais encore trop loin pour tirer. Les astéroïdes et les BlueShip ne sont jamais des cibles.
+
+Le tir est interdit en **AVOIDANCE** et dès qu'un voisin bleu est à moins de **7 m**, même si les forces de deux voisins symétriques s'annulent. Un raycast depuis le nez vérifie qu'aucun astéroïde ne masque la cible. Une cible masquée est ignorée ; un autre hostile visible peut être choisi. La navigation continue normalement pendant cette recherche.
+
+Le `Marker3D` **Visuals/Muzzle**, placé à **Z = −2,9 m** dans le modèle, donne le vrai départ du projectile. La direction initiale estime une seule fois le déplacement de la cible pendant le vol, à vitesse constante. Elle doit rester dans le même cône frontal. Le chasseur ne s'oriente pas vers la cible ; après son lancement, le projectile suit une droite sans correction ni guidage.
+
+| Paramètre de combat | Valeur |
+|---|---:|
+| `combat_enabled` | true, également exporté par Main |
+| `combat_detection_radius` | 60 m |
+| `firing_range` | 44 m |
+| `firing_cone_angle` | 6° de demi-angle, soit 12° au total |
+| `fire_cooldown` | 0,7 s, multiplié par un facteur individuel de 0,85 à 1,15 |
+| Cooldown effectif | 0,595–0,805 s |
+
+Un générateur séparé, issu d'`individual_seed`, règle la cadence et le décalage initial. Il ne change pas les tirages du wander et ne tire aucun nombre aléatoire par frame.
+
+### BlueLaser et dégâts
+
+`BlueLaser` est un simple Node3D avec un bolt géométrique cyan/blanc emissive : **60 m/s**, **3 s de vie**, **1 dégât**. À chaque pas physique, un raycast balaie tout le déplacement. Le projectile ne traverse donc pas un petit corps entre deux positions successives. Il disparaît au premier impact ou à l'expiration ; il n'a ni guidage, ni particules lourdes.
+
+Le masque du raycast vaut **6** : astéroïdes, bit 2, et hostiles, bit 4. Les BlueShip, bit 1, sont ignorés. Un rocher absorbe le bolt **sans dégât ni score**. Un hostile vivant reçoit `take_damage(1)` ; le tir disparaît après un seul impact.
+
+PatrolDrone commence avec `max_health = 4`. À zéro HP par dégâts, il passe en DESTROYED, quitte ses groupes, crée l'explosion existante de dix débris, émet `destroyed` une seule fois puis le signal de cycle de vie `died`, et disparaît. Main ajoute **un ennemi détruit** puis conserve le remplacement M4 après **5 s**. Un retrait hors champ, une réduction de population ou une collision du drone avec un rocher ne rapporte pas de score de tir.
+
+Le contrat pour un futur hostile reste léger : racine Node3D dans `hostile_agents`, propriété `alive`, méthode `take_damage(amount)` et corps physique sur la couche hostile. Une vitesse de CharacterBody3D peut aider l'estimation initiale du tir. Aucun nouvel agent n'est implémenté dans M5.
+
 ## Paramètres par défaut
 
 Les paramètres sont exportés dans l'Inspector du nœud racine de `blue_ship.tscn`. Modifier cette scène pour appliquer les réglages à tous les chasseurs créés au lancement.
@@ -106,7 +137,7 @@ La marge géométrique d'anticipation du chasseur est de 2,5 m, en plus de `obst
 
 ## Agent 2 — Patrouille du drone
 
-Chaque drone possède sa graine et une cible courante. Lorsqu'il atteint le waypoint à 7 m près, ou dépasse son plan Z après une déviation, il passe un tick en **CHANGING_WAYPOINT**, puis choisit une cible **55 m plus loin en Z négatif**. X/Y varient autour d'un couloir défini une seule fois lors de son apparition, avec des écarts de ±25 m et ±15 m. Main ne déplace ensuite ni le drone ni son couloir. Il n'y a pas de poursuite des chasseurs.
+Chaque drone possède sa graine et une cible courante. Lorsqu'il atteint le waypoint à 7 m près, ou dépasse son plan Z après une déviation, il passe un tick en **CHANGING_WAYPOINT**, puis choisit une cible **55 m plus loin en Z négatif**. X/Y varient autour d'un couloir défini une seule fois lors de son apparition, avec des écarts de **±38 m et ±24 m**. Main ne déplace ensuite ni le drone ni son couloir. Il n'y a pas de poursuite des chasseurs.
 
 En **PATROL**, il ajuste sa vitesse X/Y pour rejoindre la cible. En **AVOIDING**, il donne la priorité aux astéroïdes locaux, jusqu'à trois menaces, avec une anticipation de 4 s. Un BlueShip à moins de 10 m provoque une correction plus faible, de poids 1,2. Ces perceptions modifient réellement sa trajectoire ; ce n'est pas une animation prédéfinie. Une collision avec un rocher provoque l'état terminal **DESTROYED**, une petite explosion et sa suppression. Lors d'un contact avec un BlueShip, le drone reste robuste et le chasseur peut être détruit.
 
@@ -116,20 +147,26 @@ En **PATROL**, il ajuste sa vitesse X/Y pour rejoindre la cible. En **AVOIDING**
 | `forward_variation` | ±1 m/s, oscillation lente |
 | `max_side_speed` / `acceleration` | 7 m/s / 10 m/s² |
 | `segment_length` / `waypoint_reach_distance` | 55 m / 7 m |
-| `patrol_width` / `patrol_height` | 25 m / 15 m |
+| `patrol_width` / `patrol_height` | 38 m / 24 m |
 | `obstacle_detection_radius` / `prediction_time` | 44 m / 4 s |
 | `obstacle_clearance` / `avoidance_weight` | 2 m / 6 |
 | `ship_safety_radius` / `ship_avoidance_weight` | 10 m / 1,2 |
 
-Main exporte `patrol_drone_count = 2` (0 à 3), `drone_spawn_ahead_distance = 80 m`, `drone_replacement_delay = 5 s` et `drone_retire_distance = 120 m`. Une apparition se fait **80 à 125 m devant le chasseur le plus avancé**, avec une marge vérifiée vis-à-vis des rochers et des autres drones. Un drone détruit ou retiré à plus de 120 m derrière tous les chasseurs est remplacé après 5 s. Si aucune place sûre n'est trouvée, Main attend et réessaie. La population peut donc temporairement descendre sous deux. Les remplacements cessent après la disparition de tous les chasseurs.
+Main exporte `drones_enabled = true`, `easy_drone_count = 1`, `intermediate_drone_count = 2`, `hard_drone_count = 3`, `drone_spawn_ahead_distance = 100 m`, `drone_replacement_delay = 5 s` et `drone_retire_distance = 120 m`. Une apparition se fait **100 à 145 m devant le chasseur le plus avancé**, avec des offsets X/Y de ±32 / ±18 m et une marge vérifiée vis-à-vis des rochers et des autres drones. Un drone détruit ou retiré à plus de 120 m derrière tous les chasseurs est remplacé après 5 s. Si aucune place sûre n'est trouvée, Main attend et réessaie. La population peut donc temporairement être inférieure à la cible. Les remplacements cessent après la disparition de tous les chasseurs.
 
-Les deux drones restent présents dans tous les niveaux ; M4 ne multiplie pas leur effectif ou leur vitesse avec la difficulté. Ils ne participent ni au centre caméra, ni aux mesures d'espacement et de dispersion du groupe bleu.
+Le nombre cible est **1 / 2 / 3** en facile / intermédiaire / difficile, y compris en AUTO. Une baisse de niveau retire les excédents sans score ; les remplacements suivants respectent le niveau actif. La vitesse de patrouille reste celle du M4. Les drones ne participent ni au centre caméra, ni aux mesures d'espacement et de dispersion du groupe bleu.
+
+## Espace élargi
+
+Les spreads du champ passent à **38 m en X et 26 m en Y**, contre 18 / 12 au M4. Le centre aléatoire du pattern utilise 45 % de ces spreads, puis ses propres offsets s'ajoutent : les configurations couvrent habituellement une zone de l'ordre de **±35–45 m en X et ±20–30 m en Y** selon leur niveau et leur forme. Les waypoints utilisent ±38 / ±24 m et les apparitions hostiles sont reculées à 100–145 m devant. Ce sont des distributions de placement, sans mur invisible ni limite imposée aux agents.
+
+Le zoom libre monte à **220 m**. Le cadrage de suivi garde son adaptation à la dispersion et reste centré sur les seuls BlueShip ; un drone éloigné ne déplace pas la caméra.
 
 ## Champ continu et difficulté
 
 Le nœud `Asteroids`, piloté par `scripts/obstacle_field.gd`, renouvelle le champ à chaque pas physique depuis Main. Il prépare des configurations jusqu'à **320 m devant le chasseur le plus avancé**. Leur position X/Y utilise le centre actuel des survivants, avec une variation aléatoire ; la caméra ne participe pas à la génération. La première configuration commence à **55 m** devant. Une configuration est supprimée seulement lorsque toute son enveloppe est à plus de **100 m derrière le dernier survivant**, y compris un retardataire. Les références de menaces et de directions mémorisées sont effacées lors de la sortie d'un obstacle de l'arbre.
 
-Le budget est de **72 astéroïdes actifs maximum**, avec un à trois rochers par configuration et au plus douze nouvelles configurations par appel. Les listes gardent uniquement les configurations actives. Les collisions restent actives jusqu'à la suppression. Les paramètres du champ sont exportés sur `Main/Asteroids` : `spawn_ahead_distance`, `start_distance`, `cleanup_distance`, `max_active_asteroids`, `horizontal_spread = 18 m` et `vertical_spread = 12 m`. Les deux spreads règlent le décalage aléatoire du centre du pattern, multiplié par 0,45 ; les offsets du pattern s'ajoutent ensuite.
+Le budget est de **72 astéroïdes actifs maximum**, avec un à trois rochers par configuration et au plus douze nouvelles configurations par appel. Les listes gardent uniquement les configurations actives. Les collisions restent actives jusqu'à la suppression. Les paramètres du champ sont exportés sur `Main/Asteroids` : `spawn_ahead_distance`, `start_distance`, `cleanup_distance`, `max_active_asteroids`, `horizontal_spread = 38 m` et `vertical_spread = 26 m`. Les deux spreads règlent le décalage aléatoire du centre du pattern, multiplié par 0,45 ; les offsets du pattern s'ajoutent ensuite.
 
 | Pattern | Disposition |
 |---|---|
@@ -169,7 +206,7 @@ La graine **20261012** initialise les chasseurs et un générateur indépendant 
 
 Le HUD conserve les vivants, les morts et le mode caméra. Il ajoute la **distance parcourue**, la **difficulté**, l'**espacement moyen** et la **dispersion**, actualisés toutes les **0,4 s**. L'espacement est la moyenne de la distance de chaque survivant à son voisin vivant le plus proche. La dispersion est la plus grande distance entre un survivant et le centre mesuré du groupe. Avec moins de deux survivants, l'espacement affiche 0, faute de paire à mesurer. Les mesures n'influencent pas le comportement des agents.
 
-M4 ajoute simplement **Drones actifs : X**, le mode de difficulté et le rappel 0/1/2/3. Les morts affichés comptent uniquement les BlueShip.
+Le HUD indique **Hostiles actifs : X**, **Ennemis détruits : X**, le mode de difficulté et le rappel 0/1/2/3. Les morts affichés comptent uniquement les BlueShip ; le score compte les drones détruits par dégâts, une seule fois.
 
 ## Architecture
 
@@ -178,12 +215,14 @@ project.godot                 Scène principale, affichage, couches physiques
 scenes/main.tscn              Environnement, lumières, caméra, conteneurs, HUD
 scenes/blue_ship.tscn         Silhouette du chasseur et deux collisions
 scenes/patrol_drone.tscn      Drone vert, primitives, matériaux et collision
+scenes/blue_laser.tscn        Bolt cyan emissive, sans asset externe
 scenes/asteroid.tscn          Obstacle environnemental SpaceAsteroid
 scenes/explosion.tscn         Effet visuel temporaire
 scripts/main.gd              Initialisation, statistiques, centre d'observation
 scripts/blue_ship.gd          Perception, règles locales, anticipation, mort
 scripts/patrol_drone.gd       Waypoints, perceptions, états et mort du drone
 scripts/mobile_avoidance.gd   Estimation locale de l'approche relative
+scripts/blue_laser.gd         Déplacement, balayage physique, dégâts et expiration
 scripts/asteroid.gd           Géométrie procédurale et collisions des rochers
 scripts/obstacle_field.gd     Patterns, difficulté, streaming et nettoyage borné
 scripts/camera_controller.gd  Suivi, orbite libre, pan, zoom et recentrage
@@ -192,14 +231,15 @@ scripts/explosion.gd          Animation des débris, puis suppression
 materials/*.tres              Bleu, gris clair, cockpit, cyan des propulseurs
 materials/nebula.gdshader     Nébuleuse transparente, sans texture externe
 tests/validate_simulation.gd  Validation reproductible du milestone
+tests/validate_combat.gd      Ciblage, sécurité, dégâts et parcours M5 de 90 s
 ```
 
 Les 650 étoiles sont distribuées en trois couches : lointaine (environ 62 %), intermédiaire (30 %) et proche (8 %). Leurs profondeurs et tailles diffèrent ; elles restent immobiles dans le monde jusqu'au recyclage aux bords du volume observé. Le déplacement de la caméra produit donc une parallaxe naturelle. Le recyclage fonctionne aussi pendant le pan libre. Deux planètes à atmosphère légère, une petite lune et un quad de nébuleuse discret donnent de la profondeur sans collision. La caméra conserve son dernier centre après la dernière mort.
 
 ### Groupes, signaux et couches
 
-- Groupes : `blue_ships`, `patrol_drones` et `asteroids`.
-- Signaux : `BlueShip.died(ship)` et `PatrolDrone.died(drone)`, connectés une fois par Main.
+- Groupes : `blue_ships`, `patrol_drones`, `hostile_agents`, `asteroids` et `blue_lasers`.
+- Signaux : `BlueShip.died`, `BlueShip.fired`, `PatrolDrone.died`, `PatrolDrone.destroyed` et `BlueLaser.hit_hostile`. Main compte les tirs, impacts et destructions sans conserver les projectiles supprimés.
 - BlueShip : couche **1** (bit 1), masque **6** (astéroïdes et drones). PatrolDrone : couche **3** (bit 4), masque **2** (astéroïdes). Astéroïdes : couche **2** (bit 2), masque **0**.
 - Les chasseurs se séparent localement sans collision physique entre eux. Leur balayage détecte les rochers et les drones. Le drone ne se bloque pas physiquement sur un BlueShip ; sa correction locale assure l'évitement réciproque, et un contact détecté par le chasseur reste fatal pour celui-ci.
 - Le HUD affiche « Tous les chasseurs ont été détruits » après la dernière mort bleue. La caméra conserve alors son centre.
@@ -209,13 +249,42 @@ Les 650 étoiles sont distribuées en trois couches : lointaine (environ 62 %), 
 ```powershell
 & 'CHEMIN\Godot.exe' --headless --path . --editor --import
 & 'CHEMIN\Godot.exe' --headless --path . --fixed-fps 60 --script res://tests/validate_simulation.gd
+& 'CHEMIN\Godot.exe' --headless --path . --fixed-fps 60 --script res://tests/validate_combat.gd
 ```
 
 La première commande importe les scènes et vérifie le parsing avec les warnings GDScript traités comme erreurs. La seconde vérifie le lancement, les agents/groupes/couches, la rotation des rochers, le vol 3D sans obstacles, le mouvement relatif en Z, la séparation, la perception locale, les quatre directions de contournement, deux dangers voisins, la destruction réelle, l'unicité du signal, l'explosion et le HUD après la dernière mort. Elle teste également le suivi, les événements clavier/souris de la caméra, les bindings AZERTY, le recentrage et le recyclage des trois couches d'étoiles après un grand déplacement libre. Une comparaison du même parcours en Suivi et Libre vérifie l'indépendance des trajectoires des agents. `--fixed-fps 60` conserve un pas physique de 1/60 s en exécutant le test aussi vite que possible.
 
 Validation effectuée avec **Godot 4.7.2 stable** le 12 octobre 2026, graine **20261012**, pas fixe de 1/60 s : tests sans warning ni erreur, code de sortie 0.
 
-### Résultats M4
+### Résultats M5 — test principal MANUEL 3
+
+Godot 4.7.2, seed **20261012**, pas fixe de 1/60 s. Les deux parcours gardent les paramètres de jeu par défaut, avec uniquement le mode de difficulté différent.
+
+| Mesure, 90 s | MANUEL 3 | AUTO |
+|---|---:|---:|
+| BlueShip vivants / morts | 10 / 0 | 10 / 0 |
+| Distance parcourue | 950,12 m | 949,21 m |
+| Difficulté finale | 3 | 2 |
+| Drones actifs / créés au total | 3 / 5 | 2 / 3 |
+| Drones détruits par tirs | 2 | 1 |
+| Tirs / impacts hostiles | 9 / 8 | 4 / 4 |
+| Réussite approximative, impacts/tirs | 88,89 % | 100,00 % |
+| Astéroïdes / lasers actifs maximum | 38 / 2 | 28 / 1 |
+| Espacement temporel moyen | 11,66 m | 10,96 m |
+| Espacement final | 9,77 m | 9,89 m |
+| Minimum ponctuel entre deux voisins | 6,09 m | 5,85 m |
+| Dispersion maximale / finale | 35,00 / 19,04 m | 23,92 / 17,47 m |
+| Agents distincts isolés observés | 0 | 0 |
+
+Ces taux portent sur peu de tirs et peuvent inclure un tir encore en vol à la fin du parcours. Ils ne garantissent pas la même précision pour d'autres graines ou des manœuvres plus brusques.
+
+Les tests contrôlés valident le ciblage frontal, les portées 60 / 44 m, le refus des amis et des rochers, la priorité AVOIDANCE et séparation critique, la ligne de vue et le départ depuis Muzzle. **Quatre tirs font quatre impacts**, enlèvent les quatre HP, produisent une explosion, un seul signal, **score +1**, aucune référence invalide et le remplacement après 5 s. Le laser ignore un BlueShip, s'arrête sur un petit astéroïde sans le modifier, et expire proprement. Un stress à 600 m/s vérifie le balayage ; cette vitesse est réservée à la fixture.
+
+Une comparaison contrôlée avec un wander doux et une cible à HP élevés produit **neuf tirs** et un écart de trajectoire **0,000000 m** entre combat activé et désactivé. Les fixtures isolent la décision de tir ; elles ne modifient pas les paramètres des parcours normaux de 90 s. Les cooldowns et la population 1/2/3, y compris après une baisse de difficulté pendant un remplacement, passent aussi.
+
+Les tests de navigation, caméra, regroupement et streaming restent valides. Le parcours AUTO de **300 s** atteint **3 164,92 m**, avec **8 BlueShip vivants, 2 morts**, niveau 3, **3 drones actifs**, au plus **47 astéroïdes** et **684 nœuds**. La survie prolongée n'est pas garantie.
+
+### Référence historique M4
 
 | Mesure, 90 s | AUTO | MANUEL 3 dès le départ |
 |---|---:|---:|
@@ -263,6 +332,8 @@ Pour produire une capture avec le moteur de rendu, exécuter le test sans `--hea
 
 Ajouter `--capture-drone` après `--capture` produit aussi `.godot/validation/patrol_drone.png`, une vue rapprochée obtenue avec la caméra libre. Ces captures et les logs restent ignorés par Git.
 
+Le script `validate_combat.gd`, lancé avec rendu et `-- --capture-combat`, produit `.godot/validation/combat.png`. Il s'agit d'une scène contrôlée montrant un bolt et un hostile, pas d'une capture du parcours normal de 90 s. Le rendu OpenGL et la lisibilité du HUD sont vérifiés.
+
 Sous Windows, si l'exécutable graphique Godot rend la main avant sa fin, utiliser `Start-Process -Wait -PassThru -WindowStyle Hidden` et lire le journal passé à `--log-file` pour confirmer le résultat. Les contrôles ci-dessus ont attendu la fin réelle des processus.
 
 Références API : [PrismMesh](https://docs.godotengine.org/en/stable/classes/class_prismmesh.html), [PhysicsBody3D.move_and_collide](https://docs.godotengine.org/en/stable/classes/class_physicsbody3d.html#class-physicsbody3d-method-move-and-collide), [StaticBody3D](https://docs.godotengine.org/en/stable/classes/class_staticbody3d.html) et [InputEventMouseMotion](https://docs.godotengine.org/en/stable/classes/class_inputeventmousemotion.html).
@@ -270,10 +341,11 @@ Références API : [PrismMesh](https://docs.godotengine.org/en/stable/classes/cl
 ## Limites connues
 
 - Le champ se renouvelle continuellement mais son budget reste borné. Un groupe exceptionnellement étiré en Z ou des paramètres extrêmes peuvent remplir le budget et retarder la préparation devant. Le nettoyage continue de protéger le dernier survivant.
-- Évitement réactif de trois astéroïdes proches au maximum, plus les drones locaux, sans planification d'un chemin complet. Dix survivants sont validés sur les deux parcours M4 de 90 s ; le parcours AUTO de 300 s comporte **une mort réelle**. La survie n'est donc pas garantie sur une durée plus longue ou avec d'autres paramètres.
+- Évitement réactif de trois astéroïdes proches au maximum, plus les drones locaux, sans planification d'un chemin complet. Dix survivants sont validés sur les deux parcours M5 de 90 s ; le parcours AUTO de 300 s comporte **deux morts réelles**. La survie n'est donc pas garantie sur une durée plus longue ou avec d'autres paramètres.
 - L'approche mobile suppose une vitesse constante sur quelques secondes. Des changements brusques ou des dangers opposés peuvent faire échouer l'évitement. Les ticks de réaction ne constituent pas un décompte certain de collisions évitées.
 - Les drones n'évitent pas encore les autres drones. Leur remplacement peut momentanément réduire la population ; leur route n'est pas recentrée continuellement sur le groupe bleu.
 - La récupération ne peut réunir des groupes dont aucun membre ne voit l'autre à 50 m. Aucun rappel global invisible n'impose un regroupement.
+- Le tir n'effectue qu'une estimation initiale à vitesse constante, limitée au cône frontal. Une cible qui change de waypoint ou accélère peut faire rater le bolt. Il n'y a ni poursuite, ni guidage, ni système de visée complet ; les HP et la cadence restent un premier réglage.
 - L'objectif de 9–14 m est un espacement moyen, pas une distance minimale imposée. Les manœuvres peuvent créer des rapprochements brefs ; le test normal M3 mesure 6,71 m au plus près.
 - Les hitboxes simplifient et réduisent la silhouette des chasseurs ; les pointes des ailes, le bout du nez et les flammes ne sont pas intégralement couverts.
 - Les tailles des astéroïdes sont nominales : la déformation et les lobes irréguliers modifient leurs dimensions exactes.
@@ -282,4 +354,4 @@ Références API : [PrismMesh](https://docs.godotengine.org/en/stable/classes/cl
 
 ## Hors de ce milestone et perspectives
 
-BlueShip et PatrolDrone sont les deux agents implémentés. Les astéroïdes tournent mais ne dérivent pas. Les intercepteurs et poseurs de mines restent réservés aux prochains milestones. Aucun leader, arme, poursuite, Agent 3 ou Agent 4 n'est implémenté.
+BlueShip et PatrolDrone sont les deux agents implémentés. Les astéroïdes tournent mais ne dérivent pas et restent indestructibles. Interceptor, Bomber/MineLayer, tirs ennemis et bombes BlueShip restent réservés aux prochains milestones. Aucun leader, poursuite, Agent 3 ou Agent 4 n'est implémenté.

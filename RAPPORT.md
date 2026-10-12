@@ -103,6 +103,34 @@ Le test de croisement contrôlé conserve le chasseur vivant, avec une distance 
 
 Le test AUTO de **300 secondes** atteint **3 168,16 m**, niveau 3 : **9 chasseurs vivants, 1 mort, 2 drones actifs**. Aucun drone n'est détruit ; un est retiré loin derrière et remplacé. Le maximum observé est de **46 astéroïdes** et **688 nœuds**, avec un calcul moyen proche de **0,54 ms par tick headless**. La survie sur une longue durée n'est donc pas garantie. Le rendu et le drone vert en gros plan sont vérifiés visuellement.
 
+### Milestone 5 — Fondation de combat
+
+BlueShip peut maintenant tirer sur un **agent hostile devant lui**, si la situation est sûre. PatrolDrone devient le premier hostile destructible, avec **4 points de vie**. Les astéroïdes restent des obstacles indestructibles, jamais des cibles. Aucun troisième agent n'est ajouté.
+
+Le tir est séparé du déplacement : le chasseur ne poursuit pas la cible et ne tourne pas pour viser. Le projectile cyan part du nez, sa direction est estimée une seule fois dans le cône frontal, puis il vole tout droit. Une cible derrière un rocher ne provoque pas de tir. L'évitement et la séparation critique restent prioritaires.
+
+Le HUD ajoute **Ennemis détruits** et affiche les **Hostiles actifs**. Leur nombre cible vaut **1 / 2 / 3** selon le niveau facile / intermédiaire / difficile. Le système de remplacement après 5 secondes est conservé. La zone de vol est un peu plus large, sans mur invisible, et la caméra continue à suivre les chasseurs bleus.
+
+Validation sous Godot 4.7.2, seed `20261012`, pas fixe de 1/60 seconde, sans warning ni erreur :
+
+| Résultat, 90 secondes | MANUEL 3, test principal | AUTO |
+|---|---:|---:|
+| BlueShip vivants / morts | 10 / 0 | 10 / 0 |
+| Distance / difficulté finale | 950,12 m / 3 | 949,21 m / 2 |
+| Drones actifs / créés | 3 / 5 | 2 / 3 |
+| Drones détruits par tirs | 2 | 1 |
+| Tirs / impacts hostiles | 9 / 8 | 4 / 4 |
+| Réussite approximative | 88,89 % | 100,00 % |
+| Astéroïdes actifs maximum | 38 | 28 |
+| Espacement moyen | 11,66 m | 10,96 m |
+| Dispersion maximale | 35,00 m | 23,92 m |
+
+Aucun chasseur isolé n'est observé dans ces deux parcours. Les résultats viennent du scénario normal ; ils n'imposent pas une survie de 10/10. Les taux de réussite portent sur un petit nombre de tirs.
+
+Les tests contrôlés vérifient le refus des amis, des rochers, des cibles derrière ou trop latérales, la portée, la priorité de sécurité et la ligne de vue. Quatre impacts enlèvent les quatre HP du drone, produisent une explosion et un seul score, puis Main le remplace. Un laser traverse la zone d'un BlueShip sans le blesser et s'arrête sur un astéroïde sans le modifier. La comparaison avec et sans combat montre un écart de trajectoire de **0,000000 m**, avec neuf tirs.
+
+Les tests de navigation et caméra restent valides. Le parcours AUTO de **300 secondes** atteint **3 164,92 m**, niveau 3, avec **8 chasseurs vivants, 2 morts, 3 drones actifs**, au plus **47 astéroïdes** et **684 nœuds**. Ces morts réelles sont conservées dans les résultats. Le rendu du bolt et du HUD est vérifié visuellement.
+
 ## 3. Agents et environnement actuels
 
 ### Agent 1 — Chasseur bleu
@@ -119,6 +147,7 @@ Il peut :
 - retrouver un voisin éloigné encore visible dans sa portée de récupération ;
 - détecter les obstacles ;
 - anticiper la trajectoire d'un drone proche ;
+- détecter un hostile frontal et tirer si la situation est sûre ;
 - modifier sa trajectoire pour éviter une collision.
 
 Son déplacement est obtenu par la combinaison de règles locales simples :
@@ -132,6 +161,19 @@ Son déplacement est obtenu par la combinaison de règles locales simples :
 
 Aucune formation géométrique précise n'est imposée.
 
+### Combat de l'Agent 1
+
+Le chasseur perçoit les dangers, les agents de **`hostile_agents`** devant lui et leur ligne de vue. Ses priorités sont :
+
+1. éviter un danger ;
+2. conserver une distance sûre avec les autres chasseurs ;
+3. tirer sur un hostile visible si la cadence le permet ;
+4. continuer son déplacement collectif.
+
+La perception de combat porte à **60 m**, le tir à **44 m**, dans un cône de **6° de chaque côté** du nez. Les tirs sont espacés d'environ **0,6 à 0,8 seconde**, avec des décalages individuels reproductibles. Le laser vole à **60 m/s**, disparaît après **3 secondes** au maximum et retire **un point de vie**.
+
+Les astéroïdes ne sont pas des cibles. Les PatrolDrone sont les premiers hostiles destructibles. Aucun BlueShip ne poursuit directement une cible ; le combat ne modifie pas les règles de vol.
+
 ### Agent 2 — Drone de patrouille
 
 Le drone vert suit des points de passage 3D renouvelés au cours du vol. Son couloir est défini à son apparition, puis reste indépendant du centre des BlueShip.
@@ -144,7 +186,9 @@ Il perçoit :
 
 Il peut avancer, monter, descendre, changer de côté, ralentir légèrement, changer de waypoint et éviter un danger. Sa vitesse de base vaut **9,2 ou 9,8 m/s**, avec une petite variation. Une nouvelle cible se trouve **55 m plus loin**, avec des décalages X/Y autour du couloir.
 
-Main vise **deux drones actifs**. Un drone détruit ou à plus de **120 m derrière tous les chasseurs** est remplacé après **5 secondes**, à **80–125 m devant le premier chasseur**, dans une position vérifiée sans rocher trop proche. Il peut y avoir momentanément moins de deux drones pendant le délai. Aucun drone n'est téléporté pendant sa patrouille et aucun ne choisit un chasseur à poursuivre.
+Main vise **un, deux ou trois drones actifs** selon le niveau. Un drone détruit ou à plus de **120 m derrière tous les chasseurs** est remplacé après **5 secondes**, à **100–145 m devant le premier chasseur**, dans une position vérifiée sans rocher trop proche. Il peut y avoir momentanément moins de drones pendant le délai. Aucun drone n'est téléporté pendant sa patrouille et aucun ne choisit un chasseur à poursuivre.
+
+Le drone rejoint **`hostile_agents`** et possède **4 HP**. `take_damage(amount)` diminue ses points de vie. À zéro HP par tir, il explose, émet un seul signal de destruction et disparaît ; Main ajoute un ennemi détruit. Un retrait ou une collision du drone avec un rocher ne rapporte pas de score de tir. Le drone ne tire pas encore.
 
 ### Obstacles de l'environnement — Astéroïdes
 
@@ -184,6 +228,20 @@ Ces états décrivent la situation du chasseur. Les règles de séparation, coh�
 
 ---
 
+### Décision de combat en parallèle
+
+```mermaid
+flowchart LR
+    N[Navigation] -->|danger immédiat| E[Évitement]
+    E -->|zone sûre| N
+    C{Hostile visible devant ?} -->|oui| S{Situation sûre ?}
+    S -->|oui| L{Ligne de vue libre ?}
+    L -->|oui| T[Tir si cadence prête]
+    T --> R[Rechargement]
+```
+
+La navigation conserve ses états. Le combat possède seulement **aucune cible**, **cible visible** et **rechargement** ; tirer est une action, pas un nouvel état de déplacement.
+
 ### Diagramme d'état — Agent 2
 
 ```mermaid
@@ -194,9 +252,9 @@ stateDiagram-v2
     Patrouille --> Evitement : danger local détecté
     Evitement --> Patrouille : danger dépassé
     Evitement --> ChangementPoint : waypoint atteint, zone sûre
-    Patrouille --> Detruit : collision astéroïde
-    Evitement --> Detruit : collision astéroïde
-    ChangementPoint --> Detruit : collision astéroïde
+    Patrouille --> Detruit : HP épuisés ou collision astéroïde
+    Evitement --> Detruit : HP épuisés ou collision astéroïde
+    ChangementPoint --> Detruit : HP épuisés ou collision astéroïde
     Detruit --> [*]
 ```
 
@@ -220,6 +278,9 @@ flowchart LR
     A -->|détecte et anticipe un danger mobile| I[PatrolDrone]
     I -->|évitement léger à proximité| A
     I -->|perçoit et évite| B
+    A -->|tir frontal si situation sûre| J[Laser bleu]
+    J -->|dégâts| I
+    B -->|bloque sans subir de dégâts| J
 ```
 
 ---
@@ -244,7 +305,9 @@ Le rapport final ne cherchera pas à détailler tout le code. Les paramètres pr
 
 La séparation douce commence à **11 m** et devient forte sous **7 m**. Ces valeurs validées en M2 sont conservées. La distance affichée vient de la progression en Z du centre mesuré des survivants. L'espacement affiché est la moyenne de leurs distances au voisin vivant le plus proche ; la dispersion est la plus grande distance au centre du groupe.
 
-Pour le drone, les paramètres principaux sont la distance entre waypoints (**55 m**), leur portée d'arrivée (**7 m**), les écarts X/Y (**25 / 15 m**), la portée des astéroïdes (**44 m**) et la distance de sécurité envers les chasseurs (**10 m**). L'évitement léger du drone a un poids de **1,2** ; l'évitement mobile du BlueShip a un poids de **7** avec une anticipation de **3 secondes**.
+Pour le drone, les paramètres principaux sont la distance entre waypoints (**55 m**), leur portée d'arrivée (**7 m**), les écarts X/Y (**38 / 24 m**), la portée des astéroïdes (**44 m**) et la distance de sécurité envers les chasseurs (**10 m**). L'évitement léger du drone a un poids de **1,2** ; l'évitement mobile du BlueShip a un poids de **7** avec une anticipation de **3 secondes**.
+
+Les spreads du champ valent maintenant **38 / 26 m**. Avec les configurations d'obstacles, la zone utile habituelle atteint environ **±35–45 m horizontalement et ±20–30 m verticalement**, sans enfermer les agents. Le zoom libre peut atteindre **220 m**. Le score et la cadence pourront être étudiés avec les autres paramètres.
 
 Leur influence sera étudiée avec quelques configurations simples.
 
@@ -275,7 +338,7 @@ La caméra sert uniquement à observer la simulation et n'influence pas les agen
 - **2** : Intermédiaire manuel ;
 - **3** : Difficile manuel.
 
-Le HUD précise **AUTO** ou **MANUEL**. Un retour à AUTO à 800 m affiche le niveau 2. Les obstacles déjà présents restent en place ; le champ se renouvelle selon le mode choisi. Les deux drones restent observables dans tous les niveaux.
+Le HUD précise **AUTO** ou **MANUEL**. Un retour à AUTO à 800 m affiche le niveau 2. Les obstacles déjà présents restent en place ; le champ se renouvelle selon le mode choisi. Le nombre cible de drones passe à 1 / 2 / 3 selon le niveau. Une baisse de niveau retire le surplus sans score.
 
 ---
 
@@ -311,9 +374,9 @@ stateDiagram-v2
 
 Cet agent introduira une perturbation directement liée au comportement des chasseurs.
 
-### Agent 4 — Poseur de mines
+### Agent 4 — Bomber / MineLayer
 
-Agent qui traverse une zone, choisit un point de dépôt, crée un danger statique puis quitte la zone ou recommence ailleurs.
+Futur agent plus lent, orange ou violet, qui contrôlera une zone avec des mines ou un projectile lourd. Le dépôt de mines reste l'un des comportements envisagés.
 
 Les mines créées seront des **obstacles de l'environnement**, pas des agents supplémentaires.
 
@@ -344,10 +407,11 @@ La version actuelle comporte plusieurs simplifications :
 - obstacles principalement statiques ;
 - deux types d'agents pour le moment ;
 - anticipation mobile supposant une vitesse constante sur quelques secondes ;
-- une mort réelle observée sur le parcours M4 de cinq minutes ;
+- deux morts réelles observées sur le parcours M5 de cinq minutes ;
 - pas d'évitement entre drones et effectif temporairement réduit pendant un remplacement ;
-- aucune arme ;
-- aucun adversaire actif.
+- uniquement le tir frontal BlueShip, sans guidage ;
+- approximation initiale de la trajectoire hostile, pouvant rater une manœuvre brusque ;
+- aucun tir ennemi, aucune poursuite et aucune bombe BlueShip à ce stade.
 
 Ces limites sont volontaires afin de construire la simulation progressivement.
 
@@ -367,26 +431,23 @@ Récupération locale, espacement conservé, champ continu borné, six configura
 ### M4 — Agent 2 : drone de patrouille ✅
 Deux drones autonomes, waypoints renouvelés, perceptions locales, évitement réciproque, collisions et remplacement. Difficulté AUTO/MANUEL par 0/1/2/3, HUD et tests des deux modes sur 90 secondes.
 
-### M5 — Agent 3 : intercepteur hostile
-Ajouter un agent capable de détecter puis poursuivre temporairement un chasseur.
+### M5 — Fondation de combat ✅
+Tir frontal sûr, ligne de vue, hostile_agents, dégâts PatrolDrone, score, population 1/2/3, espace élargi et validation AUTO / MANUEL 3.
 
-### M6 — Agent 4 : poseur de mines
-Ajouter un agent capable de modifier l'environnement en déposant de nouveaux dangers.
+### M6 — Interceptor et tirs ennemis
+Ajouter l'Agent 3 rouge : détection, poursuite temporaire, rafales et désengagement.
 
-### M7 — Événements interactifs et scénarios
-Ajouter des touches permettant de déclencher volontairement des vagues d'obstacles ou l'arrivée de certains agents pendant la démonstration.
+### M7 — Bomber / MineLayer
+Ajouter l'Agent 4 plus lent, avec un rôle de contrôle de zone par projectile lourd ou mines.
 
-### M8 — Étude expérimentale
-Comparer plusieurs paramètres, états initiaux et niveaux de difficulté. Mesurer notamment les survivants, les morts, l'espacement et la dispersion.
+### M8 — Scénarios et vagues
+Créer les scénarios et des vagues déclenchables pour la démonstration.
 
-### M9 — Armes des chasseurs
-Dans les niveaux avancés seulement :
-- tir frontal ;
-- détection de cible ;
-- bombes limitées avec zone d'effet plus importante.
+### M9 — Bombes BlueShip
+Ajouter des bombes limitées avec une zone d'effet plus importante.
 
-### M10 — Finalisation
-Stabilisation, vidéo de démonstration, rapport final, diagrammes et PowerPoint de 10 minutes.
+### M10 — Étude et finalisation
+Comparer les paramètres, états initiaux, difficultés et mesures. Stabilisation, vidéo, rapport final, diagrammes et PowerPoint de 10 minutes.
 
 ---
 

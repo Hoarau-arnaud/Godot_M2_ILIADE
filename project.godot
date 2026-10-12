@@ -14,7 +14,7 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 
 [application]
 
-config/name="Simulation SMA spatiale - Milestone 4"
+config/name="Simulation SMA spatiale - Milestone 5"
 run/main_scene="res://scenes/main.tscn"
 config/features=PackedStringArray("4.7", "GL Compatibility")
 
@@ -126,7 +126,7 @@ difficulty_hard={
 [layer_names]
 3d_physics/layer_1="Vaisseaux bleus"
 3d_physics/layer_2="Asteroides"
-3d_physics/layer_3="Drones de patrouille"
+3d_physics/layer_3="Agents hostiles"
 
 [rendering]
 

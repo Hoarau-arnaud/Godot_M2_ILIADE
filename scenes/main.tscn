@@ -47,6 +47,8 @@ script = ExtResource("2")
 
 [node name="PatrolDrones" type="Node3D" parent="."]
 
+[node name="Projectiles" type="Node3D" parent="."]
+
 [node name="Asteroids" type="Node3D" parent="."]
 script = ExtResource("4")
 
@@ -98,7 +100,13 @@ text = "Espacement : 0 m · Dispersion : 0 m"
 layout_mode = 2
 theme_override_colors/font_color = Color(0.5, 0.94, 0.66, 1)
 theme_override_font_sizes/font_size = 13
-text = "Drones actifs : 0"
+text = "Hostiles actifs : 0"
+
+[node name="CombatStatistics" type="Label" parent="HUD/Panel/Lines"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.63, 0.86, 0.95, 1)
+theme_override_font_sizes/font_size = 13
+text = "Ennemis détruits : 0"
 
 [node name="DifficultyHints" type="Label" parent="HUD/Panel/Lines"]
 layout_mode = 2

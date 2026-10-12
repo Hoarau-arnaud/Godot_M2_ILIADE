@@ -10,8 +10,8 @@ enum Pattern { SINGLE, OFFSET_PAIR, HORIZONTAL_PAIR, VERTICAL_PAIR, STAGGERED_CL
 @export var start_distance: float = 55.0
 @export var cleanup_distance: float = 100.0
 @export_range(9, 180, 1) var max_active_asteroids: int = 72
-@export var horizontal_spread: float = 18.0
-@export var vertical_spread: float = 12.0
+@export var horizontal_spread: float = 38.0
+@export var vertical_spread: float = 26.0
 
 @export_category("Difficulte selon la distance")
 @export var intermediate_distance: float = 500.0

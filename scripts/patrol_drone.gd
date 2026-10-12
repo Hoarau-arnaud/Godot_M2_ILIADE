@@ -2,6 +2,7 @@ class_name PatrolDrone
 extends CharacterBody3D
 
 signal died(drone: PatrolDrone)
+signal destroyed(drone: PatrolDrone)
 
 const EXPLOSION_SCENE: PackedScene = preload("res://scenes/explosion.tscn")
 const BODY_CLEARANCE: float = 2.2
@@ -14,8 +15,8 @@ enum PatrolState { PATROL, AVOIDING, CHANGING_WAYPOINT, DESTROYED }
 @export var acceleration: float = 10.0
 @export var segment_length: float = 55.0
 @export var waypoint_reach_distance: float = 7.0
-@export var patrol_width: float = 25.0
-@export var patrol_height: float = 15.0
+@export var patrol_width: float = 38.0
+@export var patrol_height: float = 24.0
 @export var forward_variation: float = 1.0
 @export var individual_seed: int = 1
 
@@ -27,7 +28,11 @@ enum PatrolState { PATROL, AVOIDING, CHANGING_WAYPOINT, DESTROYED }
 @export var ship_safety_radius: float = 10.0
 @export var ship_avoidance_weight: float = 1.2
 
+@export_category("Hostile destructible")
+@export_range(1, 20, 1) var max_health: int = 4
+
 var alive: bool = true
+var health: int = 4
 var patrol_state: PatrolState = PatrolState.PATROL
 var patrol_anchor: Vector2 = Vector2.ZERO
 var waypoint: Vector3 = Vector3.ZERO
@@ -47,6 +52,7 @@ var _obstacle_directions: Dictionary[SpaceAsteroid, Vector3] = {}
 
 
 func _ready() -> void:
+	health = maxi(max_health, 1)
 	_random.seed = individual_seed
 	_phase = _random.randf_range(0.0, TAU)
 	_preferred_avoidance = Vector3(0.0, 1.0 if _random.randf() > 0.5 else -1.0, 0.0)
@@ -163,19 +169,31 @@ func _ship_avoidance() -> Vector3:
 	return result.limit_length(3.0)
 
 
-func _die() -> void:
+func take_damage(amount: int) -> void:
+	if not alive or amount <= 0:
+		return
+	health = maxi(health - amount, 0)
+	if health == 0:
+		_die(true)
+
+
+func _die(combat_kill: bool = false) -> void:
 	if not alive:
 		return
 	alive = false
+	health = 0
 	patrol_state = PatrolState.DESTROYED
 	_obstacle_directions.clear()
 	remove_from_group("patrol_drones")
+	remove_from_group("hostile_agents")
 	set_physics_process(false)
 	collision_layer = 0
 	collision_mask = 0
 	var explosion: Node3D = EXPLOSION_SCENE.instantiate() as Node3D
 	get_parent().add_child(explosion)
 	explosion.global_position = global_position
+	if combat_kill:
+		destroyed.emit(self)
 	died.emit(self)
 	hide()
 	queue_free()

@@ -98,6 +98,9 @@ shape = SubResource("WingCollision")
 
 [node name="Visuals" type="Node3D" parent="."]
 
+[node name="Muzzle" type="Marker3D" parent="Visuals"]
+position = Vector3(0, 0, -2.9)
+
 [node name="Fuselage" type="MeshInstance3D" parent="Visuals"]
 mesh = SubResource("Hull")
 

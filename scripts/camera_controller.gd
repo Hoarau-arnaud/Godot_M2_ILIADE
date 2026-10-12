@@ -9,7 +9,7 @@ enum Mode { FOLLOW, FREE }
 @export var pan_speed: float = 24.0
 @export var orbit_sensitivity: float = 0.006
 @export var minimum_zoom_distance: float = 6.0
-@export var maximum_zoom_distance: float = 180.0
+@export var maximum_zoom_distance: float = 220.0
 
 var mode: Mode = Mode.FOLLOW
 var _group_center: Vector3 = Vector3.ZERO
