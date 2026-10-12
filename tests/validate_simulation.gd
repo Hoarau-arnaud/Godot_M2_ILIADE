@@ -84,6 +84,8 @@ func _test_default_field() -> void:
 	root.add_child(simulation)
 	_check(str(ProjectSettings.get_setting("application/run/main_scene")) == "res://scenes/main.tscn", "Scène principale incorrecte.")
 	_check(simulation.initial_agent_count == 10 and simulation.living_agent_count == 10, "Le lancement ne crée pas dix chasseurs.")
+	_check(simulation.statistics.text == "Vaisseaux détruits : 0" and simulation.statistics.visible, "Compteur minimal incorrect au démarrage.")
+	_check(simulation.get_node("HUD").find_children("*", "Label", true, false).size() == 1, "Le HUD contient d'autres informations que le compteur de chasseurs détruits.")
 	_check(get_nodes_in_group("blue_ships").size() == 10, "Groupe blue_ships incorrect.")
 	_check(simulation.drones.size() == 1 and get_nodes_in_group("hostile_agents").size() == 1, "Un PatrolDrone hostile doit être présent au lancement facile.")
 	var initial_configurations: int = simulation.asteroid_container.generated_configuration_count
@@ -357,7 +359,7 @@ func _test_difficulty_controls() -> void:
 		_send_key(KEY_0 + level as Key, true)
 		_send_key(KEY_0 + level as Key, false)
 		await _advance(2)
-		_check(simulation.manual_difficulty == level and simulation.difficulty_level == level and simulation.progression_label.text.contains("[MANUEL]"), "Le clavier ne sélectionne pas le niveau manuel %d." % level)
+		_check(simulation.manual_difficulty == level and simulation.difficulty_level == level, "Le clavier ne sélectionne pas le niveau manuel %d." % level)
 		for configuration: Node3D in existing:
 			_check(is_instance_valid(configuration) and not configuration.is_queued_for_deletion(), "Changer la difficulté supprime un obstacle existant.")
 		var first_new: int = field.generated_configuration_count
@@ -374,7 +376,7 @@ func _test_difficulty_controls() -> void:
 	_send_key(KEY_0, true)
 	_send_key(KEY_0, false)
 	await _advance(2)
-	_check(simulation.manual_difficulty == 0 and simulation.difficulty_level == 2 and field.difficulty_override == 0 and simulation.progression_label.text.contains("[AUTO]"), "0 ne revient pas au niveau AUTO correspondant à 800 m.")
+	_check(simulation.manual_difficulty == 0 and simulation.difficulty_level == 2 and field.difficulty_override == 0, "0 ne revient pas au niveau AUTO correspondant à 800 m.")
 	var physical: InputEventKey = InputEventKey.new()
 	physical.device = InputEvent.DEVICE_ID_KEYBOARD
 	physical.physical_keycode = KEY_3
@@ -384,7 +386,8 @@ func _test_difficulty_controls() -> void:
 	Input.parse_input_event(physical)
 	await _advance(2)
 	_check(simulation.manual_difficulty == 0, "Une répétition clavier change le mode de difficulté.")
-	print("Clavier difficulté : 1/2/3 MANUEL, nouveaux patterns, obstacles conservés, 0 AUTO à 800 m, HUD et binding physique validés.")
+	_check(simulation.statistics.text == "Vaisseaux détruits : 0", "Changer la difficulté modifie le compteur de destructions.")
+	print("Clavier difficulté : 1/2/3 MANUEL, nouveaux patterns, obstacles conservés, 0 AUTO à 800 m et binding physique validés.")
 	await _dispose(simulation)
 
 
@@ -556,8 +559,8 @@ func _test_streaming_and_difficulty() -> void:
 		simulation.ships[1].position = Vector3(4, 0, -distance)
 		await _advance(30)
 		_check(simulation.difficulty_level == field.difficulty_for_distance(distance), "Le niveau Main ne suit pas la progression.")
-		_check(simulation.progression_label.text.contains("Difficulté : %d" % simulation.difficulty_level), "Difficulté absente du HUD.")
-		_check(simulation.group_metrics_label.text.contains("Espacement") and simulation.average_spacing > 0.0, "Mesures du groupe absentes du HUD.")
+		_check(is_equal_approx(simulation.distance_travelled, distance), "La distance interne ne suit pas la progression.")
+		_check(is_equal_approx(simulation.average_spacing, 8.0) and is_equal_approx(simulation.dispersion, 4.0), "Les mesures internes du groupe ne sont plus calculées.")
 	field.initialize_field(20261012, Vector3.ZERO, -4.0)
 	field._spawn_configuration(ObstacleField.Pattern.SINGLE, 1, Vector3.ZERO, -20.0)
 	var near_laggard: Node3D = field.configurations[0]
@@ -567,7 +570,7 @@ func _test_streaming_and_difficulty() -> void:
 	_check(near_laggard.is_queued_for_deletion(), "Un obstacle passé derrière tous les agents n'est pas supprimé.")
 	await _advance(2)
 	_check(not is_instance_valid(near_laggard), "La configuration dépassée reste en mémoire.")
-	print("Difficulté : seuils 500/1100 m, densité croissante, patterns, HUD et nettoyage derrière tous les survivants validés.")
+	print("Difficulté : seuils 500/1100 m, densité croissante, patterns, métriques internes et nettoyage derrière tous les survivants validés.")
 	await _dispose(simulation)
 
 
@@ -779,8 +782,8 @@ func _test_collision_and_statistics() -> void:
 	_check(simulation.initial_agent_count == 1 and simulation.living_agent_count == 0 and simulation.death_count == 1, "Compteurs de mort incorrects.")
 	_check(simulation.ships.is_empty() and get_nodes_in_group("blue_ships").is_empty(), "Agent détruit encore utilisé.")
 	_check(not is_instance_valid(ship), "Le chasseur mort n'est pas supprimé.")
-	_check(simulation.statistics.text == "Vaisseaux vivants : 0\nMorts : 1", "HUD incorrect après collision.")
-	_check(simulation.end_message.visible, "Message de destruction totale absent.")
+	_check(simulation.statistics.text == "Vaisseaux détruits : 1", "HUD incorrect après destruction d'un BlueShip.")
+	_check(simulation.get_node("HUD").find_children("*", "Label", true, false).size() == 1, "Un message supplémentaire apparaît après la dernière mort.")
 	_check(simulation.ship_container.get_child_count() == 0, "L'explosion n'a pas été supprimée.")
 	print("Stress à 35 m/s, perception désactivée : collision réelle, destruction unique, débris, compteurs et fin du groupe validés.")
 	await _dispose(simulation)
@@ -833,7 +836,7 @@ func _test_camera_controls() -> void:
 	_send_key(KEY_F, false)
 	await _advance(2)
 	_check(camera.mode == SimulationCamera.Mode.FREE, "F n'active pas la caméra libre.")
-	_check(simulation.camera_mode_label.text == "Mode caméra : Libre", "Mode caméra libre absent du HUD.")
+	_check(simulation.statistics.text == "Vaisseaux détruits : 0", "Changer la caméra modifie le compteur de destructions.")
 	var pan_start: Vector3 = camera.global_position
 	_send_key(KEY_RIGHT, true)
 	await _advance(30)
@@ -870,7 +873,7 @@ func _test_camera_controls() -> void:
 	_send_key(KEY_F, true)
 	_send_key(KEY_F, false)
 	await _advance(2)
-	_check(camera.mode == SimulationCamera.Mode.FOLLOW and simulation.camera_mode_label.text == "Mode caméra : Suivi", "Le retour au suivi échoue.")
+	_check(camera.mode == SimulationCamera.Mode.FOLLOW, "Le retour au suivi échoue.")
 	for index: int in range(simulation.ships.size()):
 		_check(simulation.ships[index].global_position.is_equal_approx(agent_positions[index]) and simulation.ships[index].velocity.is_equal_approx(agent_velocities[index]), "Les commandes caméra ont modifié un agent.")
 	print("Caméra : suivi, F, pan clavier/vertical, orbite souris, zoom, G et HUD validés par événements d'entrée.")

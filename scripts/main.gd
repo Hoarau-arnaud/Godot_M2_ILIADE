@@ -53,13 +53,7 @@ var _measurement_timer: float = 0.0
 @onready var projectile_container: Node3D = $Projectiles
 @onready var camera: SimulationCamera = $Camera3D
 @onready var space_decor: SpaceEnvironment = $SpaceDecor
-@onready var statistics: Label = $HUD/Panel/Lines/Statistics
-@onready var end_message: Label = $HUD/Panel/Lines/EndMessage
-@onready var camera_mode_label: Label = $HUD/Panel/Lines/CameraMode
-@onready var progression_label: Label = $HUD/Panel/Lines/Progression
-@onready var group_metrics_label: Label = $HUD/Panel/Lines/GroupMetrics
-@onready var drone_statistics_label: Label = $HUD/Panel/Lines/DroneStatistics
-@onready var combat_statistics_label: Label = $HUD/Panel/Lines/CombatStatistics
+@onready var statistics: Label = $HUD/Panel/Statistics
 
 
 func _ready() -> void:
@@ -75,9 +69,7 @@ func _ready() -> void:
 		asteroid_container.advance(_last_center, z_bounds.x, z_bounds.y)
 	_maintain_drones(_last_center, 0.0)
 	camera.follow_speed = camera_follow_speed
-	camera.mode_changed.connect(_on_camera_mode_changed)
 	camera.initialize_view(_last_center)
-	_on_camera_mode_changed(false)
 	_measure_group(_last_center)
 	_update_hud()
 
@@ -303,16 +295,7 @@ func _on_ship_died(ship: BlueShip) -> void:
 
 
 func _update_hud() -> void:
-	statistics.text = "Vaisseaux vivants : %d\nMorts : %d" % [living_agent_count, death_count]
-	progression_label.text = "Distance : %.0f m\nDifficulté : %d - %s [%s]" % [distance_travelled, difficulty_level, DIFFICULTY_NAMES[difficulty_level - 1], "AUTO" if manual_difficulty == 0 else "MANUEL"]
-	group_metrics_label.text = "Espacement : %.1f m · Dispersion : %.1f m" % [average_spacing, dispersion]
-	drone_statistics_label.text = "Hostiles actifs : %d" % drones.size()
-	combat_statistics_label.text = "Ennemis détruits : %d" % enemies_destroyed
-	end_message.visible = living_agent_count == 0
-
-
-func _on_camera_mode_changed(free_camera: bool) -> void:
-	camera_mode_label.text = "Mode caméra : %s" % ("Libre" if free_camera else "Suivi")
+	statistics.text = "Vaisseaux détruits : %d" % death_count
 
 
 func _fleet_center() -> Vector3:

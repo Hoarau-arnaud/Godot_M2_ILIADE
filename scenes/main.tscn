@@ -14,13 +14,13 @@ ambient_light_energy = 0.75
 tonemap_mode = 0
 
 [sub_resource type="StyleBoxFlat" id="HudPanel"]
-content_margin_left = 18.0
-content_margin_top = 14.0
-content_margin_right = 18.0
-content_margin_bottom = 14.0
-bg_color = Color(0.012, 0.025, 0.065, 0.88)
-border_width_left = 3
-border_color = Color(0.14, 0.7, 0.95, 1)
+content_margin_left = 10.0
+content_margin_top = 7.0
+content_margin_right = 10.0
+content_margin_bottom = 7.0
+bg_color = Color(0.012, 0.025, 0.065, 0.45)
+border_width_left = 2
+border_color = Color(0.14, 0.7, 0.95, 0.6)
 corner_radius_top_right = 6
 corner_radius_bottom_right = 6
 
@@ -68,67 +68,9 @@ offset_top = 18.0
 mouse_filter = 2
 theme_override_styles/panel = SubResource("HudPanel")
 
-[node name="Lines" type="VBoxContainer" parent="HUD/Panel"]
+[node name="Statistics" type="Label" parent="HUD/Panel"]
 layout_mode = 2
 mouse_filter = 2
-theme_override_constants/separation = 6
-
-[node name="Title" type="Label" parent="HUD/Panel/Lines"]
-layout_mode = 2
-theme_override_colors/font_color = Color(0.64, 0.9, 1, 1)
-theme_override_font_sizes/font_size = 22
-text = "Simulation SMA spatiale"
-
-[node name="Statistics" type="Label" parent="HUD/Panel/Lines"]
-layout_mode = 2
-theme_override_font_sizes/font_size = 18
-text = "Vaisseaux vivants : 0\nMorts : 0"
-
-[node name="Progression" type="Label" parent="HUD/Panel/Lines"]
-layout_mode = 2
-theme_override_colors/font_color = Color(0.77, 0.85, 0.92, 1)
+theme_override_colors/font_color = Color(0.82, 0.9, 0.95, 1)
 theme_override_font_sizes/font_size = 16
-text = "Distance : 0 m\nDifficulté : 1 - Facile"
-
-[node name="GroupMetrics" type="Label" parent="HUD/Panel/Lines"]
-layout_mode = 2
-theme_override_colors/font_color = Color(0.6, 0.72, 0.82, 1)
-theme_override_font_sizes/font_size = 13
-text = "Espacement : 0 m · Dispersion : 0 m"
-
-[node name="DroneStatistics" type="Label" parent="HUD/Panel/Lines"]
-layout_mode = 2
-theme_override_colors/font_color = Color(0.5, 0.94, 0.66, 1)
-theme_override_font_sizes/font_size = 13
-text = "Hostiles actifs : 0"
-
-[node name="CombatStatistics" type="Label" parent="HUD/Panel/Lines"]
-layout_mode = 2
-theme_override_colors/font_color = Color(0.63, 0.86, 0.95, 1)
-theme_override_font_sizes/font_size = 13
-text = "Ennemis détruits : 0"
-
-[node name="DifficultyHints" type="Label" parent="HUD/Panel/Lines"]
-layout_mode = 2
-theme_override_colors/font_color = Color(0.65, 0.76, 0.85, 1)
-theme_override_font_sizes/font_size = 12
-text = "0 Auto | 1 Facile | 2 Intermédiaire | 3 Difficile"
-
-[node name="CameraMode" type="Label" parent="HUD/Panel/Lines"]
-layout_mode = 2
-theme_override_colors/font_color = Color(0.65, 0.76, 0.85, 1)
-theme_override_font_sizes/font_size = 15
-text = "Mode caméra : Suivi"
-
-[node name="CameraHints" type="Label" parent="HUD/Panel/Lines"]
-layout_mode = 2
-theme_override_colors/font_color = Color(0.47, 0.61, 0.73, 1)
-theme_override_font_sizes/font_size = 13
-text = "F : caméra   ·   G / Home : recentrer"
-
-[node name="EndMessage" type="Label" parent="HUD/Panel/Lines"]
-visible = false
-layout_mode = 2
-theme_override_colors/font_color = Color(1, 0.57, 0.3, 1)
-theme_override_font_sizes/font_size = 18
-text = "Tous les chasseurs ont été détruits"
+text = "Vaisseaux détruits : 0"
