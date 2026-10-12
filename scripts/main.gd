@@ -2,6 +2,7 @@ class_name SpaceSimulation
 extends Node3D
 
 const SHIP_SCENE: PackedScene = preload("res://scenes/blue_ship.tscn")
+const DRONE_SCENE: PackedScene = preload("res://scenes/patrol_drone.tscn")
 const DIFFICULTY_NAMES: Array[String] = ["Facile", "Intermédiaire", "Difficile"]
 
 @export_range(1, 30, 1) var ship_count: int = 10
@@ -10,6 +11,13 @@ const DIFFICULTY_NAMES: Array[String] = ["Facile", "Intermédiaire", "Difficile"
 @export var simulation_seed: int = 20261012
 @export var camera_follow_speed: float = 3.0
 @export var metrics_update_interval: float = 0.4
+@export_range(0, 3, 1) var manual_difficulty: int = 0
+
+@export_category("Drones de patrouille")
+@export_range(0, 3, 1) var patrol_drone_count: int = 2
+@export var drone_spawn_ahead_distance: float = 80.0
+@export var drone_replacement_delay: float = 5.0
+@export var drone_retire_distance: float = 120.0
 
 var initial_agent_count: int = 0
 var living_agent_count: int = 0
@@ -20,6 +28,12 @@ var average_spacing: float = 0.0
 var dispersion: float = 0.0
 var isolated_agent_count: int = 0
 var ships: Array[BlueShip] = []
+var drones: Array[PatrolDrone] = []
+var drone_death_count: int = 0
+var drone_retired_count: int = 0
+var drone_spawn_count: int = 0
+var _drone_random: RandomNumberGenerator = RandomNumberGenerator.new()
+var _replacement_timer: float = 0.0
 var _random: RandomNumberGenerator = RandomNumberGenerator.new()
 var _last_center: Vector3 = Vector3.ZERO
 var _origin_z: float = 0.0
@@ -27,6 +41,7 @@ var _measurement_timer: float = 0.0
 
 @onready var ship_container: Node3D = $Ships
 @onready var asteroid_container: ObstacleField = $Asteroids
+@onready var drone_container: Node3D = $PatrolDrones
 @onready var camera: SimulationCamera = $Camera3D
 @onready var space_decor: SpaceEnvironment = $SpaceDecor
 @onready var statistics: Label = $HUD/Panel/Lines/Statistics
@@ -34,17 +49,21 @@ var _measurement_timer: float = 0.0
 @onready var camera_mode_label: Label = $HUD/Panel/Lines/CameraMode
 @onready var progression_label: Label = $HUD/Panel/Lines/Progression
 @onready var group_metrics_label: Label = $HUD/Panel/Lines/GroupMetrics
+@onready var drone_statistics_label: Label = $HUD/Panel/Lines/DroneStatistics
 
 
 func _ready() -> void:
 	_random.seed = simulation_seed
+	_drone_random.seed = simulation_seed + 91003
 	_create_ships()
 	_last_center = _fleet_center()
 	_origin_z = _last_center.z
 	var z_bounds: Vector2 = _fleet_z_bounds()
 	asteroid_container.initialize_field(simulation_seed, _last_center, z_bounds.x)
+	_update_difficulty()
 	if streaming_enabled:
 		asteroid_container.advance(_last_center, z_bounds.x, z_bounds.y)
+	_maintain_drones(_last_center, 0.0)
 	camera.follow_speed = camera_follow_speed
 	camera.mode_changed.connect(_on_camera_mode_changed)
 	camera.initialize_view(_last_center)
@@ -59,15 +78,100 @@ func _physics_process(delta: float) -> void:
 	var center: Vector3 = _fleet_center()
 	# La progression ne recule pas si la perte d'un survivant déplace légèrement le barycentre.
 	distance_travelled = maxf(distance_travelled, _origin_z - center.z)
-	difficulty_level = asteroid_container.difficulty_for_distance(distance_travelled)
+	_update_difficulty()
+	_maintain_drones(center, delta)
 	if streaming_enabled:
 		var z_bounds: Vector2 = _fleet_z_bounds()
-		asteroid_container.advance(center, z_bounds.x, z_bounds.y)
+		var cleanup_rear: float = z_bounds.y
+		for drone: PatrolDrone in drones:
+			cleanup_rear = maxf(cleanup_rear, drone.global_position.z)
+		asteroid_container.advance(center, z_bounds.x, cleanup_rear)
 	_measurement_timer += delta
 	if _measurement_timer >= maxf(metrics_update_interval, 0.1):
 		_measure_group(center)
 		_update_hud()
 		_measurement_timer = 0.0
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.echo:
+		return
+	var actions: Array[String] = ["difficulty_auto", "difficulty_easy", "difficulty_medium", "difficulty_hard"]
+	for level: int in range(actions.size()):
+		if event.is_action_pressed(actions[level]):
+			set_difficulty_mode(level)
+			get_viewport().set_input_as_handled()
+			return
+
+
+func set_difficulty_mode(level: int) -> void:
+	manual_difficulty = clampi(level, 0, 3)
+	_update_difficulty()
+	_update_hud()
+
+
+func _update_difficulty() -> void:
+	difficulty_level = manual_difficulty if manual_difficulty > 0 else asteroid_container.difficulty_for_distance(distance_travelled)
+	asteroid_container.difficulty_override = manual_difficulty
+
+
+func _maintain_drones(center: Vector3, delta: float) -> void:
+	_replacement_timer = maxf(_replacement_timer - delta, 0.0)
+	var rear_z: float = _fleet_z_bounds().y
+	for drone: PatrolDrone in drones.duplicate():
+		if drone.global_position.z <= rear_z + maxf(drone_retire_distance, 70.0):
+			continue
+		drones.erase(drone)
+		drone.remove_from_group("patrol_drones")
+		drone.queue_free()
+		drone_retired_count += 1
+		_replacement_timer = maxf(drone_replacement_delay, 0.0)
+	if _replacement_timer > 0.0 or ships.is_empty():
+		return
+	while drones.size() < clampi(patrol_drone_count, 0, 3):
+		if not _spawn_drone(center, _fleet_z_bounds().x):
+			_replacement_timer = 1.0
+			break
+
+
+func _spawn_drone(center: Vector3, front_z: float) -> bool:
+	var position_candidate: Vector3 = Vector3.ZERO
+	var clear: bool = false
+	for _attempt: int in range(64):
+		position_candidate = Vector3(center.x + _drone_random.randf_range(-24.0, 24.0), center.y + _drone_random.randf_range(-12.0, 12.0), front_z - maxf(drone_spawn_ahead_distance, 80.0) - _drone_random.randf_range(0.0, 45.0))
+		clear = true
+		for node: Node in get_tree().get_nodes_in_group("asteroids"):
+			var obstacle: SpaceAsteroid = node as SpaceAsteroid
+			if position_candidate.distance_to(obstacle.global_position) < obstacle.avoidance_radius + PatrolDrone.BODY_CLEARANCE + 8.0:
+				clear = false
+				break
+		for other: PatrolDrone in drones:
+			if position_candidate.distance_to(other.global_position) < 12.0:
+				clear = false
+		if clear:
+			break
+	if not clear:
+		return false
+	var drone: PatrolDrone = DRONE_SCENE.instantiate() as PatrolDrone
+	drone.name = "PatrolDrone_%03d" % drone_spawn_count
+	drone.individual_seed = simulation_seed + 51001 + drone_spawn_count * 401
+	drone.forward_speed = 9.2 + float(drone_spawn_count % 2) * 0.6
+	drone.patrol_anchor = Vector2(center.x, center.y)
+	drone.position = drone_container.to_local(position_candidate)
+	drone.died.connect(_on_drone_died)
+	drone_container.add_child(drone)
+	drones.append(drone)
+	drone_spawn_count += 1
+	return true
+
+
+func _on_drone_died(drone: PatrolDrone) -> void:
+	if not drones.has(drone):
+		return
+	drones.erase(drone)
+	drone_death_count += 1
+	_replacement_timer = maxf(drone_replacement_delay, 0.0)
+	_update_hud()
 
 
 func _process(delta: float) -> void:
@@ -154,8 +258,9 @@ func _on_ship_died(ship: BlueShip) -> void:
 
 func _update_hud() -> void:
 	statistics.text = "Vaisseaux vivants : %d\nMorts : %d" % [living_agent_count, death_count]
-	progression_label.text = "Distance : %.0f m\nDifficulté : %d - %s" % [distance_travelled, difficulty_level, DIFFICULTY_NAMES[difficulty_level - 1]]
+	progression_label.text = "Distance : %.0f m\nDifficulté : %d - %s [%s]" % [distance_travelled, difficulty_level, DIFFICULTY_NAMES[difficulty_level - 1], "AUTO" if manual_difficulty == 0 else "MANUEL"]
 	group_metrics_label.text = "Espacement : %.1f m · Dispersion : %.1f m" % [average_spacing, dispersion]
+	drone_statistics_label.text = "Drones actifs : %d" % drones.size()
 	end_message.visible = living_agent_count == 0
 
 

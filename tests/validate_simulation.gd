@@ -2,6 +2,7 @@ extends SceneTree
 
 const MAIN_SCENE: PackedScene = preload("res://scenes/main.tscn")
 const ASTEROID_SCENE: PackedScene = preload("res://scenes/asteroid.tscn")
+const DRONE_SCENE: PackedScene = preload("res://scenes/patrol_drone.tscn")
 
 var _failures: int = 0
 var _death_signals: int = 0
@@ -16,6 +17,13 @@ func _run() -> void:
 		await _capture_preview()
 		return
 	await _test_default_field()
+	await _test_forced_hard_field()
+	await _test_patrol_agent()
+	await _test_drone_perceptions()
+	await _test_mobile_crossing()
+	await _test_mobile_collision()
+	await _test_drone_replacement()
+	await _test_difficulty_controls()
 	await _test_flock_recovery()
 	await _test_recovery_perception_limit()
 	await _test_streaming_and_difficulty()
@@ -32,7 +40,7 @@ func _run() -> void:
 	await _test_starfield_recycling()
 	await _test_long_field()
 	if _failures == 0:
-		print("PASS : toutes les validations du milestone 3.")
+		print("PASS : toutes les validations du milestone 4.")
 	else:
 		printerr("FAIL : %d validation(s)." % _failures)
 	quit(0 if _failures == 0 else 1)
@@ -56,11 +64,13 @@ func _dispose(simulation: SpaceSimulation) -> void:
 	await physics_frame
 	_check(get_nodes_in_group("blue_ships").is_empty(), "Un chasseur supprimé reste dans le groupe.")
 	_check(get_nodes_in_group("asteroids").is_empty(), "Un rocher supprimé reste dans le groupe.")
+	_check(get_nodes_in_group("patrol_drones").is_empty(), "Un drone supprimé reste dans le groupe.")
 
 
 func _empty_field(count: int, seed_value: int = 20261012) -> SpaceSimulation:
 	var simulation: SpaceSimulation = MAIN_SCENE.instantiate() as SpaceSimulation
 	simulation.ship_count = count
+	simulation.patrol_drone_count = 0
 	simulation.streaming_enabled = false
 	simulation.simulation_seed = seed_value
 	root.add_child(simulation)
@@ -73,6 +83,7 @@ func _test_default_field() -> void:
 	_check(str(ProjectSettings.get_setting("application/run/main_scene")) == "res://scenes/main.tscn", "Scène principale incorrecte.")
 	_check(simulation.initial_agent_count == 10 and simulation.living_agent_count == 10, "Le lancement ne crée pas dix chasseurs.")
 	_check(get_nodes_in_group("blue_ships").size() == 10, "Groupe blue_ships incorrect.")
+	_check(simulation.drones.size() == 2 and get_nodes_in_group("patrol_drones").size() == 2, "Deux PatrolDrone doivent être présents au lancement.")
 	var initial_configurations: int = simulation.asteroid_container.generated_configuration_count
 	_check(get_nodes_in_group("asteroids").size() > 0, "Le streaming ne crée aucun obstacle initial.")
 	var categories: Array[bool] = [false, false, false]
@@ -86,7 +97,7 @@ func _test_default_field() -> void:
 		categories[int(asteroid.size_category)] = true
 	_check(categories[0] or categories[1], "La zone facile ne contient ni petits ni moyens rochers.")
 	for ship: BlueShip in simulation.ships:
-		_check(ship.collision_layer == 1 and ship.collision_mask == 2, "Couches du chasseur incorrectes.")
+		_check(ship.collision_layer == 1 and ship.collision_mask == 6, "Couches du chasseur incorrectes.")
 		_check(ship.died.is_connected(simulation._on_ship_died), "Signal de mort non connecté.")
 		for wing_path: String in ["Visuals/RightWing", "Visuals/LeftWing"]:
 			var wing: MeshInstance3D = ship.get_node(wing_path) as MeshInstance3D
@@ -102,11 +113,16 @@ func _test_default_field() -> void:
 	var isolation_streaks: Dictionary[String, int] = {}
 	var longest_isolation: int = 0
 	var lowest_forward_speed: float = INF
+	var mobile_reaction_ticks: int = 0
+	var drone_waypoints_observed: bool = false
 	for frame: int in range(5400):
 		await physics_frame
 		var avoiding: int = 0
 		var center: Vector3 = simulation._fleet_center()
 		var isolated_count: int = 0
+		for drone: PatrolDrone in simulation.drones:
+			_check(drone.alive and drone.velocity.z < 0.0 and drone.global_position.is_finite(), "Un drone normal est bloqué ou invalide.")
+			drone_waypoints_observed = drone_waypoints_observed or drone.waypoints_selected > 1
 		for ship: BlueShip in simulation.ships:
 			_check(ship.velocity.z < 0.0, "Un chasseur a cessé de progresser vers l'avant.")
 			_check(ship.global_position.is_finite() and ship.velocity.is_finite(), "Position ou vitesse non finie.")
@@ -120,6 +136,8 @@ func _test_default_field() -> void:
 					nearest = minf(nearest, ship.global_position.distance_to(other.global_position))
 			minimum_pair_distance = minf(minimum_pair_distance, nearest)
 			lowest_forward_speed = minf(lowest_forward_speed, -ship.velocity.z)
+			if ship.mobile_threat_count > 0:
+				mobile_reaction_ticks += 1
 			var ship_name: String = str(ship.name)
 			if nearest > ship.neighbor_radius:
 				isolated_count += 1
@@ -151,7 +169,245 @@ func _test_default_field() -> void:
 	_check(simulation.asteroid_container.generated_configuration_count > initial_configurations and simulation.asteroid_container.removed_configuration_count > 0, "Le streaming n'a pas renouvelé le champ.")
 	_check(simulation.difficulty_level == simulation.asteroid_container.difficulty_for_distance(simulation.distance_travelled), "Difficulté incohérente avec la distance.")
 	print("Champ par défaut, 90 s : vivants=%d, morts=%d, rayon maximal=%.2f m, évitements simultanés=%d, distance minimale=%.2f m, voisin le plus proche en moyenne=%.2f m" % [simulation.living_agent_count, simulation.death_count, max_spread, max_avoiding, minimum_pair_distance, average_nearest])
-	print("M3 90 s : distance=%.2f m, difficulté=%d, isolés max=%d, agents distincts isolés=%d, durée max=%.2f s, obstacles max=%d, configurations générées=%d / supprimées=%d" % [simulation.distance_travelled, simulation.difficulty_level, maximum_isolated, isolated_names.size(), float(longest_isolation) / 60.0, simulation.asteroid_container.maximum_active_observed, simulation.asteroid_container.generated_configuration_count, simulation.asteroid_container.removed_configuration_count])
+	print("M4 AUTO 90 s : distance=%.2f m, difficulté=%d, isolés max=%d, agents distincts isolés=%d, durée max=%.2f s, obstacles max=%d, configurations générées=%d / supprimées=%d" % [simulation.distance_travelled, simulation.difficulty_level, maximum_isolated, isolated_names.size(), float(longest_isolation) / 60.0, simulation.asteroid_container.maximum_active_observed, simulation.asteroid_container.generated_configuration_count, simulation.asteroid_container.removed_configuration_count])
+	_check(drone_waypoints_observed and simulation.drones.size() <= 2, "La patrouille ne renouvelle pas ses waypoints ou dépasse son effectif.")
+	print("M4 AUTO 90 s : drones actifs=%d, détruits=%d, créés total=%d, ticks-agent avec anticipation mobile=%d" % [simulation.drones.size(), simulation.drone_death_count, simulation.drone_spawn_count, mobile_reaction_ticks])
+	await _dispose(simulation)
+
+
+func _fixture_drone(simulation: SpaceSimulation, position_value: Vector3, seed_value: int = 20261012) -> PatrolDrone:
+	var drone: PatrolDrone = DRONE_SCENE.instantiate() as PatrolDrone
+	drone.position = position_value
+	drone.patrol_anchor = Vector2(position_value.x, position_value.y)
+	drone.individual_seed = seed_value
+	simulation.drone_container.add_child(drone)
+	return drone
+
+
+func _patrol_signature(seed_value: int) -> Array[Vector3]:
+	var simulation: SpaceSimulation = _empty_field(1)
+	simulation.ships[0].position = Vector3(200, 0, 0)
+	simulation.ships[0].set_physics_process(false)
+	var drone: PatrolDrone = _fixture_drone(simulation, Vector3.ZERO, seed_value)
+	_check(drone.is_in_group("patrol_drones") and not drone.is_in_group("blue_ships"), "Groupe dédié du PatrolDrone incorrect.")
+	_check(drone.collision_layer == 4 and drone.collision_mask == 2, "Couches du drone incorrectes.")
+	var minimum: Vector3 = drone.global_position
+	var maximum: Vector3 = drone.global_position
+	var changing_observed: bool = false
+	var signature: Array[Vector3] = [drone.waypoint]
+	var last_selection: int = drone.waypoints_selected
+	for _frame: int in range(1200):
+		await physics_frame
+		_check(is_instance_valid(drone) and drone.alive, "Un drone meurt dans une patrouille sans obstacle.")
+		minimum = minimum.min(drone.global_position)
+		maximum = maximum.max(drone.global_position)
+		changing_observed = changing_observed or drone.patrol_state == PatrolDrone.PatrolState.CHANGING_WAYPOINT
+		_check(drone.velocity.z < 0.0, "Le drone cesse de progresser vers Z négatif.")
+		if drone.waypoints_selected > last_selection:
+			_check(drone.waypoint.z < signature.back().z - 19.0, "Le nouveau waypoint ne poursuit pas la patrouille en avant.")
+			signature.append(drone.waypoint)
+			last_selection = drone.waypoints_selected
+	var excursion: Vector3 = maximum - minimum
+	_check(excursion.x > 5.0 and excursion.y > 3.0 and excursion.z > 150.0, "La patrouille manque de mouvement en X/Y/Z.")
+	_check(changing_observed and drone.waypoints_selected >= 4, "Les changements de waypoint et d'état ne sont pas observables.")
+	signature.append(drone.global_position)
+	print("Patrouille 20 s : seed=%d, excursion=%s, waypoints=%d, changement d'état=%s" % [seed_value, excursion, drone.waypoints_selected, changing_observed])
+	await _dispose(simulation)
+	return signature
+
+
+func _test_patrol_agent() -> void:
+	var first: Array[Vector3] = await _patrol_signature(20261012)
+	var repeated: Array[Vector3] = await _patrol_signature(20261012)
+	var changed: Array[Vector3] = await _patrol_signature(20261013)
+	_check(first == repeated and first != changed, "La route du drone n'est pas déterministe avec sa graine.")
+
+
+func _test_drone_perceptions() -> void:
+	var simulation: SpaceSimulation = _empty_field(1)
+	var ship: BlueShip = simulation.ships[0]
+	ship.position = Vector3(5, 0, 0)
+	ship.set_physics_process(false)
+	var drone: PatrolDrone = _fixture_drone(simulation, Vector3.ZERO)
+	drone.set_physics_process(false)
+	var correction: Vector3 = drone._ship_avoidance()
+	_check(correction.x < 0.0 and drone.perceived_ship_count == 1, "Le drone n'évite pas légèrement un BlueShip trop proche.")
+	ship._update_neighbor_rules()
+	simulation._measure_group(simulation._fleet_center())
+	_check(ship.neighbor_count == 0 and ship._cohesion == Vector3.ZERO and ship._alignment == Vector3.ZERO and ship._recovery == Vector3.ZERO, "Le drone est inclus dans le flocking des chasseurs.")
+	_check(simulation.average_spacing == 0.0 and simulation.dispersion == 0.0 and simulation._fleet_center() == ship.global_position, "Un drone influence les mesures ou le centre caméra bleu.")
+	ship.position = Vector3(200, 0, 0)
+	_check(drone._ship_avoidance() == Vector3.ZERO, "Le drone perçoit un BlueShip au-delà de sa portée locale.")
+	var asteroid: SpaceAsteroid = ASTEROID_SCENE.instantiate() as SpaceAsteroid
+	asteroid.diameter = 6.0
+	asteroid.shape_seed = 88
+	asteroid.position = Vector3(0, 0, -25)
+	simulation.asteroid_container.add_child(asteroid)
+	drone.waypoint = Vector3(0, 0, -55)
+	drone.velocity = Vector3.FORWARD * drone.forward_speed
+	drone._preferred_avoidance = Vector3.UP
+	drone.set_physics_process(true)
+	var maximum_excursion: float = 0.0
+	var avoiding_observed: bool = false
+	for _frame: int in range(480):
+		await physics_frame
+		if not is_instance_valid(drone):
+			break
+		maximum_excursion = maxf(maximum_excursion, absf(drone.global_position.y))
+		avoiding_observed = avoiding_observed or drone.patrol_state == PatrolDrone.PatrolState.AVOIDING
+	_check(is_instance_valid(drone) and drone.alive and avoiding_observed and maximum_excursion > 4.0, "Le drone échoue à éviter l'astéroïde.")
+	print("Perceptions drone : proximité BlueShip, exclusion du flocking, évitement astéroïde, excursion=%.2f m" % maximum_excursion)
+	await _dispose(simulation)
+
+
+func _test_mobile_crossing() -> void:
+	var simulation: SpaceSimulation = _empty_field(1)
+	var ship: BlueShip = simulation.ships[0]
+	ship.position = Vector3.ZERO
+	ship.wander_strength = 0.0
+	ship.vertical_wander_strength = 0.0
+	ship.longitudinal_wander_strength = 0.0
+	ship._speed_factor = 1.0
+	ship.velocity = Vector3.FORWARD * ship.forward_speed
+	var drone: PatrolDrone = _fixture_drone(simulation, Vector3(-12, 0, -5))
+	drone.set_physics_process(false)
+	drone.velocity = Vector3(6, 0, -8)
+	var detected: bool = false
+	var anticipated: bool = false
+	var minimum_distance: float = INF
+	var maximum_excursion: float = 0.0
+	for frame: int in range(360):
+		drone.move_and_collide(drone.velocity / 60.0)
+		await physics_frame
+		if not is_instance_valid(ship):
+			break
+		detected = detected or ship.mobile_threat_count > 0
+		if frame < 90 and Vector2(ship.velocity.x, ship.velocity.y).length() > 0.5:
+			anticipated = true
+		minimum_distance = minf(minimum_distance, ship.global_position.distance_to(drone.global_position))
+		maximum_excursion = maxf(maximum_excursion, absf(ship.global_position.y))
+	_check(detected and anticipated and simulation.living_agent_count == 1 and minimum_distance > 2.5, "L'anticipation mobile n'évite pas le croisement avant contact.")
+	_check(ship._drone_directions.has(drone), "Le côté de contournement du danger mobile n'est pas mémorisé.")
+	drone.queue_free()
+	await _advance(2)
+	_check(ship._drone_directions.is_empty(), "Une référence à un drone supprimé reste mémorisée.")
+	print("Croisement mobile : anticipé avant 1,5 s, distance minimale=%.2f m, excursion verticale=%.2f m, survivants=%d" % [minimum_distance, maximum_excursion, simulation.living_agent_count])
+	await _dispose(simulation)
+
+
+func _test_mobile_collision() -> void:
+	var simulation: SpaceSimulation = _empty_field(1)
+	var ship: BlueShip = simulation.ships[0]
+	ship.position = Vector3.ZERO
+	ship.wander_strength = 0.0
+	ship.vertical_wander_strength = 0.0
+	ship.longitudinal_wander_strength = 0.0
+	ship.forward_speed = 35.0
+	ship.mobile_detection_radius = 0.0
+	_death_signals = 0
+	ship.died.connect(_on_test_death)
+	var drone: PatrolDrone = _fixture_drone(simulation, Vector3(0, 0, -8))
+	drone.set_physics_process(false)
+	await _advance(90)
+	_check(_death_signals == 1 and simulation.death_count == 1 and simulation.living_agent_count == 0, "Le contact physique BlueShip/PatrolDrone ne détruit pas réellement le chasseur.")
+	_check(drone.alive and is_instance_valid(drone) and not is_instance_valid(ship), "Le drone robuste ne reste pas actif après le contact.")
+	print("Stress mobile : collision réelle, destruction unique BlueShip, drone intact, compteur mort=1.")
+	await _dispose(simulation)
+
+
+func _test_drone_replacement() -> void:
+	var simulation: SpaceSimulation = MAIN_SCENE.instantiate() as SpaceSimulation
+	simulation.streaming_enabled = false
+	root.add_child(simulation)
+	var drone: PatrolDrone = simulation.drones[0]
+	drone.obstacle_detection_radius = 0.0
+	var asteroid: SpaceAsteroid = ASTEROID_SCENE.instantiate() as SpaceAsteroid
+	asteroid.position = drone.global_position + Vector3.FORWARD * 4.0
+	asteroid.diameter = 7.0
+	simulation.asteroid_container.add_child(asteroid)
+	await _advance(120)
+	_check(simulation.drone_death_count >= 1 and not is_instance_valid(drone), "Un drone traverse un rocher malgré sa collision réelle.")
+	await _advance(300)
+	_check(simulation.drones.size() == 2 and simulation.drone_spawn_count > 2 and get_nodes_in_group("patrol_drones").size() == 2, "Main ne remplace pas le drone détruit après le délai.")
+	var retired: PatrolDrone = simulation.drones[0]
+	retired.global_position.z = simulation._fleet_z_bounds().y + 200.0
+	retired.set_physics_process(false)
+	await _advance(2)
+	_check(not is_instance_valid(retired) and simulation.drone_retired_count == 1, "Le drone très loin derrière n'est pas retiré proprement.")
+	await _advance(310)
+	_check(simulation.drones.size() == 2 and get_nodes_in_group("patrol_drones").size() == 2, "Le drone retiré n'est pas remplacé.")
+	for current: PatrolDrone in simulation.drones:
+		_check(current.global_position.z < simulation._fleet_z_bounds().x - 30.0, "Un drone remplacé apparaît trop près des chasseurs.")
+	print("Cycle drone : collision astéroïde, explosion, délai de 5 s, remplacement sûr et retrait arrière validés.")
+	await _dispose(simulation)
+
+
+func _test_difficulty_controls() -> void:
+	var simulation: SpaceSimulation = _empty_field(2)
+	for ship: BlueShip in simulation.ships:
+		ship.set_physics_process(false)
+	var field: ObstacleField = simulation.asteroid_container
+	field.advance(simulation._fleet_center(), simulation._fleet_z_bounds().x, simulation._fleet_z_bounds().y)
+	for level: int in range(1, 4):
+		var existing: Array[Node3D] = field.configurations.duplicate()
+		_send_key(KEY_0 + level as Key, true)
+		_send_key(KEY_0 + level as Key, false)
+		await _advance(2)
+		_check(simulation.manual_difficulty == level and simulation.difficulty_level == level and simulation.progression_label.text.contains("[MANUEL]"), "Le clavier ne sélectionne pas le niveau manuel %d." % level)
+		for configuration: Node3D in existing:
+			_check(is_instance_valid(configuration) and not configuration.is_queued_for_deletion(), "Changer la difficulté supprime un obstacle existant.")
+		var first_new: int = field.generated_configuration_count
+		for ship: BlueShip in simulation.ships:
+			ship.global_position.z -= 100.0
+		field.advance(simulation._fleet_center(), simulation._fleet_z_bounds().x, simulation._fleet_z_bounds().y)
+		_check(field.generated_configuration_count > first_new, "Le champ ne génère pas de configuration après le changement manuel.")
+		for configuration: Node3D in field.configurations:
+			if int(configuration.get_meta("generation_index")) >= first_new:
+				_check(int(configuration.get_meta("difficulty")) == level and field.allowed_patterns(level).has(int(configuration.get_meta("pattern"))), "Une nouvelle configuration ignore la difficulté manuelle.")
+	for ship: BlueShip in simulation.ships:
+		ship.global_position.z = simulation._origin_z - 800.0
+	await _advance(2)
+	_send_key(KEY_0, true)
+	_send_key(KEY_0, false)
+	await _advance(2)
+	_check(simulation.manual_difficulty == 0 and simulation.difficulty_level == 2 and field.difficulty_override == 0 and simulation.progression_label.text.contains("[AUTO]"), "0 ne revient pas au niveau AUTO correspondant à 800 m.")
+	var physical: InputEventKey = InputEventKey.new()
+	physical.device = InputEvent.DEVICE_ID_KEYBOARD
+	physical.physical_keycode = KEY_3
+	_check(physical.is_action("difficulty_hard"), "La rangée numérique physique ne fonctionne pas en AZERTY.")
+	physical.pressed = true
+	physical.echo = true
+	Input.parse_input_event(physical)
+	await _advance(2)
+	_check(simulation.manual_difficulty == 0, "Une répétition clavier change le mode de difficulté.")
+	print("Clavier difficulté : 1/2/3 MANUEL, nouveaux patterns, obstacles conservés, 0 AUTO à 800 m, HUD et binding physique validés.")
+	await _dispose(simulation)
+
+
+func _test_forced_hard_field() -> void:
+	var simulation: SpaceSimulation = MAIN_SCENE.instantiate() as SpaceSimulation
+	simulation.manual_difficulty = 3
+	root.add_child(simulation)
+	var reaction_ticks: int = 0
+	var minimum_spacing: float = INF
+	for configuration: Node3D in simulation.asteroid_container.configurations:
+		_check(int(configuration.get_meta("difficulty")) == 3, "Le niveau forcé initial n'est pas utilisé pour le premier champ.")
+	for frame: int in range(5400):
+		await physics_frame
+		_check(simulation.difficulty_level == 3 and simulation.manual_difficulty == 3, "La difficulté forcée n'est pas réellement utilisée.")
+		for ship: BlueShip in simulation.ships:
+			if ship.mobile_threat_count > 0:
+				reaction_ticks += 1
+			_check(ship.velocity.z < 0.0, "Un chasseur manuel est bloqué.")
+		for drone: PatrolDrone in simulation.drones:
+			_check(drone.velocity.z < 0.0 and drone.global_position.is_finite(), "Un drone manuel est bloqué ou invalide.")
+		if frame % 30 == 0:
+			_check(simulation.asteroid_container.active_asteroid_count <= 72 and simulation.drones.size() <= 2, "Le scénario manuel dépasse les budgets.")
+			minimum_spacing = minf(minimum_spacing, simulation.average_spacing)
+	await process_frame
+	_check(simulation.living_agent_count > 0 and simulation.living_agent_count + simulation.death_count == 10, "Le scénario manuel ne reste pas actif avec des compteurs corrects.")
+	_check(simulation.asteroid_container.generated_configuration_count > 20 and simulation.asteroid_container.removed_configuration_count > 0, "Le champ difficile ne se renouvelle pas.")
+	print("M4 MANUEL 3, 90 s : distance=%.2f m, vivants=%d, morts=%d, drones actifs=%d, drones détruits=%d, créés=%d, ticks-agent anticipation mobile=%d, obstacles max=%d, espacement final=%.2f m, minimum moyen=%.2f m, dispersion finale=%.2f m" % [simulation.distance_travelled, simulation.living_agent_count, simulation.death_count, simulation.drones.size(), simulation.drone_death_count, simulation.drone_spawn_count, reaction_ticks, simulation.asteroid_container.maximum_active_observed, simulation.average_spacing, minimum_spacing, simulation.dispersion])
 	await _dispose(simulation)
 
 
@@ -216,16 +472,21 @@ func _test_removed_obstacle_memory() -> void:
 	var ship: BlueShip = simulation.ships[0]
 	ship.position = Vector3.ZERO
 	ship.set_physics_process(false)
+	var drone: PatrolDrone = _fixture_drone(simulation, Vector3.ZERO)
+	drone.set_physics_process(false)
 	var asteroid: SpaceAsteroid = ASTEROID_SCENE.instantiate() as SpaceAsteroid
 	asteroid.position = Vector3(0, 0, -20)
 	simulation.asteroid_container.add_child(asteroid)
 	ship._obstacle_avoidance()
+	drone._obstacle_avoidance()
 	_check(ship._avoid_directions.has(asteroid) and ship._threats.has(asteroid), "La menace n'a pas été mémorisée pour le test de suppression.")
+	_check(drone._obstacle_directions.has(asteroid), "Le drone ne mémorise pas l'obstacle utilisé pour le test de suppression.")
 	asteroid.queue_free()
 	await _advance(2)
 	ship._find_threats()
 	_check(ship._avoid_directions.is_empty() and ship._threats.is_empty(), "Une référence à un obstacle supprimé est conservée.")
-	print("Suppression : mémoires d'évitement et menaces nettoyées sans référence invalide.")
+	_check(drone._obstacle_directions.is_empty(), "Le drone conserve une référence à un astéroïde supprimé.")
+	print("Suppression : mémoires BlueShip et PatrolDrone nettoyées sans référence invalide.")
 	await _dispose(simulation)
 
 
@@ -342,7 +603,8 @@ func _test_long_field() -> void:
 	_check(field.generated_configuration_count > generation_at_180_seconds and field.removed_configuration_count > 0, "Le streaming s'arrête après trois minutes.")
 	_check(field.maximum_active_observed <= field.max_active_asteroids and get_nodes_in_group("asteroids").size() == field.active_asteroid_count, "Des obstacles anciens s'accumulent dans le test long.")
 	_check(maximum_nodes < 1400, "Le nombre de nœuds dépasse la borne du scénario normal.")
-	print("M3 long, 300 s : distance=%.2f m, difficulté=%d, vivants=%d, morts=%d, obstacles max=%d, max après 180 s=%d, actifs fin=%d, configurations=%d / supprimées=%d, nœuds max=%d" % [simulation.distance_travelled, simulation.difficulty_level, simulation.living_agent_count, simulation.death_count, field.maximum_active_observed, max_late_obstacles, field.active_asteroid_count, field.generated_configuration_count, field.removed_configuration_count, maximum_nodes])
+	print("M4 AUTO long, 300 s : distance=%.2f m, difficulté=%d, vivants=%d, morts=%d, obstacles max=%d, max après 180 s=%d, actifs fin=%d, configurations=%d / supprimées=%d, nœuds max=%d" % [simulation.distance_travelled, simulation.difficulty_level, simulation.living_agent_count, simulation.death_count, field.maximum_active_observed, max_late_obstacles, field.active_asteroid_count, field.generated_configuration_count, field.removed_configuration_count, maximum_nodes])
+	print("Drones après 300 s : actifs=%d, détruits=%d, retirés=%d, créés total=%d" % [simulation.drones.size(), simulation.drone_death_count, simulation.drone_retired_count, simulation.drone_spawn_count])
 	print("Coût moyen par tick headless en difficulté 3 : fenêtre 180-210 s=%.3f ms ; 270-300 s=%.3f ms (mesure CPU, pas FPS du rendu)." % [float(first_hard_window_usec) / 1800.0 / 1000.0, float(last_window_usec) / 1800.0 / 1000.0])
 	await _dispose(simulation)
 
@@ -494,6 +756,7 @@ func _on_test_death(ship: BlueShip) -> void:
 
 
 func _test_collision_and_statistics() -> void:
+	_death_signals = 0
 	var simulation: SpaceSimulation = _empty_field(1)
 	var ship: BlueShip = simulation.ships[0]
 	ship.wander_strength = 0.0
@@ -675,6 +938,17 @@ func _capture_preview() -> void:
 		var save_error: Error = screenshot.save_png("res://.godot/validation/preview.png")
 		_check(save_error == OK, "Impossible d'enregistrer la capture.")
 		print("Capture : res://.godot/validation/preview.png")
+	if OS.get_cmdline_user_args().has("--capture-drone") and not simulation.drones.is_empty():
+		simulation.camera.toggle_mode()
+		simulation.camera._orbit_center = simulation.drones[0].global_position
+		simulation.camera._orbit_distance = 9.0
+		simulation.camera._yaw = -0.6
+		simulation.camera._pitch = 0.5
+		await _advance(2)
+		await RenderingServer.frame_post_draw
+		var drone_screenshot: Image = root.get_texture().get_image()
+		_check(drone_screenshot.save_png("res://.godot/validation/patrol_drone.png") == OK, "Capture drone impossible.")
+		print("Capture drone : res://.godot/validation/patrol_drone.png")
 	await _dispose(simulation)
 	await _test_starfield_recycling()
 	quit(0 if _failures == 0 else 1)
