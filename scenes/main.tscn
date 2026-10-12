@@ -1,8 +1,9 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=7 format=3]
 
 [ext_resource type="Script" path="res://scripts/main.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/space_environment.gd" id="2"]
 [ext_resource type="Script" path="res://scripts/camera_controller.gd" id="3"]
+[ext_resource type="Script" path="res://scripts/obstacle_field.gd" id="4"]
 
 [sub_resource type="Environment" id="Space"]
 background_mode = 1
@@ -45,6 +46,7 @@ script = ExtResource("2")
 [node name="Ships" type="Node3D" parent="."]
 
 [node name="Asteroids" type="Node3D" parent="."]
+script = ExtResource("4")
 
 [node name="Camera3D" type="Camera3D" parent="."]
 position = Vector3(10, 16, 42)
@@ -77,6 +79,18 @@ text = "Simulation SMA spatiale"
 layout_mode = 2
 theme_override_font_sizes/font_size = 18
 text = "Vaisseaux vivants : 0\nMorts : 0"
+
+[node name="Progression" type="Label" parent="HUD/Panel/Lines"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.77, 0.85, 0.92, 1)
+theme_override_font_sizes/font_size = 16
+text = "Distance : 0 m\nDifficulté : 1 - Facile"
+
+[node name="GroupMetrics" type="Label" parent="HUD/Panel/Lines"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.6, 0.72, 0.82, 1)
+theme_override_font_sizes/font_size = 13
+text = "Espacement : 0 m · Dispersion : 0 m"
 
 [node name="CameraMode" type="Label" parent="HUD/Panel/Lines"]
 layout_mode = 2

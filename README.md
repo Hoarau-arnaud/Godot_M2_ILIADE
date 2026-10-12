@@ -1,6 +1,6 @@
-# Simulation SMA spatiale — milestone 2
+# Simulation SMA spatiale — milestone 3
 
-Projet pédagogique **Godot 4.7.2 / GDScript**. Dix chasseurs bleus progressent vers **Z négatif**, comme un banc de poissons dans un champ d'astéroïdes. Le milestone 2 améliore leur liberté de mouvement, leur espace personnel, leur survie, les primitives visuelles et l'observation par caméra libre. Aucun asset externe, sol ou formation imposée.
+Projet pédagogique **Godot 4.7.2 / GDScript**. Dix chasseurs bleus progressent vers **Z négatif**, comme un banc de poissons dans un champ d'astéroïdes. Le milestone 3 ajoute une récupération locale du groupe, un champ continu et trois difficultés automatiques selon la distance. Il conserve les mouvements, l'espace personnel, les graphismes et la caméra du M2. Aucun asset externe, sol ou formation imposée.
 
 ## Lancement
 
@@ -23,10 +23,10 @@ La caméra démarre en **Suivi** : elle suit le barycentre des survivants et s'�
 
 Les touches sont définies par des **Input Actions dans `project.godot`**, modifiables dans l'éditeur : `camera_toggle`, `camera_recenter`, `camera_forward`, `camera_backward`, `camera_left`, `camera_right`, `camera_up`, `camera_down`, `camera_orbit`, `camera_zoom_in`, `camera_zoom_out`. Q est réservé au déplacement à gauche, ce qui évite le conflit AZERTY avec la descente. Le pan vaut 24 m/s. Le HUD affiche discrètement le mode et les touches F/G. La caméra ne transmet aucune force ou consigne aux agents.
 
-## Agents actuels
+## Agent et obstacles actuels
 
 - **Type 1 — BlueShip** : `CharacterBody3D`, chasseur bleu construit avec des boîtes, cônes, prismes et une sphère aplatie pour le cockpit. Nez allongé vers −Z, cockpit bombé bleu sombre/cyan sur un cadre clair, ailes triangulaires fines dont les pointes sont rejetées vers l'arrière, deux dérives et deux moteurs visibles. Les cônes cyan des réacteurs pulsent avec des phases individuelles. L'orientation et le roulis interpolés concernent le nœud visuel ; les deux petites boîtes physiques restent stables.
-- **Type 2 — SpaceAsteroid** : `StaticBody3D` indépendant. Deux à quatre volumes low-poly déformés composent un rocher irrégulier ; les grands combinent aussi des blocs anguleux. Petits : 1–2 m ; moyens : 2–4 m ; grands : 4–7 m de diamètre nominal. Échelles, orientations des lobes et palettes gris foncé/gris clair/brun varient par graine. Chaque volume possède une enveloppe convexe qui reprend les points déformés du mesh. La racine physique n'est pas mise à l'échelle. Chaque astéroïde tourne autour d'un axe individuel à environ 0,055–0,12 rad/s ; visuels et collisions tournent ensemble au pas physique, sans translation.
+- **Obstacle environnemental — SpaceAsteroid** : `StaticBody3D` indépendant. Deux à quatre volumes low-poly déformés composent un rocher irrégulier ; les grands combinent aussi des blocs anguleux. Petits : 1–2 m ; moyens : 2–4 m ; grands : 4–7 m de diamètre nominal. Échelles, orientations des lobes et palettes gris foncé/gris clair/brun varient par graine. Chaque volume possède une enveloppe convexe qui reprend les points déformés du mesh. La racine physique n'est pas mise à l'échelle. Chaque astéroïde tourne autour d'un axe individuel à environ 0,055–0,12 rad/s ; visuels et collisions tournent ensemble au pas physique, sans translation. Les astéroïdes sont des obstacles, pas des agents. **BlueShip reste le seul type d'agent.**
 
 ## Comportement des chasseurs
 
@@ -37,12 +37,14 @@ Chaque chasseur évalue uniquement les voisins dans son rayon de perception. Les
 3. **Cohésion** : aucune attraction quand le centre local des voisins est à moins de 12 m ; au-delà, une petite correction limitée ramène vers la même zone. Ce rayon de confort évite de compacter le banc.
 4. **Alignement** : correction douce vers leur vitesse moyenne.
 5. **Évitement** : anticipation jusqu'à 44 m. La trajectoire actuelle et le couloir avant sont comparés au rayon englobant des rochers perçus. Seules les **trois menaces les plus proches au maximum** contribuent au contournement, avec une priorité décroissante. Les rochers éloignés ou déjà derrière sont ignorés, sauf la mémoire d'une manœuvre en cours jusqu'au dépassement.
+6. **Récupération locale** : avec moins de deux voisins dans le rayon normal de 32 m, le chasseur peut attirer doucement sa trajectoire vers le voisin le plus proche visible entre 32 et 50 m. Cette correction aide aussi un duo séparé à retrouver le groupe. Elle n'attire pas davantage son compagnon déjà proche, et cède la priorité à l'évitement.
 
 ```gdscript
 local_motion = wander \
     + separation * separation_weight \
     + cohesion * cohesion_weight \
-    + alignment * alignment_weight
+    + alignment * alignment_weight \
+    + recovery * recovery_weight
 
 avoidance = obstacle_avoidance * avoidance_weight
 steering = local_motion * (1.0 - 0.75 * avoidance_priority) + avoidance
@@ -50,6 +52,8 @@ steering = local_motion * (1.0 - 0.75 * avoidance_priority) + avoidance
 ```
 
 Ce mélange définit une vitesse souhaitée ; l'accélération limite les changements. La priorité d'évitement varie progressivement avec son intensité, entre 0 et 1. La variation longitudinale est limitée à ±3 m/s autour de la vitesse propre de base (10,5 m/s ±3 %). La composante avant reste toujours négative. X/Y partagent une limite de vitesse latérale. L'orientation et le roulis suivent doucement le mouvement visuel, sans simulation aérodynamique.
+
+L'enum `behavior_state` décrit **NAVIGATION**, **AVOIDANCE** (évitement), **REGROUPING** (regroupement) ou **DESTROYED**. L'évitement prend la priorité descriptive sur le regroupement. Ces états reflètent les forces calculées en continu ; ils ne fixent aucune destination ou place dans une formation. Main utilise le centre du groupe pour l'observation, les statistiques et le placement de l'environnement ; il ne le transmet jamais aux chasseurs comme force de déplacement.
 
 La direction de contournement dans le plan X/Y dépend de la position future du chasseur par rapport au centre du rocher ; si l'obstacle est exactement dans l'axe, une préférence individuelle prend le relais. Huit directions simples sont comparées une seule fois au début de la manœuvre pour favoriser un côté moins encombré par les autres menaces sélectionnées. Une direction par obstacle est **mémorisée jusqu'au dépassement**, ce qui évite les changements rapides gauche/droite. L'intensité dépend du déplacement latéral restant et du temps avant contact. La menace principale ne peut pas être complètement annulée par une correction secondaire opposée. Le rayon englobant, calculé sur les points réels des primitives, sert uniquement à anticiper : la destruction dépend du contact physique.
 
@@ -80,12 +84,47 @@ Les paramètres sont exportés dans l'Inspector du nœud racine de `blue_ship.ts
 | `cohesion_comfort_radius` | 12 m | Distance au centre local sans attraction |
 | `cohesion_weight` | 0,16 | Importance de la cohésion |
 | `alignment_weight` | 0,5 | Importance de l'alignement |
+| `recovery_radius` | 50 m | Portée locale maximale de récupération |
+| `recovery_weight` | 0,8 | Importance de l'attraction de récupération |
+| `recovery_speed` | 5 m/s | Amplitude souhaitée avant pondération et limites de vitesse |
+| `recovery_neighbor_threshold` | 2 | Récupération si moins de deux voisins normaux et un voisin éloigné visible |
 | `obstacle_detection_radius` | 44 m | Portée d'anticipation |
 | `obstacle_clearance` | 1,8 m | Marge supplémentaire autour du rocher |
 | `avoidance_weight` | 6 | Importance du contournement |
 | `max_avoidance_threats` | 3 | Maximum de menaces combinées |
 
-La marge géométrique d'anticipation du chasseur est de 2,5 m, en plus de `obstacle_clearance`. Dans Main : `ship_count = 10`, `initial_ship_spacing = 8,5 m`, `asteroid_rows = 24` (deux rochers par rangée), `asteroid_row_spacing = 34 m`, `asteroid_start_distance = 55 m`, `asteroid_horizontal_spread = 18 m`, `asteroid_vertical_spread = 12 m`, `simulation_seed = 20261012`, `camera_follow_speed = 3`. Les effectifs et la disposition restent centralisés et exportés pour de futures expériences. Une graine fixe facilite les comparaisons. Les positions initiales sont aléatoires avec un espacement minimal ; les rangées décrivent uniquement la distribution des obstacles, jamais une formation des chasseurs.
+La marge géométrique d'anticipation du chasseur est de 2,5 m, en plus de `obstacle_clearance`. Dans Main : `ship_count = 10`, `initial_ship_spacing = 8,5 m`, `simulation_seed = 20261012`, `camera_follow_speed = 3`, `streaming_enabled = true` et `metrics_update_interval = 0,4 s`. Les positions initiales sont aléatoires avec un espacement minimal. La séparation à 11 m, la zone critique à 7 m et les poids du M2 restent inchangés.
+
+## Champ continu et difficulté
+
+Le nœud `Asteroids`, piloté par `scripts/obstacle_field.gd`, renouvelle le champ à chaque pas physique depuis Main. Il prépare des configurations jusqu'à **320 m devant le chasseur le plus avancé**. Leur position X/Y utilise le centre actuel des survivants, avec une variation aléatoire ; la caméra ne participe pas à la génération. La première configuration commence à **55 m** devant. Une configuration est supprimée seulement lorsque toute son enveloppe est à plus de **100 m derrière le dernier survivant**, y compris un retardataire. Les références de menaces et de directions mémorisées sont effacées lors de la sortie d'un obstacle de l'arbre.
+
+Le budget est de **72 astéroïdes actifs maximum**, avec un à trois rochers par configuration et au plus douze nouvelles configurations par appel. Les listes gardent uniquement les configurations actives. Les collisions restent actives jusqu'à la suppression. Les paramètres du champ sont exportés sur `Main/Asteroids` : `spawn_ahead_distance`, `start_distance`, `cleanup_distance`, `max_active_asteroids`, `horizontal_spread = 18 m` et `vertical_spread = 12 m`. Les deux spreads règlent le décalage aléatoire du centre du pattern, multiplié par 0,45 ; les offsets du pattern s'ajoutent ensuite.
+
+| Pattern | Disposition |
+|---|---|
+| `SINGLE` | Un rocher isolé |
+| `OFFSET_PAIR` | Deux rochers décalés en X/Y et en profondeur |
+| `HORIZONTAL_PAIR` | Deux rochers côte à côte |
+| `VERTICAL_PAIR` | Deux rochers superposés verticalement |
+| `STAGGERED_CLUSTER` | Trois rochers répartis sur trois profondeurs |
+| `LARGE_WITH_COMPANIONS` | Un gros rocher central et deux petits compagnons décalés |
+
+Les patterns occupent un volume limité, avec des côtés ouverts pour une route gauche, droite, haute ou basse. Ils ne forment pas de mur fermé. La géométrie et les collisions des rochers sont celles du M2.
+
+| Niveau | Distance parcourue | Distance entre configurations | Échelle des écarts X/Y (`gap`) | Diamètres nominaux | Patterns autorisés |
+|---|---|---:|---:|---|---|
+| 1 — Facile | 0 à moins de 500 m | 56 m | 22 m | 1,2–3,7 m | Single, Offset pair |
+| 2 — Intermédiaire | 500 à moins de 1 100 m | 44 m | 18 m | 2–5,5 m | Offset pair, Horizontal pair, Vertical pair, Staggered cluster |
+| 3 — Difficile | À partir de 1 100 m | 34 m | 14 m | 4–6,5 m ; gros central 5,5–7 m et compagnons 1,2–2,2 m | Horizontal pair, Vertical pair, Staggered cluster, Large with companions |
+
+Les paramètres sont `intermediate_distance`, `hard_distance`, `easy_spacing`, `intermediate_spacing`, `hard_spacing`, `easy_gap`, `intermediate_gap` et `hard_gap`. `gap` est l'échelle du gabarit, pas une largeur libre entre surfaces. La difficulté d'une configuration dépend de sa distance en Z depuis l'origine du groupe : le champ plus difficile est ainsi préparé devant avant que le HUD annonce le franchissement du seuil. Aucun menu ou raccourci ne change la difficulté.
+
+La graine **20261012** initialise les chasseurs et un générateur indépendant pour le champ. À graine, paramètres et progression identiques, les patterns, positions, tailles et formes sont reproductibles. La progression affichée est le déplacement en Z du centre des survivants, conservé sans recul si une mort déplace ce centre.
+
+## Mesures du HUD
+
+Le HUD conserve les vivants, les morts et le mode caméra. Il ajoute la **distance parcourue**, la **difficulté**, l'**espacement moyen** et la **dispersion**, actualisés toutes les **0,4 s**. L'espacement est la moyenne de la distance de chaque survivant à son voisin vivant le plus proche. La dispersion est la plus grande distance entre un survivant et le centre mesuré du groupe. Avec moins de deux survivants, l'espacement affiche 0, faute de paire à mesurer. Les mesures n'influencent pas le comportement des agents.
 
 ## Architecture
 
@@ -93,11 +132,12 @@ La marge géométrique d'anticipation du chasseur est de 2,5 m, en plus de `obst
 project.godot                 Scène principale, affichage, couches physiques
 scenes/main.tscn              Environnement, lumières, caméra, conteneurs, HUD
 scenes/blue_ship.tscn         Silhouette du chasseur et deux collisions
-scenes/asteroid.tscn          Racine du deuxième type d'agent
+scenes/asteroid.tscn          Obstacle environnemental SpaceAsteroid
 scenes/explosion.tscn         Effet visuel temporaire
 scripts/main.gd              Initialisation, statistiques, centre d'observation
 scripts/blue_ship.gd          Perception, règles locales, anticipation, mort
 scripts/asteroid.gd           Géométrie procédurale et collisions des rochers
+scripts/obstacle_field.gd     Patterns, difficulté, streaming et nettoyage borné
 scripts/camera_controller.gd  Suivi, orbite libre, pan, zoom et recentrage
 scripts/space_environment.gd  Trois couches d'étoiles, planètes et lune
 scripts/explosion.gd          Animation des débris, puis suppression
@@ -125,7 +165,26 @@ Les 650 étoiles sont distribuées en trois couches : lointaine (environ 62 %), 
 
 La première commande importe les scènes et vérifie le parsing avec les warnings GDScript traités comme erreurs. La seconde vérifie le lancement, les agents/groupes/couches, la rotation des rochers, le vol 3D sans obstacles, le mouvement relatif en Z, la séparation, la perception locale, les quatre directions de contournement, deux dangers voisins, la destruction réelle, l'unicité du signal, l'explosion et le HUD après la dernière mort. Elle teste également le suivi, les événements clavier/souris de la caméra, les bindings AZERTY, le recentrage et le recyclage des trois couches d'étoiles après un grand déplacement libre. Une comparaison du même parcours en Suivi et Libre vérifie l'indépendance des trajectoires des agents. `--fixed-fps 60` conserve un pas physique de 1/60 s en exécutant le test aussi vite que possible.
 
-Validation effectuée avec **Godot 4.7.2 stable** le 12 octobre 2026, graine **20261012** : tests sans warning ni erreur, code de sortie 0. Sur **90 s** de simulation normale : **10 survivants, 0 mort**, rayon maximal du groupe de **26,70 m**, voisin le plus proche à **11,41 m en moyenne**, rapprochement minimal ponctuel de **5,52 m**. La moyenne porte sur les distances au voisin le plus proche, échantillonnées après la première seconde ; elle ne représente pas la moyenne de toutes les paires.
+Validation effectuée avec **Godot 4.7.2 stable** le 12 octobre 2026, graine **20261012**, pas fixe de 1/60 s : tests sans warning ni erreur, code de sortie 0.
+
+| Mesure | Scénario normal M3, 90 s |
+|---|---:|
+| Survivants / morts | 10 / 0 |
+| Distance parcourue / difficulté finale | 949,02 m / niveau 2 |
+| Voisin le plus proche en moyenne | 11,04 m |
+| Rapprochement minimal ponctuel | 6,71 m |
+| Dispersion maximale observée | 23,96 m |
+| Agents distincts isolés / durée maximale d'isolement | 0 / 0 s |
+| Astéroïdes actifs maximum | 29 |
+| Configurations générées / supprimées | 27 / 16 |
+
+La moyenne porte sur les distances au voisin le plus proche, échantillonnées après la première seconde ; elle ne représente pas la moyenne de toutes les paires. Un agent est considéré isolé lorsqu'aucun autre survivant n'est dans son rayon normal de 32 m. Le test contrôle aussi que les chasseurs continuent d'avancer, sans blocage durable.
+
+Le test de regroupement place volontairement dix agents dispersés, avec des voisins encore visibles à portée de récupération : en **30 s**, la dispersion passe de **49,00 à 19,92 m**, l'espacement final est de **10,82 m** et le minimum observé de **7,15 m**, sans observation sous le seuil critique de 7 m. La récupération est active à 42 m, absente à 70 m et n'ajoute pas d'attraction vers un compagnon déjà proche à 15 m.
+
+Le test de streaming avance artificiellement de **6 000 m**, y compris avec une dérive X/Y : les **six patterns** apparaissent, **175 configurations** sont générées et **162 supprimées**, avec au plus **38 astéroïdes actifs**. Deux exécutions de même graine produisent exactement la même signature ; une autre graine produit un champ différent. Les seuils, l'augmentation de densité, le HUD, la protection d'un retardataire et l'effacement des références d'un obstacle supprimé passent.
+
+Le parcours continu de **300 s** atteint **3 167,86 m**, en **difficulté 3**, avec **10 survivants, 0 mort**. Le champ continue à générer : **92 configurations créées, 79 supprimées**, **29 astéroïdes actifs à la fin**, **40 au maximum**, y compris après 180 s. Le maximum total mesuré est de **620 nœuds**. Le coût moyen par tick headless passe de **0,474 ms** sur 180–210 s à **0,486 ms** sur 270–300 s : pas de dérive notable sur ce parcours. Ce sont des mesures CPU de cette machine, pas des FPS de rendu.
 
 Les dix chasseurs présentent un mouvement relatif en X/Y/Z durant 16 s sans rochers. Deux chasseurs forcés à 2 m se séparent à 10,46 m en 3 s. Les quatre directions de contournement passent avec un gros astéroïde dans l'axe, ainsi que deux gros rochers côte à côte. Le stress séparé à 35 m/s, portée de perception nulle, garde les collisions activées et confirme la destruction unique, les débris et les compteurs. Les commandes F, pan clavier/vertical, orbite souris, molette et G passent. Deux parcours de 10 s en modes Suivi/Libre produisent exactement les mêmes positions et vitesses (écart maximal mesuré : 0). Le rendu OpenGL Compatibility et le modèle en gros plan ont été lancés et vérifiés visuellement.
 
@@ -137,14 +196,15 @@ Références API : [PrismMesh](https://docs.godotengine.org/en/stable/classes/cl
 
 ## Limites connues
 
-- Démonstration finie : 48 astéroïdes préplacés jusqu'à environ 840 m devant l'origine, soit environ 80 s de traversée. Après le champ, les chasseurs continuent leur vol naturel dans les étoiles. Aucun obstacle n'est généré au clavier ou durant le vol.
+- Le champ se renouvelle continuellement mais son budget reste borné. Un groupe exceptionnellement étiré en Z ou des paramètres extrêmes peuvent remplir le budget et retarder la préparation devant. Le nettoyage continue de protéger le dernier survivant.
 - Évitement réactif de trois menaces proches au maximum, sans planification d'un chemin complet. Les dix survivants sont validés pour la graine et les paramètres par défaut ; une collision reste possible si la vitesse augmente, la portée baisse, les marges diminuent ou les obstacles se resserrent.
-- La cohésion locale ne garantit pas la réunion de deux groupes qui se seraient séparés au-delà du rayon de perception. Aucun rappel global invisible n'impose un regroupement.
-- L'objectif de 7–12 m est un espacement courant, pas une distance minimale imposée. Les manœuvres peuvent créer des rapprochements brefs ; le test normal mesure 5,52 m au plus près.
+- La récupération ne peut réunir des groupes dont aucun membre ne voit l'autre à 50 m. Aucun rappel global invisible n'impose un regroupement.
+- L'objectif de 9–14 m est un espacement moyen, pas une distance minimale imposée. Les manœuvres peuvent créer des rapprochements brefs ; le test normal M3 mesure 6,71 m au plus près.
 - Les hitboxes simplifient et réduisent la silhouette des chasseurs ; les pointes des ailes, le bout du nez et les flammes ne sont pas intégralement couverts.
 - Les tailles des astéroïdes sont nominales : la déformation et les lobes irréguliers modifient leurs dimensions exactes.
 - L'émission cyan est visible en Compatibility, sans dépendre d'un halo de post-traitement.
+- Le déplacement continu en Z ne recale pas l'origine du monde ; des parcours beaucoup plus longs peuvent perdre en précision numérique. Le test de cinq minutes ne mesure pas une session de plusieurs heures ni les FPS graphiques sur cette durée.
 
 ## Hors de ce milestone et perspectives
 
-Aucun leader, ennemi, drone, tir, bombe, missile, énergie, mission, danger clavier, menu, pause ou niveau supplémentaire. Les astéroïdes tournent mais ne dérivent pas. Les effectifs, vitesses, rayons et disposition sont configurables ; aucun système de difficulté ou autre type d'agent n'est ajouté. Les prochaines étapes restent réservées à une demande pour un autre milestone.
+BlueShip est le seul agent implémenté. Les astéroïdes tournent mais ne dérivent pas. Les futurs drones de patrouille, intercepteurs et poseurs de mines restent réservés aux prochains milestones ; aucune de ces fonctionnalités n'est présente dans M3.

@@ -39,13 +39,42 @@ Le deuxième milestone a amélioré :
 - le décor spatial ;
 - une caméra de suivi et une caméra libre orbitale.
 
-Validation du scénario normal avec la seed `20261012` :
+Validation historique du M2 avec la seed `20261012` :
 
 - **10 survivants sur 10 après 90 secondes** ;
 - distance moyenne au voisin le plus proche : **11,41 m** ;
 - rapprochement minimal ponctuel : **5,52 m**.
 
 La survie est donc actuellement le comportement normal, tout en conservant la possibilité d'une collision réelle dans une situation difficile.
+
+### Milestone 3 — Regroupement et champ continu
+
+Le troisième milestone ajoute :
+
+- un regroupement autonome sans leader ni place attribuée ;
+- une récupération locale jusqu'à **50 m**, lorsqu'un chasseur a peu de voisins proches ;
+- un champ d'astéroïdes renouvelé devant les chasseurs et nettoyé derrière tous les survivants ;
+- six configurations : rocher isolé, paire décalée, paire horizontale, paire verticale, groupe décalé, gros rocher avec deux petits compagnons ;
+- trois difficultés automatiques selon la distance : facile avant **500 m**, intermédiaire jusqu'à **1 100 m**, difficile ensuite ;
+- l'affichage de la distance, de la difficulté, de l'espacement moyen et de la dispersion, actualisé toutes les **0,4 seconde**.
+
+Les astéroïdes sont des **obstacles de l'environnement et non des agents**. BlueShip reste le seul type d'agent implémenté. Les graphismes et les commandes de caméra du M2 sont conservés.
+
+Validation M3 sous Godot 4.7.2, seed `20261012`, pas fixe de 1/60 seconde, sans warning ni erreur :
+
+| Résultat | 90 secondes | 300 secondes |
+|---|---:|---:|
+| Survivants / morts | 10 / 0 | 10 / 0 |
+| Distance parcourue | 949,02 m | 3 167,86 m |
+| Difficulté finale | 2 | 3 |
+| Astéroïdes actifs au maximum | 29 | 40 |
+| Configurations créées / supprimées | 27 / 16 | 92 / 79 |
+
+Sur les 90 premières secondes, la distance moyenne au voisin le plus proche vaut **11,04 m**, le rapprochement minimal **6,71 m** et la dispersion maximale **23,96 m**. Aucun chasseur isolé au-delà du rayon normal de 32 m n'est observé. Les agents continuent d'avancer et le champ se renouvelle.
+
+Après cinq minutes, il reste **29 astéroïdes actifs**, sous le plafond de **72**. Le nombre total de nœuds atteint au plus **620**. Le temps moyen de calcul par tick en mode headless reste proche de **0,48 ms** dans les deux fenêtres mesurées en difficulté 3. Cette mesure ne représente pas les FPS du rendu.
+
+Les tests vérifient également les six configurations, leur reproduction avec la même graine, les seuils de difficulté, le nettoyage derrière un retardataire et l'absence de références invalides après suppression. Les tests de collisions réelles, de caméra et de mouvement du M2 restent valides.
 
 ---
 
@@ -62,6 +91,7 @@ Il peut :
 - se déplacer vers la gauche ou la droite ;
 - accélérer ou ralentir légèrement par rapport au groupe ;
 - détecter ses voisins ;
+- retrouver un voisin éloigné encore visible dans sa portée de récupération ;
 - détecter les obstacles ;
 - modifier sa trajectoire pour éviter une collision.
 
@@ -71,7 +101,8 @@ Son déplacement est obtenu par la combinaison de règles locales simples :
 - **séparation** : conserver une distance avec les autres chasseurs ;
 - **cohésion** : rester dans la même zone générale que le groupe ;
 - **alignement** : suivre approximativement la direction des voisins ;
-- **évitement** : contourner les obstacles détectés.
+- **évitement** : contourner les obstacles détectés ;
+- **récupération locale** : revenir doucement vers un voisin visible entre 32 et 50 m quand moins de deux voisins sont proches.
 
 Aucune formation géométrique précise n'est imposée.
 
@@ -80,6 +111,8 @@ Aucune formation géométrique précise n'est imposée.
 Les astéroïdes ne sont **pas considérés comme des agents** dans le modèle actuel.
 
 Ils constituent des éléments de l'environnement que les chasseurs doivent percevoir et éviter. Ils existent en plusieurs tailles et formes et tournent lentement.
+
+Le champ prépare des configurations jusqu'à 320 m devant le premier chasseur, autour de la position X/Y mesurée du groupe. Une configuration est retirée seulement lorsqu'elle est à plus de 100 m derrière le dernier survivant. La caméra et les chasseurs ne reçoivent aucune consigne de déplacement de ce système.
 
 De futurs types d'agents mobiles viendront perturber activement le groupe.
 
@@ -94,20 +127,20 @@ stateDiagram-v2
     [*] --> Navigation
 
     Navigation --> Evitement : danger détecté
-    Evitement --> Navigation : danger dépassé
-
-    Navigation --> EvitementCritique : obstacle très proche
-    Evitement --> EvitementCritique : distance critique
-    EvitementCritique --> Navigation : zone redevenue sûre
+    Evitement --> Navigation : danger dépassé, voisins proches
+    Evitement --> Regroupement : danger dépassé, voisin éloigné visible
+    Navigation --> Regroupement : peu de voisins proches, voisin éloigné visible
+    Regroupement --> Navigation : voisins retrouvés
+    Regroupement --> Evitement : danger détecté
 
     Navigation --> Detruit : collision
     Evitement --> Detruit : collision
-    EvitementCritique --> Detruit : collision
+    Regroupement --> Detruit : collision
 
     Detruit --> [*]
 ```
 
-Pendant la navigation et l'évitement, les règles de séparation, cohésion, alignement et wander continuent d'influencer le mouvement.
+Ces états décrivent la situation du chasseur. Les règles de séparation, cohésion, alignement, wander et récupération sont calculées continuellement. L'évitement prend la priorité en présence d'une menace. Aucun centre global ne sert de destination et aucun agent n'est téléporté.
 
 ---
 
@@ -125,6 +158,7 @@ flowchart LR
     A --> E[Séparation]
     A --> F[Cohésion]
     A --> G[Alignement]
+    A --> H[Récupération locale si voisin éloigné visible]
 ```
 
 ---
@@ -140,7 +174,14 @@ Le rapport final ne cherchera pas à détailler tout le code. Les paramètres pr
 - force d'alignement ;
 - rayon de détection des obstacles ;
 - force d'évitement ;
-- vitesse moyenne des chasseurs.
+- vitesse moyenne des chasseurs ;
+- portée de récupération : **50 m**, contre **32 m** pour les voisins normaux ;
+- seuil de récupération : moins de **2 voisins proches**, poids **0,8** ;
+- espacement des configurations : **56 / 44 / 34 m** selon la difficulté ;
+- seuils de progression : **500 / 1 100 m** ;
+- horizon de génération : **320 m**, nettoyage : **100 m** derrière tous les survivants, plafond : **72 astéroïdes**.
+
+La séparation douce commence à **11 m** et devient forte sous **7 m**. Ces valeurs validées en M2 sont conservées. La distance affichée vient de la progression en Z du centre mesuré des survivants. L'espacement affiché est la moyenne de leurs distances au voisin vivant le plus proche ; la dispersion est la plus grande distance au centre du groupe.
 
 Leur influence sera étudiée avec quelques configurations simples.
 
@@ -173,6 +214,8 @@ Le phénomène émergent principal est le **maintien et la reformation spontané
 Aucune position fixe n'est attribuée aux chasseurs. Chaque agent applique seulement des règles locales. Malgré cela, les chasseurs ont tendance à rester dans une même zone, à se séparer lorsqu'ils sont trop proches, à contourner les obstacles puis à retrouver le groupe.
 
 Ce phénomène sera étudié plus précisément lorsque de nouveaux agents perturbateurs seront introduits.
+
+Un test M3 commence avec dix chasseurs volontairement dispersés, dont certains n'ont aucun voisin dans les 32 m habituels mais voient encore un membre du groupe à moins de 50 m. En **30 secondes**, la dispersion diminue de **49,00 m à 19,92 m**. L'espacement final vaut **10,82 m**, avec un minimum observé de **7,15 m**. Ils retrouvent la même zone sans finir collés. À 70 m, un chasseur ne reçoit aucune attraction : la récupération reste locale et limitée.
 
 ---
 
@@ -236,8 +279,10 @@ Ces trois futurs agents apportent trois perturbations différentes : trajectoire
 
 La version actuelle comporte plusieurs simplifications :
 
-- champ spatial fini ;
+- champ continu testé pendant cinq minutes, sans recalage de l'origine pour les parcours très longs ;
 - évitement local sans planification complète de trajectoire ;
+- récupération impossible si tous les membres de l'autre groupe sont au-delà de 50 m ;
+- budget borné pouvant retarder la génération si le groupe s'étire exceptionnellement en profondeur ;
 - hitboxes simplifiées ;
 - obstacles principalement statiques ;
 - un seul type d'agent pour le moment ;
@@ -256,8 +301,8 @@ Chasseurs, astéroïdes, espace 3D, comportements de base, collision et HUD.
 ### M2 — Mouvement, espacement, graphismes et caméra ✅
 Mouvement 3D plus naturel, meilleure séparation, évitement renforcé, environnement visuel et caméra libre.
 
-### M3 — Cohésion du groupe, obstacles et difficulté progressive
-Affiner le regroupement naturel des chasseurs, conserver un espacement confortable et enrichir les configurations d'obstacles avec plusieurs niveaux de difficulté.
+### M3 — Cohésion du groupe, obstacles et difficulté progressive ✅
+Récupération locale, espacement conservé, champ continu borné, six configurations d'obstacles, trois difficultés automatiques et mesures du groupe. Tests de 90 et 300 secondes validés.
 
 ### M4 — Agent 2 : drone de patrouille
 Ajouter un agent mobile simple suivant des points de passage et perturbant le groupe par sa trajectoire.

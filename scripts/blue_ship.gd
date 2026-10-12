@@ -6,6 +6,8 @@ signal died(ship: BlueShip)
 const EXPLOSION_SCENE: PackedScene = preload("res://scenes/explosion.tscn")
 const SHIP_CLEARANCE: float = 2.5
 
+enum BehaviorState { NAVIGATION, AVOIDANCE, REGROUPING, DESTROYED }
+
 @export_category("Vol permanent")
 @export var forward_speed: float = 10.5
 @export var max_side_speed: float = 9.0
@@ -30,6 +32,12 @@ const SHIP_CLEARANCE: float = 2.5
 @export var cohesion_weight: float = 0.16
 @export var alignment_weight: float = 0.5
 
+@export_category("Recuperation locale")
+@export var recovery_radius: float = 50.0
+@export var recovery_weight: float = 0.8
+@export var recovery_speed: float = 5.0
+@export_range(1, 5, 1) var recovery_neighbor_threshold: int = 2
+
 @export_category("Anticipation des obstacles")
 @export var obstacle_detection_radius: float = 44.0
 @export var obstacle_clearance: float = 1.8
@@ -37,6 +45,8 @@ const SHIP_CLEARANCE: float = 2.5
 @export_range(1, 3, 1) var max_avoidance_threats: int = 3
 
 var alive: bool = true
+var behavior_state: BehaviorState = BehaviorState.NAVIGATION
+var neighbor_count: int = 0
 var _time: float = 0.0
 var _phases: Vector3 = Vector3.ZERO
 var _personal_frequency: float = 1.0
@@ -49,6 +59,7 @@ var _separation: Vector3 = Vector3.ZERO
 var _critical_separation: Vector3 = Vector3.ZERO
 var _cohesion: Vector3 = Vector3.ZERO
 var _alignment: Vector3 = Vector3.ZERO
+var _recovery: Vector3 = Vector3.ZERO
 
 @onready var _visuals: Node3D = $Visuals
 @onready var _right_exhaust: MeshInstance3D = $Visuals/RightExhaust
@@ -77,8 +88,10 @@ func _physics_process(delta: float) -> void:
 		+ _separation * separation_weight
 		+ _cohesion * cohesion_weight
 		+ _alignment * alignment_weight
+		+ _recovery * recovery_weight
 	)
 	var avoidance: Vector3 = _obstacle_avoidance() * avoidance_weight
+	_update_behavior_state(avoidance)
 	# Les règles du banc cèdent progressivement la priorité au contournement.
 	var avoidance_priority: float = clampf(avoidance.length() / maxf(max_side_speed, 0.1), 0.0, 1.0)
 	steering = steering * (1.0 - avoidance_priority * 0.75) + avoidance
@@ -113,9 +126,12 @@ func _update_neighbor_rules() -> void:
 	_critical_separation = Vector3.ZERO
 	_cohesion = Vector3.ZERO
 	_alignment = Vector3.ZERO
+	_recovery = Vector3.ZERO
 	var center: Vector3 = Vector3.ZERO
 	var average_velocity: Vector3 = Vector3.ZERO
 	var count: int = 0
+	var recovery_neighbor: BlueShip = null
+	var recovery_distance: float = INF
 	for node: Node in get_tree().get_nodes_in_group("blue_ships"):
 		var other: BlueShip = node as BlueShip
 		if other == null or other == self or not other.alive or other.is_queued_for_deletion():
@@ -123,6 +139,9 @@ func _update_neighbor_rules() -> void:
 		var away: Vector3 = global_position - other.global_position
 		var distance: float = away.length()
 		if distance > maxf(neighbor_radius, 0.0):
+			if distance <= maxf(recovery_radius, neighbor_radius) and distance < recovery_distance:
+				recovery_neighbor = other
+				recovery_distance = distance
 			continue
 		center += other.global_position
 		average_velocity += other.velocity
@@ -146,14 +165,32 @@ func _update_neighbor_rules() -> void:
 		if center_distance > maxf(cohesion_comfort_radius, 0.0) and center_distance > 0.001:
 			_cohesion = (to_center / center_distance) * minf(center_distance - maxf(cohesion_comfort_radius, 0.0), 8.0)
 		_alignment = (average_velocity / float(count) - velocity).limit_length(3.0)
+	neighbor_count = count
+	# Un petit groupe peut aussi chercher un voisin plus loin, sans coller son voisin proche.
+	if count < recovery_neighbor_threshold and recovery_neighbor != null:
+		var toward_neighbor: Vector3 = recovery_neighbor.global_position - global_position
+		if toward_neighbor.length_squared() > 0.001:
+			_recovery = toward_neighbor.normalized() * maxf(recovery_speed, 0.0)
+
+
+func _update_behavior_state(avoidance: Vector3) -> void:
+	if avoidance.length_squared() > 0.001:
+		behavior_state = BehaviorState.AVOIDANCE
+	elif _recovery.length_squared() > 0.001 and recovery_weight > 0.0:
+		behavior_state = BehaviorState.REGROUPING
+	else:
+		behavior_state = BehaviorState.NAVIGATION
 
 
 func _find_threats() -> void:
 	_threats.clear()
-	for remembered: SpaceAsteroid in _avoid_directions.keys():
-		if not is_instance_valid(remembered) or remembered.is_queued_for_deletion():
-			_avoid_directions.erase(remembered)
-		elif global_position.z < remembered.global_position.z - remembered.avoidance_radius - SHIP_CLEARANCE:
+	# Une clé peut contenir un Node libéré : vérifier sa validité avant tout cast typé.
+	for key: Variant in _avoid_directions.keys():
+		if not is_instance_valid(key):
+			_avoid_directions.erase(key)
+			continue
+		var remembered: SpaceAsteroid = key as SpaceAsteroid
+		if remembered.is_queued_for_deletion() or global_position.z < remembered.global_position.z - remembered.avoidance_radius - SHIP_CLEARANCE:
 			_avoid_directions.erase(remembered)
 	var heading: Vector3 = velocity.normalized() if velocity.length_squared() > 0.001 else Vector3.FORWARD
 	for node: Node in get_tree().get_nodes_in_group("asteroids"):
@@ -199,6 +236,7 @@ func _obstacle_avoidance() -> Vector3:
 		var obstacle: SpaceAsteroid = _threats[index]
 		if not _avoid_directions.has(obstacle):
 			_avoid_directions[obstacle] = _choose_avoidance_direction(obstacle)
+			obstacle.tree_exiting.connect(_forget_obstacle.bind(obstacle), CONNECT_ONE_SHOT)
 		var force: Vector3 = _avoidance_force(obstacle, _avoid_directions[obstacle])
 		if index == 0:
 			primary_force = force
@@ -209,6 +247,11 @@ func _obstacle_avoidance() -> Vector3:
 		var missing: float = primary_force.length() * 0.7 - result.dot(primary_direction)
 		result += primary_direction * maxf(missing, 0.0)
 	return result.limit_length(3.0)
+
+
+func _forget_obstacle(obstacle: SpaceAsteroid) -> void:
+	_avoid_directions.erase(obstacle)
+	_threats.erase(obstacle)
 
 
 func _avoidance_force(obstacle: SpaceAsteroid, direction: Vector3) -> Vector3:
@@ -271,6 +314,9 @@ func _die() -> void:
 	if not alive:
 		return
 	alive = false
+	behavior_state = BehaviorState.DESTROYED
+	_threats.clear()
+	_avoid_directions.clear()
 	velocity = Vector3.ZERO
 	set_physics_process(false)
 	remove_from_group("blue_ships")
