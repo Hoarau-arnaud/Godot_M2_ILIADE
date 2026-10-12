@@ -109,7 +109,9 @@ BlueShip peut maintenant tirer sur un **agent hostile devant lui**, si la situat
 
 Le tir est séparé du déplacement : le chasseur ne poursuit pas la cible et ne tourne pas pour viser. Le projectile cyan part du nez, sa direction est estimée une seule fois dans le cône frontal, puis il vole tout droit. Une cible derrière un rocher ne provoque pas de tir. L'évitement et la séparation critique restent prioritaires.
 
-Le HUD ajoute **Ennemis détruits** et affiche les **Hostiles actifs**. Leur nombre cible vaut **1 / 2 / 3** selon le niveau facile / intermédiaire / difficile. Le système de remplacement après 5 secondes est conservé. La zone de vol est un peu plus large, sans mur invisible, et la caméra continue à suivre les chasseurs bleus.
+Pour améliorer la lisibilité de la démonstration, le HUD affiche uniquement le nombre de chasseurs détruits. Les autres métriques restent utilisées en interne pour les tests et l'étude.
+
+Le nombre cible d'hostiles vaut **1 / 2 / 3** selon le niveau facile / intermédiaire / difficile. Le système de remplacement après 5 secondes est conservé. La zone de vol est un peu plus large, sans mur invisible, et la caméra continue à suivre les chasseurs bleus.
 
 Validation sous Godot 4.7.2, seed `20261012`, pas fixe de 1/60 seconde, sans warning ni erreur :
 
@@ -303,7 +305,7 @@ Le rapport final ne cherchera pas à détailler tout le code. Les paramètres pr
 - seuils de progression : **500 / 1 100 m** ;
 - horizon de génération : **320 m**, nettoyage : **100 m** derrière tous les survivants, plafond : **72 astéroïdes**.
 
-La séparation douce commence à **11 m** et devient forte sous **7 m**. Ces valeurs validées en M2 sont conservées. La distance affichée vient de la progression en Z du centre mesuré des survivants. L'espacement affiché est la moyenne de leurs distances au voisin vivant le plus proche ; la dispersion est la plus grande distance au centre du groupe.
+La séparation douce commence à **11 m** et devient forte sous **7 m**. Ces valeurs validées en M2 sont conservées. La distance mesurée vient de la progression en Z du centre des survivants. L'espacement est la moyenne de leurs distances au voisin vivant le plus proche ; la dispersion est la plus grande distance au centre du groupe.
 
 Pour le drone, les paramètres principaux sont la distance entre waypoints (**55 m**), leur portée d'arrivée (**7 m**), les écarts X/Y (**38 / 24 m**), la portée des astéroïdes (**44 m**) et la distance de sécurité envers les chasseurs (**10 m**). L'évitement léger du drone a un poids de **1,2** ; l'évitement mobile du BlueShip a un poids de **7** avec une anticipation de **3 secondes**.
 
@@ -338,7 +340,7 @@ La caméra sert uniquement à observer la simulation et n'influence pas les agen
 - **2** : Intermédiaire manuel ;
 - **3** : Difficile manuel.
 
-Le HUD précise **AUTO** ou **MANUEL**. Un retour à AUTO à 800 m affiche le niveau 2. Les obstacles déjà présents restent en place ; le champ se renouvelle selon le mode choisi. Le nombre cible de drones passe à 1 / 2 / 3 selon le niveau. Une baisse de niveau retire le surplus sans score.
+Un retour à AUTO à 800 m reprend le niveau 2. Les obstacles déjà présents restent en place ; le champ se renouvelle selon le mode choisi. Le nombre cible de drones passe à 1 / 2 / 3 selon le niveau. Une baisse de niveau retire le surplus sans score.
 
 ---
 

@@ -21,7 +21,7 @@ La caméra démarre en **Suivi** : elle suit le barycentre des survivants et s'�
 | G ou Home | Recentrer sur le groupe |
 | F | Alterner Suivi / Libre |
 
-Les touches sont définies par des **Input Actions dans `project.godot`**, modifiables dans l'éditeur : `camera_toggle`, `camera_recenter`, `camera_forward`, `camera_backward`, `camera_left`, `camera_right`, `camera_up`, `camera_down`, `camera_orbit`, `camera_zoom_in`, `camera_zoom_out`. Q est réservé au déplacement à gauche, ce qui évite le conflit AZERTY avec la descente. Le pan vaut 24 m/s. Le HUD affiche discrètement le mode et les touches F/G. La caméra ne transmet aucune force ou consigne aux agents.
+Les touches sont définies par des **Input Actions dans `project.godot`**, modifiables dans l'éditeur : `camera_toggle`, `camera_recenter`, `camera_forward`, `camera_backward`, `camera_left`, `camera_right`, `camera_up`, `camera_down`, `camera_orbit`, `camera_zoom_in`, `camera_zoom_out`. Q est réservé au déplacement à gauche, ce qui évite le conflit AZERTY avec la descente. Le pan vaut 24 m/s. La caméra ne transmet aucune force ou consigne aux agents.
 
 ## Agents et obstacles actuels
 
@@ -193,20 +193,18 @@ M4 protège également les drones encore actifs lors du nettoyage : un rocher ne
 
 | Touche | Mode | Input Action |
 |---|---|---|
-| **0** | AUTO : niveau affiché selon la distance, seuils 500 / 1 100 m | `difficulty_auto` |
+| **0** | AUTO : niveau selon la distance, seuils 500 / 1 100 m | `difficulty_auto` |
 | **1** | MANUEL : Facile | `difficulty_easy` |
 | **2** | MANUEL : Intermédiaire | `difficulty_medium` |
 | **3** | MANUEL : Difficile | `difficulty_hard` |
 
-Les bindings reconnaissent les chiffres et leur position physique sur la rangée supérieure, y compris en AZERTY. Le mode initial est AUTO (`manual_difficulty = 0`). En MANUEL, toutes les **nouvelles** configurations utilisent le niveau choisi, quelle que soit la distance. Les obstacles existants restent en place : le changement devient visible à mesure que le champ se renouvelle. **0** reprend immédiatement le niveau affiché correspondant à la progression réelle, par exemple 2 à 800 m. Le HUD porte `[AUTO]` ou `[MANUEL]` et rappelle les quatre touches. La distance continue à s'accumuler en manuel.
+Les bindings reconnaissent les chiffres et leur position physique sur la rangée supérieure, y compris en AZERTY. Le mode initial est AUTO (`manual_difficulty = 0`). En MANUEL, toutes les **nouvelles** configurations utilisent le niveau choisi, quelle que soit la distance. Les obstacles existants restent en place : le changement devient visible à mesure que le champ se renouvelle. **0** reprend immédiatement le niveau correspondant à la progression réelle, par exemple 2 à 800 m. La distance continue à s'accumuler en manuel.
 
-La graine **20261012** initialise les chasseurs et un générateur indépendant pour le champ. À graine, paramètres et progression identiques, les patterns, positions, tailles et formes sont reproductibles. La progression affichée est le déplacement en Z du centre des survivants, conservé sans recul si une mort déplace ce centre.
+La graine **20261012** initialise les chasseurs et un générateur indépendant pour le champ. À graine, paramètres et progression identiques, les patterns, positions, tailles et formes sont reproductibles. La progression mesurée est le déplacement en Z du centre des survivants, conservé sans recul si une mort déplace ce centre.
 
-## Mesures du HUD
+## HUD
 
-Le HUD conserve les vivants, les morts et le mode caméra. Il ajoute la **distance parcourue**, la **difficulté**, l'**espacement moyen** et la **dispersion**, actualisés toutes les **0,4 s**. L'espacement est la moyenne de la distance de chaque survivant à son voisin vivant le plus proche. La dispersion est la plus grande distance entre un survivant et le centre mesuré du groupe. Avec moins de deux survivants, l'espacement affiche 0, faute de paire à mesurer. Les mesures n'influencent pas le comportement des agents.
-
-Le HUD indique **Hostiles actifs : X**, **Ennemis détruits : X**, le mode de difficulté et le rappel 0/1/2/3. Les morts affichés comptent uniquement les BlueShip ; le score compte les drones détruits par dégâts, une seule fois.
+Pour améliorer la lisibilité de la démonstration, le HUD affiche uniquement le nombre de chasseurs détruits. Les autres métriques restent utilisées en interne pour les tests et l'étude.
 
 ## Architecture
 
@@ -242,7 +240,7 @@ Les 650 étoiles sont distribuées en trois couches : lointaine (environ 62 %), 
 - Signaux : `BlueShip.died`, `BlueShip.fired`, `PatrolDrone.died`, `PatrolDrone.destroyed` et `BlueLaser.hit_hostile`. Main compte les tirs, impacts et destructions sans conserver les projectiles supprimés.
 - BlueShip : couche **1** (bit 1), masque **6** (astéroïdes et drones). PatrolDrone : couche **3** (bit 4), masque **2** (astéroïdes). Astéroïdes : couche **2** (bit 2), masque **0**.
 - Les chasseurs se séparent localement sans collision physique entre eux. Leur balayage détecte les rochers et les drones. Le drone ne se bloque pas physiquement sur un BlueShip ; sa correction locale assure l'évitement réciproque, et un contact détecté par le chasseur reste fatal pour celui-ci.
-- Le HUD affiche « Tous les chasseurs ont été détruits » après la dernière mort bleue. La caméra conserve alors son centre.
+- Le HUD conserve « Vaisseaux détruits : X » après la dernière mort bleue. La caméra conserve alors son centre.
 
 ## Validation
 
