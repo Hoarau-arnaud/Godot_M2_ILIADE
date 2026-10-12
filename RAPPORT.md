@@ -180,26 +180,7 @@ Ce phénomène sera étudié plus précisément lorsque de nouveaux agents pertu
 
 Les astéroïdes resteront des obstacles de l'environnement. Le projet vise désormais quatre types d'agents simples à distinguer et à expliquer.
 
-### Agent 2 — Leader jaune
-
-Le leader sert de guide mobile au groupe sans imposer de formation fixe. Il se déplace dans l'espace, évite les obstacles et fournit une référence générale aux chasseurs.
-
-Les chasseurs ne doivent pas se coller au leader : l'attraction vers lui ne devient importante que lorsqu'ils s'en éloignent trop. Dans une zone de confort, ils conservent surtout leurs règles locales de séparation, cohésion, alignement et wander.
-
-Comportement prévu :
-
-```mermaid
-stateDiagram-v2
-    [*] --> Navigation
-    Navigation --> Evitement : obstacle détecté
-    Evitement --> Navigation : danger dépassé
-    Navigation --> Ralentissement : groupe trop éloigné
-    Ralentissement --> Navigation : groupe revenu à distance normale
-```
-
-Le leader permet d'obtenir un essaim plus cohérent sans programmer une formation géométrique précise.
-
-### Agent 3 — Drone de patrouille
+### Agent 2 — Drone de patrouille
 
 Agent mobile simple qui suit plusieurs points de passage en 3D et peut traverser la trajectoire des chasseurs.
 
@@ -214,7 +195,7 @@ stateDiagram-v2
 
 Il crée une perturbation mobile prévisible sans poursuivre directement les chasseurs.
 
-### Agent 4 — Intercepteur hostile
+### Agent 3 — Intercepteur hostile
 
 Agent réactif qui patrouille, détecte un chasseur proche, le poursuit pendant un temps limité puis se désengage.
 
@@ -230,7 +211,24 @@ stateDiagram-v2
 
 Cet agent introduira une perturbation directement liée au comportement des chasseurs.
 
-Un poseur de mines reste une extension possible après ces quatre types d'agents.
+### Agent 4 — Poseur de mines
+
+Agent qui traverse une zone, choisit un point de dépôt, crée un danger statique puis quitte la zone ou recommence ailleurs.
+
+Les mines créées seront des **obstacles de l'environnement**, pas des agents supplémentaires.
+
+Comportement prévu :
+
+```mermaid
+stateDiagram-v2
+    [*] --> Entree
+    Entree --> Deplacement : zone atteinte
+    Deplacement --> Depot : point de dépôt atteint
+    Depot --> Sortie : mine déposée
+    Sortie --> Entree : nouveau passage
+```
+
+Ces trois futurs agents apportent trois perturbations différentes : trajectoire mobile, poursuite active et modification de l'environnement.
 
 ---
 
@@ -258,23 +256,23 @@ Chasseurs, astéroïdes, espace 3D, comportements de base, collision et HUD.
 ### M2 — Mouvement, espacement, graphismes et caméra ✅
 Mouvement 3D plus naturel, meilleure séparation, évitement renforcé, environnement visuel et caméra libre.
 
-### M3 — Agent 2 : leader jaune
-Ajouter un leader autonome servant de référence au groupe. Les chasseurs restent proches si la situation le permet, tout en conservant un espacement confortable et sans formation imposée.
+### M3 — Cohésion du groupe, obstacles et difficulté progressive
+Affiner le regroupement naturel des chasseurs, conserver un espacement confortable et enrichir les configurations d'obstacles avec plusieurs niveaux de difficulté.
 
-### M4 — Obstacles et difficulté progressive
-Enrichir les configurations d'obstacles et créer plusieurs niveaux de difficulté.
-
-### M5 — Agent 3 : drone de patrouille
+### M4 — Agent 2 : drone de patrouille
 Ajouter un agent mobile simple suivant des points de passage et perturbant le groupe par sa trajectoire.
 
-### M6 — Agent 4 : intercepteur hostile
+### M5 — Agent 3 : intercepteur hostile
 Ajouter un agent capable de détecter puis poursuivre temporairement un chasseur.
+
+### M6 — Agent 4 : poseur de mines
+Ajouter un agent capable de modifier l'environnement en déposant de nouveaux dangers.
 
 ### M7 — Événements interactifs et scénarios
 Ajouter des touches permettant de déclencher volontairement des vagues d'obstacles ou l'arrivée de certains agents pendant la démonstration.
 
 ### M8 — Étude expérimentale
-Comparer plusieurs paramètres, états initiaux et niveaux de difficulté. Mesurer notamment les survivants, les morts, l'espacement, la distance au leader et la dispersion.
+Comparer plusieurs paramètres, états initiaux et niveaux de difficulté. Mesurer notamment les survivants, les morts, l'espacement et la dispersion.
 
 ### M9 — Armes des chasseurs
 Dans les niveaux avancés seulement :
