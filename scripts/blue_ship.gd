@@ -3,6 +3,7 @@ extends CharacterBody3D
 
 signal died(ship: BlueShip)
 signal fired(projectile: BlueLaser)
+signal projectile_dodge_started
 
 const EXPLOSION_SCENE: PackedScene = preload("res://scenes/explosion.tscn")
 const LASER_SCENE: PackedScene = preload("res://scenes/blue_laser.tscn")
@@ -52,6 +53,14 @@ enum CombatState { NO_TARGET, TARGET_VISIBLE, COOLDOWN }
 @export var mobile_prediction_time: float = 3.0
 @export var mobile_avoidance_weight: float = 7.0
 
+@export_category("Survie aux tirs ennemis")
+@export var max_health: int = 3
+@export var hostile_projectile_detection_radius: float = 32.0
+@export var projectile_prediction_time: float = 2.0
+@export var projectile_safety_distance: float = 4.0
+@export var projectile_avoidance_weight: float = 8.0
+@export var projectile_direction_memory: float = 0.45
+
 @export_category("Combat frontal")
 @export var combat_enabled: bool = true
 @export var combat_detection_radius: float = 60.0
@@ -60,6 +69,14 @@ enum CombatState { NO_TARGET, TARGET_VISIBLE, COOLDOWN }
 @export var fire_cooldown: float = 0.7
 
 var alive: bool = true
+var health: int = 3
+var projectile_avoidance_active: bool = false
+var projectile_threat_count: int = 0
+var projectile_dodge_count: int = 0
+var projectile_dodge_ticks: int = 0
+var _projectile_directions: Dictionary[EnemyLaser, Vector3] = {}
+var _projectile_memory_until: Dictionary[EnemyLaser, float] = {}
+var _hit_flash_time: float = 0.0
 var behavior_state: BehaviorState = BehaviorState.NAVIGATION
 var neighbor_count: int = 0
 var critical_separation_active: bool = false
@@ -71,7 +88,7 @@ var _personal_cooldown: float = 0.7
 var _fire_timer: float = 0.0
 var mobile_threat_count: int = 0
 var mobile_avoidance_ticks: int = 0
-var _drone_directions: Dictionary[PatrolDrone, Vector3] = {}
+var _drone_directions: Dictionary[CharacterBody3D, Vector3] = {}
 var _time: float = 0.0
 var _phases: Vector3 = Vector3.ZERO
 var _personal_frequency: float = 1.0
@@ -90,9 +107,11 @@ var _recovery: Vector3 = Vector3.ZERO
 @onready var _right_exhaust: MeshInstance3D = $Visuals/RightExhaust
 @onready var _left_exhaust: MeshInstance3D = $Visuals/LeftExhaust
 @onready var _muzzle: Marker3D = $Visuals/Muzzle
+@onready var _hit_flash: OmniLight3D = $Visuals/HitFlash
 
 
 func _ready() -> void:
+	health = maxi(max_health, 1)
 	var random: RandomNumberGenerator = RandomNumberGenerator.new()
 	random.seed = individual_seed
 	_phases = Vector3(random.randf(), random.randf(), random.randf()) * TAU
@@ -123,11 +142,19 @@ func _physics_process(delta: float) -> void:
 	)
 	var avoidance: Vector3 = _obstacle_avoidance() * avoidance_weight
 	avoidance += _mobile_avoidance() * mobile_avoidance_weight
+	var collision_priority: float = clampf(avoidance.length() / maxf(max_side_speed, 0.1), 0.0, 1.0)
+	var projectile_steering: Vector3 = _projectile_avoidance() * projectile_avoidance_weight
+	var projectile_priority: float = clampf(projectile_steering.length() / maxf(max_side_speed, 0.1), 0.0, 1.0)
+	avoidance += projectile_steering * (1.0 - collision_priority)
 	_update_behavior_state(avoidance)
 	# Les règles du banc cèdent progressivement la priorité au contournement.
 	var avoidance_priority: float = clampf(avoidance.length() / maxf(max_side_speed, 0.1), 0.0, 1.0)
 	steering = steering * (1.0 - avoidance_priority * 0.75) + avoidance
-	steering += _critical_separation * separation_weight * avoidance_priority * 0.75
+	# Pendant une esquive, la séparation cède elle aussi devant les deux dangers.
+	var separation_priority: float = 1.0
+	if projectile_avoidance_active:
+		separation_priority = (1.0 - projectile_priority) * (1.0 - collision_priority)
+	steering += _critical_separation * separation_weight * avoidance_priority * 0.75 * separation_priority
 	var side_velocity: Vector2 = Vector2(steering.x, steering.y).limit_length(maxf(max_side_speed, 0.0))
 	var base_speed: float = maxf(forward_speed * _speed_factor, 0.1)
 	var variation_limit: float = maxf(max_forward_variation, 0.0)
@@ -140,7 +167,8 @@ func _physics_process(delta: float) -> void:
 	var collision: KinematicCollision3D = move_and_collide(velocity * delta, false, 0.001, true)
 	if collision != null:
 		var obstacle: SpaceAsteroid = collision.get_collider() as SpaceAsteroid
-		if obstacle != null or collision.get_collider() is PatrolDrone:
+		var collider: Node = collision.get_collider() as Node
+		if obstacle != null or (collider != null and collider.is_in_group("hostile_agents")):
 			_die()
 	if alive:
 		_update_combat(delta)
@@ -194,7 +222,7 @@ func _update_combat(delta: float) -> void:
 	if not combat_target.tree_exiting.is_connected(callback):
 		combat_target.tree_exiting.connect(callback, CONNECT_ONE_SHOT)
 	# Le combat ne modifie aucune vitesse, force ou orientation de navigation.
-	if _fire_timer > 0.0 or behavior_state == BehaviorState.AVOIDANCE or critical_separation_active:
+	if _fire_timer > 0.0 or behavior_state == BehaviorState.AVOIDANCE or projectile_avoidance_active or critical_separation_active:
 		return
 	if _muzzle.global_position.distance_to(combat_target.global_position) > maxf(firing_range, 0.0):
 		return
@@ -372,19 +400,19 @@ func _mobile_avoidance() -> Vector3:
 		if not is_instance_valid(key):
 			_drone_directions.erase(key)
 			continue
-		var drone: PatrolDrone = key as PatrolDrone
-		if not drone.alive or global_position.distance_to(drone.global_position) > maxf(mobile_detection_radius, 0.0):
+		var drone: CharacterBody3D = key as CharacterBody3D
+		if not bool(drone.get("alive")) or global_position.distance_to(drone.global_position) > maxf(mobile_detection_radius, 0.0):
 			_drone_directions.erase(drone)
 	var result: Vector3 = Vector3.ZERO
-	for node: Node in get_tree().get_nodes_in_group("patrol_drones"):
-		var drone: PatrolDrone = node as PatrolDrone
-		if drone == null or not drone.alive or drone.is_queued_for_deletion():
+	for node: Node in get_tree().get_nodes_in_group("hostile_agents"):
+		var drone: CharacterBody3D = node as CharacterBody3D
+		if drone == null or not bool(drone.get("alive")) or drone.is_queued_for_deletion():
 			continue
 		var offset: Vector3 = drone.global_position - global_position
 		if offset.length() > maxf(mobile_detection_radius, 0.0):
 			continue
 		var relative_velocity: Vector3 = drone.velocity - velocity
-		var clearance: float = SHIP_CLEARANCE + PatrolDrone.BODY_CLEARANCE + maxf(obstacle_clearance, 0.0)
+		var clearance: float = SHIP_CLEARANCE + 2.2 + maxf(obstacle_clearance, 0.0)
 		var prediction: Vector2 = MobileAvoidance.approach(offset, relative_velocity, mobile_prediction_time)
 		if prediction.y >= clearance or (prediction.x <= 0.0 and offset.dot(relative_velocity) >= 0.0 and offset.length() > clearance):
 			continue
@@ -400,8 +428,81 @@ func _mobile_avoidance() -> Vector3:
 	return result.limit_length(3.0)
 
 
-func _forget_drone(drone: PatrolDrone) -> void:
+func _forget_drone(drone: CharacterBody3D) -> void:
 	_drone_directions.erase(drone)
+
+
+func _projectile_avoidance() -> Vector3:
+	var was_active: bool = projectile_avoidance_active
+	projectile_threat_count = 0
+	var result: Vector3 = Vector3.ZERO
+	for key: Variant in _projectile_directions.keys():
+		if not is_instance_valid(key):
+			_projectile_directions.erase(key)
+			_projectile_memory_until.erase(key)
+			continue
+		var remembered: EnemyLaser = key as EnemyLaser
+		if remembered.is_queued_for_deletion() or _time > _projectile_memory_until[remembered]:
+			_forget_projectile(remembered)
+	for node: Node in get_tree().get_nodes_in_group("hostile_projectiles"):
+		var projectile: EnemyLaser = node as EnemyLaser
+		if projectile == null or projectile.is_queued_for_deletion():
+			continue
+		var offset: Vector3 = projectile.global_position - global_position
+		if offset.length() > maxf(hostile_projectile_detection_radius, 0.0):
+			continue
+		var relative_velocity: Vector3 = projectile.velocity - velocity
+		# Seuls les tirs entrants dont le passage prédit est trop proche comptent.
+		if offset.dot(relative_velocity) >= 0.0:
+			continue
+		var prediction: Vector2 = MobileAvoidance.approach(offset, relative_velocity, projectile_prediction_time)
+		if prediction.x <= 0.0:
+			continue
+		var dangerous: bool = prediction.y < maxf(projectile_safety_distance, 0.1)
+		# Une courte persistance évite d'alterner esquive/navigation à la frontière de 4 m.
+		if not dangerous and not _projectile_directions.has(projectile):
+			continue
+		if not _projectile_directions.has(projectile):
+			_projectile_directions[projectile] = MobileAvoidance.direction(offset, relative_velocity, prediction.x, _preferred_avoidance)
+			var callback: Callable = _forget_projectile.bind(projectile)
+			if not projectile.tree_exiting.is_connected(callback):
+				projectile.tree_exiting.connect(callback, CONNECT_ONE_SHOT)
+		if dangerous:
+			_projectile_memory_until[projectile] = _time + maxf(projectile_direction_memory, 0.05)
+		var force: Vector3 = MobileAvoidance.steering(offset, relative_velocity, prediction.x, projectile_safety_distance, _projectile_directions[projectile])
+		# Garder la première menace si deux rafales demandent des corrections opposées.
+		if result.length_squared() > 0.01 and force.dot(result) < 0.0:
+			force *= 0.25
+		result += force
+		projectile_threat_count += 1
+	projectile_avoidance_active = projectile_threat_count > 0
+	if projectile_avoidance_active:
+		projectile_dodge_ticks += 1
+		if not was_active:
+			projectile_dodge_count += 1
+			projectile_dodge_started.emit()
+	return result.limit_length(3.0)
+
+
+func _forget_projectile(projectile: EnemyLaser) -> void:
+	_projectile_directions.erase(projectile)
+	_projectile_memory_until.erase(projectile)
+
+
+func take_damage(amount: int) -> void:
+	if not alive or amount <= 0:
+		return
+	health = maxi(health - amount, 0)
+	if health == 0:
+		_die()
+	else:
+		_hit_flash_time = 0.14
+		_hit_flash.light_energy = 2.5
+
+
+func _process(delta: float) -> void:
+	_hit_flash_time = maxf(_hit_flash_time - delta, 0.0)
+	_hit_flash.light_energy = 2.5 * _hit_flash_time / 0.14
 
 
 func _forget_obstacle(obstacle: SpaceAsteroid) -> void:
@@ -469,12 +570,16 @@ func _die() -> void:
 	if not alive:
 		return
 	alive = false
+	health = 0
 	combat_target = null
 	combat_state = CombatState.NO_TARGET
 	behavior_state = BehaviorState.DESTROYED
 	_threats.clear()
 	_avoid_directions.clear()
 	_drone_directions.clear()
+	_projectile_directions.clear()
+	_projectile_memory_until.clear()
+	projectile_avoidance_active = false
 	velocity = Vector3.ZERO
 	set_physics_process(false)
 	remove_from_group("blue_ships")
