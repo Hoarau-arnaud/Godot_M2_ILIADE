@@ -29,6 +29,7 @@ var maximum_active_observed: int = 0
 var generated_configuration_count: int = 0
 var removed_configuration_count: int = 0
 var patterns_generated: Dictionary[int, int] = {}
+var difficulty_override: int = 0
 var _random: RandomNumberGenerator = RandomNumberGenerator.new()
 var _seed: int = 0
 var _origin_z: float = 0.0
@@ -78,6 +79,8 @@ func advance(center: Vector3, front_z: float, rear_z: float) -> void:
 	var safety_limit: int = 0
 	while _next_z >= front_z - maxf(spawn_ahead_distance, 80.0) and active_asteroid_count + 3 <= max_active_asteroids:
 		var level: int = difficulty_for_distance(maxf(_origin_z - _next_z, 0.0))
+		if difficulty_override > 0:
+			level = clampi(difficulty_override, 1, 3)
 		var choices: Array[int] = allowed_patterns(level)
 		var pattern: int = choices[_random.randi_range(0, choices.size() - 1)]
 		_spawn_configuration(pattern, level, center, _next_z)

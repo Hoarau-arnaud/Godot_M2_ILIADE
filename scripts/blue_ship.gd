@@ -44,9 +44,17 @@ enum BehaviorState { NAVIGATION, AVOIDANCE, REGROUPING, DESTROYED }
 @export var avoidance_weight: float = 6.0
 @export_range(1, 3, 1) var max_avoidance_threats: int = 3
 
+@export_category("Dangers mobiles")
+@export var mobile_detection_radius: float = 44.0
+@export var mobile_prediction_time: float = 3.0
+@export var mobile_avoidance_weight: float = 7.0
+
 var alive: bool = true
 var behavior_state: BehaviorState = BehaviorState.NAVIGATION
 var neighbor_count: int = 0
+var mobile_threat_count: int = 0
+var mobile_avoidance_ticks: int = 0
+var _drone_directions: Dictionary[PatrolDrone, Vector3] = {}
 var _time: float = 0.0
 var _phases: Vector3 = Vector3.ZERO
 var _personal_frequency: float = 1.0
@@ -91,6 +99,7 @@ func _physics_process(delta: float) -> void:
 		+ _recovery * recovery_weight
 	)
 	var avoidance: Vector3 = _obstacle_avoidance() * avoidance_weight
+	avoidance += _mobile_avoidance() * mobile_avoidance_weight
 	_update_behavior_state(avoidance)
 	# Les règles du banc cèdent progressivement la priorité au contournement.
 	var avoidance_priority: float = clampf(avoidance.length() / maxf(max_side_speed, 0.1), 0.0, 1.0)
@@ -108,7 +117,7 @@ func _physics_process(delta: float) -> void:
 	var collision: KinematicCollision3D = move_and_collide(velocity * delta, false, 0.001, true)
 	if collision != null:
 		var obstacle: SpaceAsteroid = collision.get_collider() as SpaceAsteroid
-		if obstacle != null:
+		if obstacle != null or collision.get_collider() is PatrolDrone:
 			_die()
 
 
@@ -249,6 +258,44 @@ func _obstacle_avoidance() -> Vector3:
 	return result.limit_length(3.0)
 
 
+func _mobile_avoidance() -> Vector3:
+	mobile_threat_count = 0
+	for key: Variant in _drone_directions.keys():
+		if not is_instance_valid(key):
+			_drone_directions.erase(key)
+			continue
+		var drone: PatrolDrone = key as PatrolDrone
+		if not drone.alive or global_position.distance_to(drone.global_position) > maxf(mobile_detection_radius, 0.0):
+			_drone_directions.erase(drone)
+	var result: Vector3 = Vector3.ZERO
+	for node: Node in get_tree().get_nodes_in_group("patrol_drones"):
+		var drone: PatrolDrone = node as PatrolDrone
+		if drone == null or not drone.alive or drone.is_queued_for_deletion():
+			continue
+		var offset: Vector3 = drone.global_position - global_position
+		if offset.length() > maxf(mobile_detection_radius, 0.0):
+			continue
+		var relative_velocity: Vector3 = drone.velocity - velocity
+		var clearance: float = SHIP_CLEARANCE + PatrolDrone.BODY_CLEARANCE + maxf(obstacle_clearance, 0.0)
+		var prediction: Vector2 = MobileAvoidance.approach(offset, relative_velocity, mobile_prediction_time)
+		if prediction.y >= clearance or (prediction.x <= 0.0 and offset.dot(relative_velocity) >= 0.0 and offset.length() > clearance):
+			continue
+		if not _drone_directions.has(drone):
+			_drone_directions[drone] = MobileAvoidance.direction(offset, relative_velocity, prediction.x, Vector3.UP)
+			var callback: Callable = _forget_drone.bind(drone)
+			if not drone.tree_exiting.is_connected(callback):
+				drone.tree_exiting.connect(callback, CONNECT_ONE_SHOT)
+		result += MobileAvoidance.steering(offset, relative_velocity, prediction.x, clearance, _drone_directions[drone])
+		mobile_threat_count += 1
+	if mobile_threat_count > 0:
+		mobile_avoidance_ticks += 1
+	return result.limit_length(3.0)
+
+
+func _forget_drone(drone: PatrolDrone) -> void:
+	_drone_directions.erase(drone)
+
+
 func _forget_obstacle(obstacle: SpaceAsteroid) -> void:
 	_avoid_directions.erase(obstacle)
 	_threats.erase(obstacle)
@@ -317,6 +364,7 @@ func _die() -> void:
 	behavior_state = BehaviorState.DESTROYED
 	_threats.clear()
 	_avoid_directions.clear()
+	_drone_directions.clear()
 	velocity = Vector3.ZERO
 	set_physics_process(false)
 	remove_from_group("blue_ships")

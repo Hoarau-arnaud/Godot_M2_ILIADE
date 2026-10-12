@@ -58,7 +58,7 @@ Le troisième milestone ajoute :
 - trois difficultés automatiques selon la distance : facile avant **500 m**, intermédiaire jusqu'à **1 100 m**, difficile ensuite ;
 - l'affichage de la distance, de la difficulté, de l'espacement moyen et de la dispersion, actualisé toutes les **0,4 seconde**.
 
-Les astéroïdes sont des **obstacles de l'environnement et non des agents**. BlueShip reste le seul type d'agent implémenté. Les graphismes et les commandes de caméra du M2 sont conservés.
+Les astéroïdes sont des **obstacles de l'environnement et non des agents**. À la fin de M3, BlueShip était le seul type d'agent implémenté. Les graphismes et les commandes de caméra du M2 sont conservés.
 
 Validation M3 sous Godot 4.7.2, seed `20261012`, pas fixe de 1/60 seconde, sans warning ni erreur :
 
@@ -78,11 +78,36 @@ Les tests vérifient également les six configurations, leur reproduction avec l
 
 ---
 
+### Milestone 4 — Drone de patrouille et difficulté au clavier
+
+M4 ajoute le deuxième véritable agent, **PatrolDrone**, avec **deux drones verts** qui suivent leur propre route. Ils perçoivent leur waypoint, les astéroïdes locaux et les chasseurs très proches. Leurs décisions changent leur trajectoire ; ils ne poursuivent pas les BlueShip.
+
+Les chasseurs anticipent désormais les croisements avec les drones à partir de leurs vitesses relatives. Les drones effectuent aussi un évitement léger à proximité d'un chasseur. Un contact réel reste possible : le BlueShip peut être détruit, tandis que le drone est considéré plus robuste. Un drone qui touche un astéroïde explose et Main le remplace après quelques secondes.
+
+Les touches **0 / 1 / 2 / 3** permettent de reprendre le mode automatique ou de choisir facile, intermédiaire et difficile. Le changement concerne les nouvelles configurations d'astéroïdes ; celles déjà présentes restent en place. Le HUD indique **AUTO / MANUEL** et le nombre de drones actifs. Les statistiques et la caméra continuent à observer uniquement le groupe bleu.
+
+Validation M4 sous Godot 4.7.2, seed `20261012`, pas fixe de 1/60 seconde, sans warning ni erreur :
+
+| Résultat, 90 secondes | AUTO | MANUEL difficile dès le départ |
+|---|---:|---:|
+| BlueShip vivants / morts | 10 / 0 | 10 / 0 |
+| Drones actifs / détruits | 2 / 0 | 2 / 0 |
+| Distance parcourue | 948,98 m | 947,74 m |
+| Difficulté finale | 2 | 3 |
+| Astéroïdes actifs maximum | 29 | 38 |
+| Ticks-agent de réaction à un drone | 432 | 231 |
+
+Un tick-agent est un pas de simulation où un chasseur anticipe un danger mobile. Ce chiffre n'est pas un nombre certain de collisions évitées. En AUTO, l'espacement moyen vaut **10,96 m**, le rapprochement minimal **6,71 m**, la dispersion maximale **23,96 m**, sans chasseur isolé. En difficile manuel, l'espacement final vaut **11,26 m** et la dispersion finale **22,89 m**.
+
+Le test de croisement contrôlé conserve le chasseur vivant, avec une distance minimale de **6,49 m**. Le stress avec perception désactivée confirme une destruction réelle. La patrouille est reproductible et change de waypoint. Les touches clavier, les états, l'évitement d'un astéroïde, la séparation entre flocking et danger mobile ainsi que les remplacements passent les tests. Les contrôles de caméra et le regroupement M3 restent valides.
+
+Le test AUTO de **300 secondes** atteint **3 168,16 m**, niveau 3 : **9 chasseurs vivants, 1 mort, 2 drones actifs**. Aucun drone n'est détruit ; un est retiré loin derrière et remplacé. Le maximum observé est de **46 astéroïdes** et **688 nœuds**, avec un calcul moyen proche de **0,54 ms par tick headless**. La survie sur une longue durée n'est donc pas garantie. Le rendu et le drone vert en gros plan sont vérifiés visuellement.
+
 ## 3. Agents et environnement actuels
 
 ### Agent 1 — Chasseur bleu
 
-Le chasseur bleu est pour le moment **le seul véritable type d'agent** de la simulation.
+Le chasseur bleu est **le premier des deux types d'agents** actuellement implémentés.
 
 Il peut :
 
@@ -93,6 +118,7 @@ Il peut :
 - détecter ses voisins ;
 - retrouver un voisin éloigné encore visible dans sa portée de récupération ;
 - détecter les obstacles ;
+- anticiper la trajectoire d'un drone proche ;
 - modifier sa trajectoire pour éviter une collision.
 
 Son déplacement est obtenu par la combinaison de règles locales simples :
@@ -106,6 +132,20 @@ Son déplacement est obtenu par la combinaison de règles locales simples :
 
 Aucune formation géométrique précise n'est imposée.
 
+### Agent 2 — Drone de patrouille
+
+Le drone vert suit des points de passage 3D renouvelés au cours du vol. Son couloir est défini à son apparition, puis reste indépendant du centre des BlueShip.
+
+Il perçoit :
+
+- son waypoint courant ;
+- les astéroïdes dans une portée de **44 m** ;
+- les chasseurs à moins de **10 m**.
+
+Il peut avancer, monter, descendre, changer de côté, ralentir légèrement, changer de waypoint et éviter un danger. Sa vitesse de base vaut **9,2 ou 9,8 m/s**, avec une petite variation. Une nouvelle cible se trouve **55 m plus loin**, avec des décalages X/Y autour du couloir.
+
+Main vise **deux drones actifs**. Un drone détruit ou à plus de **120 m derrière tous les chasseurs** est remplacé après **5 secondes**, à **80–125 m devant le premier chasseur**, dans une position vérifiée sans rocher trop proche. Il peut y avoir momentanément moins de deux drones pendant le délai. Aucun drone n'est téléporté pendant sa patrouille et aucun ne choisit un chasseur à poursuivre.
+
 ### Obstacles de l'environnement — Astéroïdes
 
 Les astéroïdes ne sont **pas considérés comme des agents** dans le modèle actuel.
@@ -114,7 +154,7 @@ Ils constituent des éléments de l'environnement que les chasseurs doivent perc
 
 Le champ prépare des configurations jusqu'à 320 m devant le premier chasseur, autour de la position X/Y mesurée du groupe. Une configuration est retirée seulement lorsqu'elle est à plus de 100 m derrière le dernier survivant. La caméra et les chasseurs ne reçoivent aucune consigne de déplacement de ce système.
 
-De futurs types d'agents mobiles viendront perturber activement le groupe.
+Le nettoyage protège aussi les drones encore actifs. Les futurs intercepteurs et poseurs de mines restent prévus pour les milestones suivants.
 
 ---
 
@@ -144,7 +184,25 @@ Ces états décrivent la situation du chasseur. Les règles de séparation, coh�
 
 ---
 
-## 5. Interaction actuelle entre l'agent et son environnement
+### Diagramme d'état — Agent 2
+
+```mermaid
+stateDiagram-v2
+    [*] --> Patrouille
+    Patrouille --> ChangementPoint : waypoint atteint ou dépassé
+    ChangementPoint --> Patrouille : nouvelle cible choisie
+    Patrouille --> Evitement : danger local détecté
+    Evitement --> Patrouille : danger dépassé
+    Evitement --> ChangementPoint : waypoint atteint, zone sûre
+    Patrouille --> Detruit : collision astéroïde
+    Evitement --> Detruit : collision astéroïde
+    ChangementPoint --> Detruit : collision astéroïde
+    Detruit --> [*]
+```
+
+Main peut ensuite faire apparaître un nouveau drone après le délai. Le drone décide selon ses perceptions locales ; le changement de waypoint n'est pas une route animée à l'avance.
+
+## 5. Interaction actuelle entre les agents et leur environnement
 
 ```mermaid
 flowchart LR
@@ -159,6 +217,9 @@ flowchart LR
     A --> F[Cohésion]
     A --> G[Alignement]
     A --> H[Récupération locale si voisin éloigné visible]
+    A -->|détecte et anticipe un danger mobile| I[PatrolDrone]
+    I -->|évitement léger à proximité| A
+    I -->|perçoit et évite| B
 ```
 
 ---
@@ -183,6 +244,8 @@ Le rapport final ne cherchera pas à détailler tout le code. Les paramètres pr
 
 La séparation douce commence à **11 m** et devient forte sous **7 m**. Ces valeurs validées en M2 sont conservées. La distance affichée vient de la progression en Z du centre mesuré des survivants. L'espacement affiché est la moyenne de leurs distances au voisin vivant le plus proche ; la dispersion est la plus grande distance au centre du groupe.
 
+Pour le drone, les paramètres principaux sont la distance entre waypoints (**55 m**), leur portée d'arrivée (**7 m**), les écarts X/Y (**25 / 15 m**), la portée des astéroïdes (**44 m**) et la distance de sécurité envers les chasseurs (**10 m**). L'évitement léger du drone a un poids de **1,2** ; l'évitement mobile du BlueShip a un poids de **7** avec une anticipation de **3 secondes**.
+
 Leur influence sera étudiée avec quelques configurations simples.
 
 ---
@@ -205,6 +268,15 @@ Commandes principales :
 
 La caméra sert uniquement à observer la simulation et n'influence pas les agents.
 
+### Choix de difficulté
+
+- **0** : AUTO, niveau selon la distance parcourue, avec les seuils de 500 et 1 100 m ;
+- **1** : Facile manuel ;
+- **2** : Intermédiaire manuel ;
+- **3** : Difficile manuel.
+
+Le HUD précise **AUTO** ou **MANUEL**. Un retour à AUTO à 800 m affiche le niveau 2. Les obstacles déjà présents restent en place ; le champ se renouvelle selon le mode choisi. Les deux drones restent observables dans tous les niveaux.
+
 ---
 
 ## 8. Phénomène émergent étudié
@@ -213,7 +285,7 @@ Le phénomène émergent principal est le **maintien et la reformation spontané
 
 Aucune position fixe n'est attribuée aux chasseurs. Chaque agent applique seulement des règles locales. Malgré cela, les chasseurs ont tendance à rester dans une même zone, à se séparer lorsqu'ils sont trop proches, à contourner les obstacles puis à retrouver le groupe.
 
-Ce phénomène sera étudié plus précisément lorsque de nouveaux agents perturbateurs seront introduits.
+M4 introduit une première perturbation mobile avec le drone de patrouille. Le phénomène sera étudié plus précisément avec les futurs agents perturbateurs.
 
 Un test M3 commence avec dix chasseurs volontairement dispersés, dont certains n'ont aucun voisin dans les 32 m habituels mais voient encore un membre du groupe à moins de 50 m. En **30 secondes**, la dispersion diminue de **49,00 m à 19,92 m**. L'espacement final vaut **10,82 m**, avec un minimum observé de **7,15 m**. Ils retrouvent la même zone sans finir collés. À 70 m, un chasseur ne reçoit aucune attraction : la récupération reste locale et limitée.
 
@@ -222,21 +294,6 @@ Un test M3 commence avec dix chasseurs volontairement dispersés, dont certains 
 ## 9. Futurs types d'agents envisagés
 
 Les astéroïdes resteront des obstacles de l'environnement. Le projet vise désormais quatre types d'agents simples à distinguer et à expliquer.
-
-### Agent 2 — Drone de patrouille
-
-Agent mobile simple qui suit plusieurs points de passage en 3D et peut traverser la trajectoire des chasseurs.
-
-Comportement prévu :
-
-```mermaid
-stateDiagram-v2
-    [*] --> Patrouille
-    Patrouille --> ChangementPoint : point atteint
-    ChangementPoint --> Patrouille : nouveau point choisi
-```
-
-Il crée une perturbation mobile prévisible sans poursuivre directement les chasseurs.
 
 ### Agent 3 — Intercepteur hostile
 
@@ -271,7 +328,7 @@ stateDiagram-v2
     Sortie --> Entree : nouveau passage
 ```
 
-Ces trois futurs agents apportent trois perturbations différentes : trajectoire mobile, poursuite active et modification de l'environnement.
+Les deux futurs agents ajouteront la poursuite active et la modification de l'environnement. Le drone de patrouille, déjà implémenté, apporte la perturbation par trajectoire mobile.
 
 ---
 
@@ -285,7 +342,10 @@ La version actuelle comporte plusieurs simplifications :
 - budget borné pouvant retarder la génération si le groupe s'étire exceptionnellement en profondeur ;
 - hitboxes simplifiées ;
 - obstacles principalement statiques ;
-- un seul type d'agent pour le moment ;
+- deux types d'agents pour le moment ;
+- anticipation mobile supposant une vitesse constante sur quelques secondes ;
+- une mort réelle observée sur le parcours M4 de cinq minutes ;
+- pas d'évitement entre drones et effectif temporairement réduit pendant un remplacement ;
 - aucune arme ;
 - aucun adversaire actif.
 
@@ -304,8 +364,8 @@ Mouvement 3D plus naturel, meilleure séparation, évitement renforcé, environn
 ### M3 — Cohésion du groupe, obstacles et difficulté progressive ✅
 Récupération locale, espacement conservé, champ continu borné, six configurations d'obstacles, trois difficultés automatiques et mesures du groupe. Tests de 90 et 300 secondes validés.
 
-### M4 — Agent 2 : drone de patrouille
-Ajouter un agent mobile simple suivant des points de passage et perturbant le groupe par sa trajectoire.
+### M4 — Agent 2 : drone de patrouille ✅
+Deux drones autonomes, waypoints renouvelés, perceptions locales, évitement réciproque, collisions et remplacement. Difficulté AUTO/MANUEL par 0/1/2/3, HUD et tests des deux modes sur 90 secondes.
 
 ### M5 — Agent 3 : intercepteur hostile
 Ajouter un agent capable de détecter puis poursuivre temporairement un chasseur.

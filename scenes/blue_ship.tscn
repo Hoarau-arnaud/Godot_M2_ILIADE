@@ -84,7 +84,7 @@ size = Vector3(0.8, 0.1, 1.25)
 
 [node name="BlueShip" type="CharacterBody3D" groups=["blue_ships"]]
 collision_layer = 1
-collision_mask = 2
+collision_mask = 6
 motion_mode = 1
 script = ExtResource("1")
 
