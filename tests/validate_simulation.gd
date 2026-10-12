@@ -16,6 +16,10 @@ func _run() -> void:
 		await _capture_preview()
 		return
 	await _test_default_field()
+	await _test_flock_recovery()
+	await _test_recovery_perception_limit()
+	await _test_streaming_and_difficulty()
+	await _test_removed_obstacle_memory()
 	await _test_unobstructed_motion()
 	await _test_separation()
 	await _test_local_perception()
@@ -26,8 +30,9 @@ func _run() -> void:
 	await _test_camera_controls()
 	await _test_camera_independence()
 	await _test_starfield_recycling()
+	await _test_long_field()
 	if _failures == 0:
-		print("PASS : toutes les validations du milestone 2.")
+		print("PASS : toutes les validations du milestone 3.")
 	else:
 		printerr("FAIL : %d validation(s)." % _failures)
 	quit(0 if _failures == 0 else 1)
@@ -53,10 +58,11 @@ func _dispose(simulation: SpaceSimulation) -> void:
 	_check(get_nodes_in_group("asteroids").is_empty(), "Un rocher supprimé reste dans le groupe.")
 
 
-func _empty_field(count: int) -> SpaceSimulation:
+func _empty_field(count: int, seed_value: int = 20261012) -> SpaceSimulation:
 	var simulation: SpaceSimulation = MAIN_SCENE.instantiate() as SpaceSimulation
 	simulation.ship_count = count
-	simulation.asteroid_rows = 0
+	simulation.streaming_enabled = false
+	simulation.simulation_seed = seed_value
 	root.add_child(simulation)
 	return simulation
 
@@ -67,7 +73,8 @@ func _test_default_field() -> void:
 	_check(str(ProjectSettings.get_setting("application/run/main_scene")) == "res://scenes/main.tscn", "Scène principale incorrecte.")
 	_check(simulation.initial_agent_count == 10 and simulation.living_agent_count == 10, "Le lancement ne crée pas dix chasseurs.")
 	_check(get_nodes_in_group("blue_ships").size() == 10, "Groupe blue_ships incorrect.")
-	_check(get_nodes_in_group("asteroids").size() == 48, "Le champ doit contenir 48 rochers.")
+	var initial_configurations: int = simulation.asteroid_container.generated_configuration_count
+	_check(get_nodes_in_group("asteroids").size() > 0, "Le streaming ne crée aucun obstacle initial.")
 	var categories: Array[bool] = [false, false, false]
 	var first_asteroid: SpaceAsteroid = get_nodes_in_group("asteroids")[0] as SpaceAsteroid
 	var initial_rotation: Quaternion = first_asteroid.quaternion
@@ -77,7 +84,7 @@ func _test_default_field() -> void:
 		_check(asteroid.collision_layer == 2 and asteroid.collision_mask == 0, "Couches du rocher incorrectes.")
 		_check(asteroid.avoidance_radius > 0.0 and asteroid.scale == Vector3.ONE, "Géométrie du rocher incorrecte.")
 		categories[int(asteroid.size_category)] = true
-	_check(categories[0] and categories[1] and categories[2], "Une catégorie d'astéroïde manque.")
+	_check(categories[0] or categories[1], "La zone facile ne contient ni petits ni moyens rochers.")
 	for ship: BlueShip in simulation.ships:
 		_check(ship.collision_layer == 1 and ship.collision_mask == 2, "Couches du chasseur incorrectes.")
 		_check(ship.died.is_connected(simulation._on_ship_died), "Signal de mort non connecté.")
@@ -90,10 +97,16 @@ func _test_default_field() -> void:
 	var minimum_pair_distance: float = INF
 	var nearest_total: float = 0.0
 	var nearest_samples: int = 0
+	var maximum_isolated: int = 0
+	var isolated_names: Dictionary[String, bool] = {}
+	var isolation_streaks: Dictionary[String, int] = {}
+	var longest_isolation: int = 0
+	var lowest_forward_speed: float = INF
 	for frame: int in range(5400):
 		await physics_frame
 		var avoiding: int = 0
 		var center: Vector3 = simulation._fleet_center()
+		var isolated_count: int = 0
 		for ship: BlueShip in simulation.ships:
 			_check(ship.velocity.z < 0.0, "Un chasseur a cessé de progresser vers l'avant.")
 			_check(ship.global_position.is_finite() and ship.velocity.is_finite(), "Position ou vitesse non finie.")
@@ -106,23 +119,231 @@ func _test_default_field() -> void:
 				if other != ship:
 					nearest = minf(nearest, ship.global_position.distance_to(other.global_position))
 			minimum_pair_distance = minf(minimum_pair_distance, nearest)
+			lowest_forward_speed = minf(lowest_forward_speed, -ship.velocity.z)
+			var ship_name: String = str(ship.name)
+			if nearest > ship.neighbor_radius:
+				isolated_count += 1
+				isolated_names[ship_name] = true
+				isolation_streaks[ship_name] = isolation_streaks.get(ship_name, 0) + 1
+				longest_isolation = maxi(longest_isolation, isolation_streaks[ship_name])
+			else:
+				isolation_streaks[ship_name] = 0
 			if frame > 60 and frame % 12 == 0:
 				nearest_total += nearest
 				nearest_samples += 1
 		max_avoiding = maxi(max_avoiding, avoiding)
+		maximum_isolated = maxi(maximum_isolated, isolated_count)
+		if frame == 120:
+			_check(absf(first_asteroid.quaternion.dot(initial_rotation)) < 0.9999, "Les astéroïdes ne tournent pas.")
+			_check(first_asteroid.position.is_equal_approx(initial_asteroid_position), "La rotation introduit une translation du rocher.")
+			first_asteroid = null
 	await process_frame
 	_check(max_avoiding > 0, "Aucun rocher du champ n'a été anticipé.")
 	_check(simulation.living_agent_count + simulation.death_count == 10, "Statistiques incohérentes après le parcours.")
 	_check(simulation.living_agent_count == simulation.initial_agent_count and simulation.death_count == 0, "Le parcours normal de 90 secondes doit conserver tous les chasseurs.")
 	var average_nearest: float = nearest_total / float(maxi(nearest_samples, 1))
 	_check(minimum_pair_distance > 5.5, "Deux chasseurs sont trop proches durant le parcours normal.")
-	_check(average_nearest >= 7.0 and average_nearest <= 12.5, "L'espace personnel moyen n'est pas confortable.")
+	_check(average_nearest >= 9.0 and average_nearest <= 14.0, "L'espace personnel moyen n'est pas confortable.")
 	_check(simulation.ships.size() == get_nodes_in_group("blue_ships").size(), "Références mortes dans Main.")
 	_check(max_spread < 40.0, "Le groupe par défaut s'est trop dispersé.")
 	_check(simulation.camera.global_position.is_finite(), "Caméra non finie.")
-	_check(absf(first_asteroid.quaternion.dot(initial_rotation)) < 0.9999, "Les astéroïdes ne tournent pas.")
-	_check(first_asteroid.position.is_equal_approx(initial_asteroid_position), "La rotation introduit une translation du rocher.")
+	_check(longest_isolation < 300 and lowest_forward_speed > 4.0, "Un chasseur reste isolé ou bloqué durablement.")
+	_check(simulation.asteroid_container.generated_configuration_count > initial_configurations and simulation.asteroid_container.removed_configuration_count > 0, "Le streaming n'a pas renouvelé le champ.")
+	_check(simulation.difficulty_level == simulation.asteroid_container.difficulty_for_distance(simulation.distance_travelled), "Difficulté incohérente avec la distance.")
 	print("Champ par défaut, 90 s : vivants=%d, morts=%d, rayon maximal=%.2f m, évitements simultanés=%d, distance minimale=%.2f m, voisin le plus proche en moyenne=%.2f m" % [simulation.living_agent_count, simulation.death_count, max_spread, max_avoiding, minimum_pair_distance, average_nearest])
+	print("M3 90 s : distance=%.2f m, difficulté=%d, isolés max=%d, agents distincts isolés=%d, durée max=%.2f s, obstacles max=%d, configurations générées=%d / supprimées=%d" % [simulation.distance_travelled, simulation.difficulty_level, maximum_isolated, isolated_names.size(), float(longest_isolation) / 60.0, simulation.asteroid_container.maximum_active_observed, simulation.asteroid_container.generated_configuration_count, simulation.asteroid_container.removed_configuration_count])
+	await _dispose(simulation)
+
+
+func _test_flock_recovery() -> void:
+	var simulation: SpaceSimulation = _empty_field(10)
+	var positions: Array[Vector3] = [
+		Vector3(-10, -4, -4), Vector3(10, 4, 4), Vector3(-6, 6, 5), Vector3(6, -6, -5),
+		Vector3(-10, 5, -8), Vector3(10, -5, 8), Vector3(0, 0, -10), Vector3(0, 0, 10),
+		Vector3(-49, 0, 0), Vector3(49, 0, 0)
+	]
+	for index: int in range(positions.size()):
+		simulation.ships[index].position = positions[index]
+	simulation._measure_group(simulation._fleet_center())
+	var initial_dispersion: float = simulation.dispersion
+	var regrouping_observed: bool = false
+	var critical_samples: int = 0
+	var sample_count: int = 0
+	var minimum_distance: float = INF
+	for frame: int in range(1800):
+		await physics_frame
+		for ship: BlueShip in simulation.ships:
+			regrouping_observed = regrouping_observed or ship.behavior_state == BlueShip.BehaviorState.REGROUPING
+			if frame % 12 == 0:
+				var nearest: float = INF
+				for other: BlueShip in simulation.ships:
+					if other != ship:
+						nearest = minf(nearest, ship.global_position.distance_to(other.global_position))
+				minimum_distance = minf(minimum_distance, nearest)
+				sample_count += 1
+				if nearest < ship.critical_separation_distance:
+					critical_samples += 1
+	simulation._measure_group(simulation._fleet_center())
+	var critical_fraction: float = float(critical_samples) / float(maxi(sample_count, 1))
+	_check(regrouping_observed, "L'état REGROUPEMENT n'a pas été observé.")
+	_check(simulation.dispersion < initial_dispersion * 0.8, "La dispersion ne diminue pas après une séparation visible localement.")
+	_check(critical_fraction < 0.1 and simulation.average_spacing >= 8.0, "Le regroupement compacte excessivement le banc.")
+	_check(simulation.isolated_agent_count == 0 and simulation.living_agent_count == 10, "Un chasseur reste isolé après le regroupement sans obstacles.")
+	print("Regroupement, 30 s : dispersion %.2f -> %.2f m, espacement=%.2f m, minimum=%.2f m, observations critiques=%.2f %%, isolés=%d" % [initial_dispersion, simulation.dispersion, simulation.average_spacing, minimum_distance, critical_fraction * 100.0, simulation.isolated_agent_count])
+	await _dispose(simulation)
+
+
+func _test_recovery_perception_limit() -> void:
+	var simulation: SpaceSimulation = _empty_field(2)
+	var ship: BlueShip = simulation.ships[0]
+	var other: BlueShip = simulation.ships[1]
+	ship.position = Vector3.ZERO
+	other.position = Vector3(70.0, 0.0, 0.0)
+	ship._update_neighbor_rules()
+	_check(ship.neighbor_count == 0 and ship._recovery == Vector3.ZERO, "Un voisin au-delà de recovery_radius attire l'agent.")
+	other.position = Vector3(42.0, 0.0, 0.0)
+	ship._update_neighbor_rules()
+	_check(ship.neighbor_count == 0 and ship._recovery.x > 0.0, "Un voisin visible entre 32 et 50 m n'aide pas au regroupement.")
+	other.position = Vector3(15.0, 0.0, 0.0)
+	ship._update_neighbor_rules()
+	_check(ship.neighbor_count == 1 and ship._recovery == Vector3.ZERO, "La récupération attire trop un voisin déjà proche.")
+	print("Récupération locale : attraction à 42 m, aucune information à 70 m, espace personnel conservé.")
+	await _dispose(simulation)
+
+
+func _test_removed_obstacle_memory() -> void:
+	var simulation: SpaceSimulation = _empty_field(1)
+	var ship: BlueShip = simulation.ships[0]
+	ship.position = Vector3.ZERO
+	ship.set_physics_process(false)
+	var asteroid: SpaceAsteroid = ASTEROID_SCENE.instantiate() as SpaceAsteroid
+	asteroid.position = Vector3(0, 0, -20)
+	simulation.asteroid_container.add_child(asteroid)
+	ship._obstacle_avoidance()
+	_check(ship._avoid_directions.has(asteroid) and ship._threats.has(asteroid), "La menace n'a pas été mémorisée pour le test de suppression.")
+	asteroid.queue_free()
+	await _advance(2)
+	ship._find_threats()
+	_check(ship._avoid_directions.is_empty() and ship._threats.is_empty(), "Une référence à un obstacle supprimé est conservée.")
+	print("Suppression : mémoires d'évitement et menaces nettoyées sans référence invalide.")
+	await _dispose(simulation)
+
+
+func _stream_signature(seed_value: int) -> Array[String]:
+	var simulation: SpaceSimulation = _empty_field(2, seed_value)
+	var field: ObstacleField = simulation.asteroid_container
+	for ship: BlueShip in simulation.ships:
+		ship.set_physics_process(false)
+	field.initialize_field(seed_value, Vector3(120, -70, 0), -4.0)
+	var signature: Array[String] = []
+	for step: int in range(61):
+		var center: Vector3 = Vector3(120.0 + float(step) * 0.8, -70.0 + float(step % 5), -float(step) * 100.0)
+		simulation.ships[0].position = center + Vector3(-4, 0, -4)
+		simulation.ships[1].position = center + Vector3(4, 0, 4)
+		var first_new_index: int = field.generated_configuration_count
+		field.advance(center, center.z - 4.0, center.z + 4.0)
+		for configuration: Node3D in field.configurations:
+			_check(is_instance_valid(configuration) and not configuration.is_queued_for_deletion(), "Le streaming conserve une configuration supprimée.")
+			if int(configuration.get_meta("generation_index")) < first_new_index:
+				continue
+			_check(absf(configuration.global_position.x - center.x) <= field.horizontal_spread * 0.45 + 0.01, "Les obstacles ne suivent pas la dérive X du groupe.")
+			_check(absf(configuration.global_position.y - center.y) <= field.vertical_spread * 0.45 + 0.01, "Les obstacles ne suivent pas la dérive Y du groupe.")
+			signature.append("%d/%d/%s" % [int(configuration.get_meta("pattern")), int(configuration.get_meta("difficulty")), configuration.global_position])
+			for child: Node in configuration.get_children():
+				var asteroid: SpaceAsteroid = child as SpaceAsteroid
+				signature.append("%s/%.6f/%s/%d" % [asteroid.global_position, asteroid.diameter, asteroid.rotation, asteroid.shape_seed])
+		_check(field.active_asteroid_count <= field.max_active_asteroids, "Le streaming dépasse son budget d'obstacles.")
+		await _advance(2)
+		_check(get_nodes_in_group("asteroids").size() == field.active_asteroid_count, "Le comptage d'obstacles actifs diverge après nettoyage.")
+	_check(field.patterns_generated.size() == 6, "Les six patterns ne sont pas apparus dans le parcours artificiel.")
+	_check(field.removed_configuration_count > 0 and field.maximum_active_observed <= field.max_active_asteroids, "Le champ ne se renouvelle pas de façon bornée.")
+	print("Streaming artificiel : seed=%d, patterns=%d, configurations=%d, supprimées=%d, obstacles max=%d" % [seed_value, field.patterns_generated.size(), field.generated_configuration_count, field.removed_configuration_count, field.maximum_active_observed])
+	await _dispose(simulation)
+	return signature
+
+
+func _test_streaming_and_difficulty() -> void:
+	var first: Array[String] = await _stream_signature(20261012)
+	var repeated: Array[String] = await _stream_signature(20261012)
+	var changed: Array[String] = await _stream_signature(20261013)
+	_check(first == repeated and first != changed, "La génération n'est pas reproductible avec la graine.")
+	var simulation: SpaceSimulation = _empty_field(2)
+	var field: ObstacleField = simulation.asteroid_container
+	_check(field.difficulty_for_distance(0) == 1 and field.difficulty_for_distance(499) == 1, "Niveau facile incorrect.")
+	_check(field.difficulty_for_distance(500) == 2 and field.difficulty_for_distance(1099) == 2, "Niveau intermédiaire incorrect.")
+	_check(field.difficulty_for_distance(1100) == 3, "Niveau difficile incorrect.")
+	_check(field.spacing_for_level(1) > field.spacing_for_level(2) and field.spacing_for_level(2) > field.spacing_for_level(3), "Les configurations ne se rapprochent pas avec la difficulté.")
+	var previous_density: float = 0.0
+	for level: int in range(1, 4):
+		var choices: Array[int] = field.allowed_patterns(level)
+		var total_bodies: int = 0
+		for pattern: int in choices:
+			total_bodies += field.pattern_offsets(pattern, 14.0).size()
+		var density: float = float(total_bodies) / float(choices.size()) / field.spacing_for_level(level)
+		_check(density > previous_density, "La densité moyenne des profils ne progresse pas.")
+		previous_density = density
+	_check(not field.allowed_patterns(1).has(ObstacleField.Pattern.LARGE_WITH_COMPANIONS) and field.allowed_patterns(3).has(ObstacleField.Pattern.LARGE_WITH_COMPANIONS), "Les patterns n'évoluent pas avec la difficulté.")
+	for ship: BlueShip in simulation.ships:
+		ship.set_physics_process(false)
+	simulation._origin_z = 0.0
+	for distance: float in [0.0, 600.0, 1200.0]:
+		simulation.ships[0].position = Vector3(-4, 0, -distance)
+		simulation.ships[1].position = Vector3(4, 0, -distance)
+		await _advance(30)
+		_check(simulation.difficulty_level == field.difficulty_for_distance(distance), "Le niveau Main ne suit pas la progression.")
+		_check(simulation.progression_label.text.contains("Difficulté : %d" % simulation.difficulty_level), "Difficulté absente du HUD.")
+		_check(simulation.group_metrics_label.text.contains("Espacement") and simulation.average_spacing > 0.0, "Mesures du groupe absentes du HUD.")
+	field.initialize_field(20261012, Vector3.ZERO, -4.0)
+	field._spawn_configuration(ObstacleField.Pattern.SINGLE, 1, Vector3.ZERO, -20.0)
+	var near_laggard: Node3D = field.configurations[0]
+	field.advance(Vector3(0, 0, -500), -1000.0, 0.0)
+	_check(not near_laggard.is_queued_for_deletion(), "Un obstacle proche du dernier agent est supprimé prématurément.")
+	field.advance(Vector3(0, 0, -1000), -1004.0, -996.0)
+	_check(near_laggard.is_queued_for_deletion(), "Un obstacle passé derrière tous les agents n'est pas supprimé.")
+	await _advance(2)
+	_check(not is_instance_valid(near_laggard), "La configuration dépassée reste en mémoire.")
+	print("Difficulté : seuils 500/1100 m, densité croissante, patterns, HUD et nettoyage derrière tous les survivants validés.")
+	await _dispose(simulation)
+
+
+func _test_long_field() -> void:
+	var simulation: SpaceSimulation = MAIN_SCENE.instantiate() as SpaceSimulation
+	root.add_child(simulation)
+	var field: ObstacleField = simulation.asteroid_container
+	var maximum_nodes: int = get_node_count()
+	var generation_at_180_seconds: int = 0
+	var first_hard_window_start: int = 0
+	var first_hard_window_usec: int = 0
+	var last_window_start: int = 0
+	var last_window_usec: int = 0
+	var max_late_obstacles: int = 0
+	for frame: int in range(18000):
+		await physics_frame
+		if frame == 10800:
+			generation_at_180_seconds = field.generated_configuration_count
+			first_hard_window_start = Time.get_ticks_usec()
+		if frame == 12600:
+			first_hard_window_usec = Time.get_ticks_usec() - first_hard_window_start
+		if frame == 16200:
+			last_window_start = Time.get_ticks_usec()
+		if frame % 30 == 0:
+			maximum_nodes = maxi(maximum_nodes, get_node_count())
+			if frame >= 10800:
+				max_late_obstacles = maxi(max_late_obstacles, field.active_asteroid_count)
+			_check(field.active_asteroid_count <= field.max_active_asteroids, "Le champ croît sans limite dans le test long.")
+			_check(simulation.living_agent_count + simulation.death_count == simulation.initial_agent_count, "Compteurs incohérents pendant le test long.")
+			for ship: BlueShip in simulation.ships:
+				_check(ship.velocity.z < 0.0 and ship.global_position.is_finite(), "Un survivant reste bloqué ou invalide dans le test long.")
+				for obstacle: SpaceAsteroid in ship._threats:
+					_check(is_instance_valid(obstacle) and not obstacle.is_queued_for_deletion(), "Une menace supprimée est utilisée dans le test long.")
+	last_window_usec = Time.get_ticks_usec() - last_window_start
+	await process_frame
+	_check(simulation.difficulty_level == 3 and simulation.living_agent_count > 0, "Le test long n'atteint pas la difficulté 3 avec un comportement encore actif.")
+	_check(field.generated_configuration_count > generation_at_180_seconds and field.removed_configuration_count > 0, "Le streaming s'arrête après trois minutes.")
+	_check(field.maximum_active_observed <= field.max_active_asteroids and get_nodes_in_group("asteroids").size() == field.active_asteroid_count, "Des obstacles anciens s'accumulent dans le test long.")
+	_check(maximum_nodes < 1400, "Le nombre de nœuds dépasse la borne du scénario normal.")
+	print("M3 long, 300 s : distance=%.2f m, difficulté=%d, vivants=%d, morts=%d, obstacles max=%d, max après 180 s=%d, actifs fin=%d, configurations=%d / supprimées=%d, nœuds max=%d" % [simulation.distance_travelled, simulation.difficulty_level, simulation.living_agent_count, simulation.death_count, field.maximum_active_observed, max_late_obstacles, field.active_asteroid_count, field.generated_configuration_count, field.removed_configuration_count, maximum_nodes])
+	print("Coût moyen par tick headless en difficulté 3 : fenêtre 180-210 s=%.3f ms ; 270-300 s=%.3f ms (mesure CPU, pas FPS du rendu)." % [float(first_hard_window_usec) / 1800.0 / 1000.0, float(last_window_usec) / 1800.0 / 1000.0])
 	await _dispose(simulation)
 
 
@@ -267,6 +488,7 @@ func _on_test_death(ship: BlueShip) -> void:
 	_death_signals += 1
 	_check(not ship.alive and not ship.is_in_group("blue_ships"), "L'agent mort continue son comportement.")
 	_check(ship.collision_layer == 0 and ship.collision_mask == 0, "L'agent mort conserve ses collisions.")
+	_check(ship.behavior_state == BlueShip.BehaviorState.DESTROYED, "État DETRUIT absent après collision.")
 	_check(ship.get_parent().get_node_or_null("Explosion") != null, "Explosion absente au moment de la mort.")
 	ship._die()
 
