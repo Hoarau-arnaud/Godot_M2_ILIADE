@@ -3,6 +3,7 @@ extends Node3D
 
 const SHIP_SCENE: PackedScene = preload("res://scenes/blue_ship.tscn")
 const DRONE_SCENE: PackedScene = preload("res://scenes/patrol_drone.tscn")
+const INTERCEPTOR_SCENE: PackedScene = preload("res://scenes/interceptor.tscn")
 const DIFFICULTY_NAMES: Array[String] = ["Facile", "Intermédiaire", "Difficile"]
 
 @export_range(1, 30, 1) var ship_count: int = 10
@@ -23,6 +24,15 @@ const DIFFICULTY_NAMES: Array[String] = ["Facile", "Intermédiaire", "Difficile"
 @export var drone_replacement_delay: float = 5.0
 @export var drone_retire_distance: float = 120.0
 
+@export_category("Intercepteurs")
+@export var interceptors_enabled: bool = true
+@export_range(0, 2, 1) var easy_interceptor_count: int = 0
+@export_range(0, 2, 1) var intermediate_interceptor_count: int = 1
+@export_range(0, 2, 1) var hard_interceptor_count: int = 2
+@export var interceptor_spawn_ahead_distance: float = 115.0
+@export var interceptor_replacement_delay: float = 8.0
+@export var interceptor_retire_distance: float = 140.0
+
 var initial_agent_count: int = 0
 var living_agent_count: int = 0
 var death_count: int = 0
@@ -33,6 +43,16 @@ var dispersion: float = 0.0
 var isolated_agent_count: int = 0
 var ships: Array[BlueShip] = []
 var drones: Array[PatrolDrone] = []
+var interceptors: Array[Interceptor] = []
+var interceptor_death_count: int = 0
+var interceptor_retired_count: int = 0
+var interceptor_spawn_count: int = 0
+var drones_destroyed: int = 0
+var interceptors_destroyed: int = 0
+var enemy_shots_fired: int = 0
+var blue_ship_hits: int = 0
+var projectile_dodge_count: int = 0
+var projectile_dodge_ticks: int = 0
 var drone_death_count: int = 0
 var drone_retired_count: int = 0
 var drone_spawn_count: int = 0
@@ -42,6 +62,8 @@ var hostile_hits: int = 0
 var maximum_active_projectiles: int = 0
 var _drone_random: RandomNumberGenerator = RandomNumberGenerator.new()
 var _replacement_timer: float = 0.0
+var _interceptor_random: RandomNumberGenerator = RandomNumberGenerator.new()
+var _interceptor_replacement_timer: float = 0.0
 var _random: RandomNumberGenerator = RandomNumberGenerator.new()
 var _last_center: Vector3 = Vector3.ZERO
 var _origin_z: float = 0.0
@@ -50,6 +72,7 @@ var _measurement_timer: float = 0.0
 @onready var ship_container: Node3D = $Ships
 @onready var asteroid_container: ObstacleField = $Asteroids
 @onready var drone_container: Node3D = $PatrolDrones
+@onready var interceptor_container: Node3D = $Interceptors
 @onready var projectile_container: Node3D = $Projectiles
 @onready var camera: SimulationCamera = $Camera3D
 @onready var space_decor: SpaceEnvironment = $SpaceDecor
@@ -59,6 +82,7 @@ var _measurement_timer: float = 0.0
 func _ready() -> void:
 	_random.seed = simulation_seed
 	_drone_random.seed = simulation_seed + 91003
+	_interceptor_random.seed = simulation_seed + 93037
 	_create_ships()
 	_last_center = _fleet_center()
 	_origin_z = _last_center.z
@@ -68,6 +92,7 @@ func _ready() -> void:
 	if streaming_enabled:
 		asteroid_container.advance(_last_center, z_bounds.x, z_bounds.y)
 	_maintain_drones(_last_center, 0.0)
+	_maintain_interceptors(_last_center, 0.0)
 	camera.follow_speed = camera_follow_speed
 	camera.initialize_view(_last_center)
 	_measure_group(_last_center)
@@ -82,12 +107,18 @@ func _physics_process(delta: float) -> void:
 	distance_travelled = maxf(distance_travelled, _origin_z - center.z)
 	_update_difficulty()
 	_maintain_drones(center, delta)
+	_maintain_interceptors(center, delta)
+	for ship: BlueShip in ships:
+		if ship.projectile_avoidance_active:
+			projectile_dodge_ticks += 1
 	maximum_active_projectiles = maxi(maximum_active_projectiles, projectile_container.get_child_count())
 	if streaming_enabled:
 		var z_bounds: Vector2 = _fleet_z_bounds()
 		var cleanup_rear: float = z_bounds.y
 		for drone: PatrolDrone in drones:
 			cleanup_rear = maxf(cleanup_rear, drone.global_position.z)
+		for interceptor: Interceptor in interceptors:
+			cleanup_rear = maxf(cleanup_rear, interceptor.global_position.z)
 		asteroid_container.advance(center, z_bounds.x, cleanup_rear)
 	_measurement_timer += delta
 	if _measurement_timer >= maxf(metrics_update_interval, 0.1):
@@ -166,6 +197,9 @@ func _spawn_drone(center: Vector3, front_z: float) -> bool:
 		for other: PatrolDrone in drones:
 			if position_candidate.distance_to(other.global_position) < 12.0:
 				clear = false
+		for other: Interceptor in interceptors:
+			if position_candidate.distance_to(other.global_position) < 12.0:
+				clear = false
 		if clear:
 			break
 	if not clear:
@@ -186,8 +220,107 @@ func _spawn_drone(center: Vector3, front_z: float) -> bool:
 
 func _on_hostile_destroyed(drone: PatrolDrone) -> void:
 	if drones.has(drone):
+		drones_destroyed += 1
 		enemies_destroyed += 1
 		_update_hud()
+	elif interceptors.has(drone):
+		interceptors_destroyed += 1
+		enemies_destroyed += 1
+		_update_hud()
+
+
+func target_interceptor_count() -> int:
+	if not interceptors_enabled:
+		return 0
+	var counts: Array[int] = [easy_interceptor_count, intermediate_interceptor_count, hard_interceptor_count]
+	return clampi(counts[difficulty_level - 1], 0, 2)
+
+
+func _retire_interceptor(interceptor: Interceptor) -> void:
+	interceptors.erase(interceptor)
+	interceptor.remove_from_group("interceptors")
+	interceptor.remove_from_group("hostile_agents")
+	interceptor.target = null
+	interceptor.queue_free()
+	interceptor_retired_count += 1
+
+
+func _maintain_interceptors(center: Vector3, delta: float) -> void:
+	_interceptor_replacement_timer = maxf(_interceptor_replacement_timer - delta, 0.0)
+	var rear_z: float = _fleet_z_bounds().y
+	for interceptor: Interceptor in interceptors.duplicate():
+		if interceptor.global_position.z > rear_z + maxf(interceptor_retire_distance, 70.0):
+			_retire_interceptor(interceptor)
+			_interceptor_replacement_timer = maxf(interceptor_replacement_delay, 0.0)
+	while interceptors.size() > target_interceptor_count():
+		_retire_interceptor(interceptors.back())
+	if _interceptor_replacement_timer > 0.0 or ships.is_empty():
+		return
+	while interceptors.size() < target_interceptor_count():
+		if not _spawn_interceptor(center, _fleet_z_bounds().x):
+			_interceptor_replacement_timer = 1.0
+			break
+
+
+func _spawn_interceptor(center: Vector3, front_z: float) -> bool:
+	var candidate: Vector3 = Vector3.ZERO
+	var clear: bool = false
+	for _attempt: int in range(64):
+		var side: float = -1.0 if _interceptor_random.randf() < 0.5 else 1.0
+		candidate = Vector3(center.x + side * _interceptor_random.randf_range(18.0, 38.0), center.y + _interceptor_random.randf_range(-18.0, 18.0), front_z - maxf(interceptor_spawn_ahead_distance, 80.0) - _interceptor_random.randf_range(0.0, 40.0))
+		clear = true
+		for node: Node in get_tree().get_nodes_in_group("asteroids"):
+			var obstacle: SpaceAsteroid = node as SpaceAsteroid
+			if candidate.distance_to(obstacle.global_position) < obstacle.avoidance_radius + PatrolDrone.BODY_CLEARANCE + 8.0:
+				clear = false
+				break
+		for ship: BlueShip in ships:
+			if candidate.distance_to(ship.global_position) < 25.0:
+				clear = false
+		for node: Node in get_tree().get_nodes_in_group("hostile_agents"):
+			var hostile: Node3D = node as Node3D
+			if candidate.distance_to(hostile.global_position) < 12.0:
+				clear = false
+		if clear:
+			break
+	if not clear:
+		return false
+	var interceptor: Interceptor = INTERCEPTOR_SCENE.instantiate() as Interceptor
+	interceptor.name = "Interceptor_%03d" % interceptor_spawn_count
+	interceptor.individual_seed = simulation_seed + 71003 + interceptor_spawn_count * 409
+	interceptor.combat_enabled = combat_enabled
+	interceptor.projectile_container = projectile_container
+	interceptor.position = interceptor_container.to_local(candidate)
+	interceptor.died.connect(_on_interceptor_died)
+	interceptor.destroyed.connect(_on_hostile_destroyed)
+	interceptor.fired.connect(_on_enemy_fired)
+	interceptor_container.add_child(interceptor)
+	interceptors.append(interceptor)
+	interceptor_spawn_count += 1
+	return true
+
+
+func _on_interceptor_died(hostile: PatrolDrone) -> void:
+	var interceptor: Interceptor = hostile as Interceptor
+	if not interceptors.has(interceptor):
+		return
+	interceptors.erase(interceptor)
+	interceptor_death_count += 1
+	_interceptor_replacement_timer = maxf(interceptor_replacement_delay, 0.0)
+
+
+func _on_enemy_fired(projectile: EnemyLaser) -> void:
+	enemy_shots_fired += 1
+	projectile.hit_blue_ship.connect(_on_blue_ship_hit)
+	maximum_active_projectiles = maxi(maximum_active_projectiles, projectile_container.get_child_count())
+
+
+func _on_blue_ship_hit(_ship: BlueShip, _amount: int) -> void:
+	blue_ship_hits += 1
+
+
+func _on_projectile_dodge_started() -> void:
+	projectile_dodge_count += 1
 
 
 func _on_ship_fired(projectile: BlueLaser) -> void:
@@ -225,6 +358,7 @@ func _create_ships() -> void:
 		ship.position = _random_ship_position()
 		ship.died.connect(_on_ship_died)
 		ship.fired.connect(_on_ship_fired)
+		ship.projectile_dodge_started.connect(_on_projectile_dodge_started)
 		ship_container.add_child(ship)
 		ships.append(ship)
 	initial_agent_count = ships.size()

@@ -66,12 +66,14 @@ func _dispose(simulation: SpaceSimulation) -> void:
 	_check(get_nodes_in_group("asteroids").is_empty(), "Un rocher supprimé reste dans le groupe.")
 	_check(get_nodes_in_group("patrol_drones").is_empty(), "Un drone supprimé reste dans le groupe.")
 	_check(get_nodes_in_group("hostile_agents").is_empty() and get_nodes_in_group("blue_lasers").is_empty(), "Hostile ou projectile conservé après suppression.")
+	_check(get_nodes_in_group("interceptors").is_empty() and get_nodes_in_group("hostile_projectiles").is_empty(), "Objet M6 conservé après suppression.")
 
 
 func _empty_field(count: int, seed_value: int = 20261012) -> SpaceSimulation:
 	var simulation: SpaceSimulation = MAIN_SCENE.instantiate() as SpaceSimulation
 	simulation.ship_count = count
 	simulation.drones_enabled = false
+	simulation.interceptors_enabled = false
 	simulation.combat_enabled = false
 	simulation.streaming_enabled = false
 	simulation.simulation_seed = seed_value

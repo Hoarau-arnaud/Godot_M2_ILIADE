@@ -1,6 +1,6 @@
-# Simulation SMA spatiale — milestone 5
+# Simulation SMA spatiale — milestone 6
 
-Projet pédagogique **Godot 4.7.2 / GDScript**. Dix chasseurs bleus progressent vers **Z négatif**, comme un banc de poissons dans un champ d'astéroïdes. Le milestone 5 ajoute un **tir frontal bleu**, des drones hostiles destructibles et un compteur de destructions. Le regroupement local, le streaming, la difficulté AUTO/MANUEL et les commandes de caméra sont conservés. Deux types d'agents existent : BlueShip et PatrolDrone. Aucun asset externe, sol ou formation imposée.
+Projet pédagogique **Godot 4.7.2 / GDScript**. Dix chasseurs bleus progressent vers **Z négatif**, comme un banc de poissons dans un champ d'astéroïdes. M6 ajoute **Interceptor**, le troisième agent, ses rafales rouges, la santé des BlueShip et l'esquive des projectiles. Le regroupement local, le streaming, la difficulté AUTO/MANUEL et les commandes de caméra sont conservés. **MANUEL 3** devient le scénario principal de développement. Aucun asset externe, sol ou formation imposée. Le HUD affiche seulement **Vaisseaux détruits : X**.
 
 ## Lancement
 
@@ -27,6 +27,7 @@ Les touches sont définies par des **Input Actions dans `project.godot`**, modif
 
 - **Type 1 — BlueShip** : `CharacterBody3D`, chasseur bleu construit avec des boîtes, cônes, prismes et une sphère aplatie pour le cockpit. Nez allongé vers −Z, cockpit bombé bleu sombre/cyan sur un cadre clair, ailes triangulaires fines dont les pointes sont rejetées vers l'arrière, deux dérives et deux moteurs visibles. Les cônes cyan des réacteurs pulsent avec des phases individuelles. L'orientation et le roulis interpolés concernent le nœud visuel ; les deux petites boîtes physiques restent stables.
 - **Type 2 — PatrolDrone** : `CharacterBody3D`, drone vert avec un corps hexagonal court, un capteur lumineux vert-cyan, de petites ailes, une dérive et deux propulseurs. Il conserve sa patrouille par waypoints et son évitement local. Il devient le premier **agent hostile destructible**, avec **4 HP**, sans poursuite ni tirs ennemis.
+- **Type 3 — Interceptor** : chasseur rouge pointu, cockpit sombre, ailes courtes et moteurs orange. Il détecte localement un BlueShip, le poursuit temporairement et tire par rafales, puis se désengage. **4 HP**, primitives Godot uniquement.
 - **Obstacle environnemental — SpaceAsteroid** : `StaticBody3D` indépendant. Deux à quatre volumes low-poly déformés composent un rocher irrégulier ; les grands combinent aussi des blocs anguleux. Petits : 1–2 m ; moyens : 2–4 m ; grands : 4–7 m de diamètre nominal. Échelles, orientations des lobes et palettes gris foncé/gris clair/brun varient par graine. Chaque volume possède une enveloppe convexe qui reprend les points déformés du mesh. La racine physique n'est pas mise à l'échelle. Chaque astéroïde tourne autour d'un axe individuel à environ 0,055–0,12 rad/s ; visuels et collisions tournent ensemble au pas physique, sans translation. **Les astéroïdes sont des obstacles, pas des agents.**
 
 ## Comportement des chasseurs
@@ -34,7 +35,7 @@ Les touches sont définies par des **Input Actions dans `project.godot`**, modif
 Chaque chasseur évalue uniquement les voisins dans son rayon de perception. Les groupes Godot fournissent les candidats ; le filtrage par distance précède tout calcul comportemental. Aucun agent ne reçoit le centre global de l'essaim ou une position assignée.
 
 1. **Wander** : plusieurs sinusoïdes de fréquences différentes font varier X, Y et la vitesse en Z. Le wander longitudinal est renforcé : les chasseurs prennent progressivement de l'avance ou du retard relativement au groupe. Phase, amplitude, fréquence et vitesse de base varient par individu, sans tirage aléatoire à chaque frame.
-2. **Séparation** : répulsion douce sous 11 m, renforcée progressivement sous 7 m avec un terme quadratique. La répulsion critique conserve sa force pendant l'évitement. Une superposition exacte reçoit aussi une correction.
+2. **Séparation** : répulsion douce sous 11 m, renforcée progressivement sous 7 m avec un terme quadratique. Pendant une esquive de projectile, elle cède devant les dangers prioritaires. Une superposition exacte reçoit aussi une correction.
 3. **Cohésion** : aucune attraction quand le centre local des voisins est à moins de 12 m ; au-delà, une petite correction limitée ramène vers la même zone. Ce rayon de confort évite de compacter le banc.
 4. **Alignement** : correction douce vers leur vitesse moyenne.
 5. **Évitement** : anticipation jusqu'à 44 m. La trajectoire actuelle et le couloir avant sont comparés au rayon englobant des rochers perçus. Seules les **trois menaces les plus proches au maximum** contribuent au contournement, avec une priorité décroissante. Les rochers éloignés ou déjà derrière sont ignorés, sauf la mémoire d'une manœuvre en cours jusqu'au dépassement.
@@ -50,7 +51,7 @@ local_motion = wander \
 avoidance = obstacle_avoidance * avoidance_weight \
     + mobile_avoidance * mobile_avoidance_weight
 steering = local_motion * (1.0 - 0.75 * avoidance_priority) + avoidance
-# La partie critique de la séparation est rétablie à pleine force.
+# La séparation critique est renforcée, sauf pendant l'esquive prioritaire d'un tir.
 ```
 
 Ce mélange définit une vitesse souhaitée ; l'accélération limite les changements. La priorité d'évitement varie progressivement avec son intensité, entre 0 et 1. La variation longitudinale est limitée à ±3 m/s autour de la vitesse propre de base (10,5 m/s ±3 %). La composante avant reste toujours négative. X/Y partagent une limite de vitesse latérale. L'orientation et le roulis suivent doucement le mouvement visuel, sans simulation aérodynamique.
@@ -61,11 +62,19 @@ La direction de contournement dans le plan X/Y dépend de la position future du 
 
 Les hitboxes des chasseurs sont volontairement plus petites que leurs ailes : fuselage 0,78 × 0,5 × 3,15 m ; ailes centrales 2,8 × 0,16 × 1,25 m, pour une envergure visuelle de 5,6 m. Un effleurement de pointe n'est donc pas fatal ; un contact du corps ou de la partie centrale des ailes reste destructeur. Les collisions restent activées en scénario normal.
 
-`move_and_collide(velocity * delta)` balaie le déplacement. À la première collision avec un astéroïde **ou un PatrolDrone**, le chasseur cesse sa logique, quitte immédiatement `blue_ships`, émet `died` une seule fois, crée une brève explosion de cubes lumineux, puis est supprimé. Main retire sa référence et met à jour les vivants/morts. Aucun cadavre ne reste dans les calculs des voisins.
+`move_and_collide(velocity * delta)` balaie le déplacement. Un contact physique avec un astéroïde **ou un hostile** reste immédiatement fatal. Le chasseur quitte `blue_ships`, émet `died` une seule fois, crée une explosion, puis disparaît. Main retire sa référence et met à jour les vivants/morts. Les tirs ennemis passent par les HP décrits ci-dessous.
 
 ### Danger mobile
 
-Un PatrolDrone n'est jamais un voisin de flocking : il ne contribue ni à la cohésion, ni à l'alignement, ni à la récupération. BlueShip filtre les drones dans une portée de **44 m**, puis estime leur approche la plus proche sur **3 s**, à partir de la position et de la vitesse relatives. Si le passage prédit est trop proche, une correction X/Y de poids **7** commence avant le contact. Le côté choisi est mémorisé pendant la rencontre ; la référence est effacée quand le drone disparaît ou sort de portée. Les compteurs de réaction du test comptent des ticks-agent avec un danger anticipé, pas un nombre de collisions qui auraient forcément eu lieu.
+Un hostile n'est jamais un voisin de flocking : il ne contribue ni à la cohésion, ni à l'alignement, ni à la récupération. BlueShip filtre **`hostile_agents`** dans une portée de **44 m**, puis estime leur approche la plus proche sur **3 s**, à partir des vitesses relatives. Si le passage prédit est trop proche, une correction X/Y de poids **7** commence avant le contact. Le côté choisi est mémorisé pendant la rencontre ; la référence est effacée quand l'hostile disparaît ou sort de portée. Cela couvre le drone vert et l'intercepteur rouge sans sélection de cible par classe.
+
+### Santé et esquive des tirs
+
+BlueShip commence à **3 HP**. Un EnemyLaser retire **1 HP** : 3→2→1→0. Un impact survivable produit un petit flash orange pendant **0,14 s** ; aucune barre ni texte n'est ajouté. À zéro, l'explosion et le compteur de morts bleues ne sont déclenchés qu'une fois.
+
+La perception filtre seulement **`hostile_projectiles`**, dans **32 m**. Elle calcule le temps et la distance d'approche minimale avec la position et la vitesse relatives, sur **2 s**. Un tir entrant dont le passage prévu est à moins de **4 m** déclenche une correction X/Y, de poids **8**. Les tirs éloignés ou divergents sont ignorés. Une mémoire de **0,45 s** conserve le côté et l'état d'esquive brièvement à la frontière du danger ; l'accélération et la vitesse latérale restent limitées. Les références sont nettoyées à l'expiration ou à la suppression des bolts.
+
+Priorité : **collision immédiate > projectile dangereux > séparation critique > flocking/récupération > tir**. La correction de projectile cède devant une correction de collision forte. Le tir bleu est suspendu pendant l'esquive, même si plusieurs directions se compensent. `projectile_avoidance_active`, `projectile_dodge_count` et `projectile_dodge_ticks` restent internes.
 
 ## Combat frontal des BlueShip
 
@@ -73,7 +82,7 @@ Le combat est parallèle au déplacement. L'enum `CombatState` contient **NO_TAR
 
 BlueShip recherche seulement les membres de **`hostile_agents`**, vivants et exposant `take_damage(amount)`. Il sélectionne le plus proche visible dans un cône frontal de **6° de demi-angle**, avec une perception de **60 m**. La portée de tir est limitée à **44 m depuis Muzzle** : une cible peut être visible mais encore trop loin pour tirer. Les astéroïdes et les BlueShip ne sont jamais des cibles.
 
-Le tir est interdit en **AVOIDANCE** et dès qu'un voisin bleu est à moins de **7 m**, même si les forces de deux voisins symétriques s'annulent. Un raycast depuis le nez vérifie qu'aucun astéroïde ne masque la cible. Une cible masquée est ignorée ; un autre hostile visible peut être choisi. La navigation continue normalement pendant cette recherche.
+Le tir est interdit en **AVOIDANCE**, pendant **`projectile_avoidance_active`** et dès qu'un voisin bleu est à moins de **7 m**, même si les forces de voisins symétriques s'annulent. Un raycast depuis le nez vérifie qu'aucun astéroïde ne masque la cible. Le plus proche hostile valide est choisi, vert ou rouge sans préférence spéciale.
 
 Le `Marker3D` **Visuals/Muzzle**, placé à **Z = −2,9 m** dans le modèle, donne le vrai départ du projectile. La direction initiale estime une seule fois le déplacement de la cible pendant le vol, à vitesse constante. Elle doit rester dans le même cône frontal. Le chasseur ne s'oriente pas vers la cible ; après son lancement, le projectile suit une droite sans correction ni guidage.
 
@@ -96,7 +105,38 @@ Le masque du raycast vaut **6** : astéroïdes, bit 2, et hostiles, bit 4. Les B
 
 PatrolDrone commence avec `max_health = 4`. À zéro HP par dégâts, il passe en DESTROYED, quitte ses groupes, crée l'explosion existante de dix débris, émet `destroyed` une seule fois puis le signal de cycle de vie `died`, et disparaît. Main ajoute **un ennemi détruit** puis conserve le remplacement M4 après **5 s**. Un retrait hors champ, une réduction de population ou une collision du drone avec un rocher ne rapporte pas de score de tir.
 
-Le contrat pour un futur hostile reste léger : racine Node3D dans `hostile_agents`, propriété `alive`, méthode `take_damage(amount)` et corps physique sur la couche hostile. Une vitesse de CharacterBody3D peut aider l'estimation initiale du tir. Aucun nouvel agent n'est implémenté dans M5.
+Le contrat hostile reste léger : racine Node3D dans `hostile_agents`, propriété `alive`, méthode `take_damage(amount)` et corps physique sur la couche hostile. Interceptor le réutilise et partage avec PatrolDrone la gestion des dégâts, de l'explosion et des signaux de fin de vie.
+
+## Agent 3 — Interceptor et EnemyLaser
+
+L'intercepteur possède sa propre machine **PATROL → PURSUIT → DISENGAGE → PATROL**, avec **AVOIDING** temporaire et **DESTROYED** terminal. Il perçoit les BlueShip vivants proches, les astéroïdes à 44 m et les corps très proches. Il ne reçoit pas de force de flocking ni de cible globale. PATROL avance vers −Z avec une ondulation X/Y. PURSUIT corrige sa vitesse vers une estimation locale de la cible ; le nez visuel tourne progressivement vers elle, tandis que le corps continue sa translation.
+
+| Paramètre | Valeur par défaut |
+|---|---:|
+| HP | 4 |
+| Vitesse PATROL / latérale maximale / accélération | 9 m/s / 8 m/s / 12 m/s² |
+| `target_detection_radius` | 80 m, vivant le plus proche |
+| `target_prediction_time` | 0,35 s |
+| `pursuit_distance` | 24 m, distance de combat souhaitée |
+| `max_pursuit_duration` / `disengage_duration` | 8 s / 4 s |
+| `firing_range` / `firing_cone_angle` | 52 m / demi-angle 10° |
+| Rafale / intervalle / pause après dernier tir | 3 / 0,2 s / 1,6 s |
+| Dispersion initiale des tirs | ±2° sur deux axes, seed individuelle |
+| Remplacement / retrait derrière le dernier bleu | 8 s / 140 m |
+
+La poursuite cesse à la limite de temps, à la mort de la cible ou quand elle sort de portée. DISENGAGE avance plus vite et s'écarte latéralement pendant quatre secondes. Un obstacle ou un corps trop proche donne AVOIDING ; la mission reprend quand le danger passe. Le temps de poursuite continue pendant l'évitement. Une petite séparation avec les autres hostiles complète l'évitement des astéroïdes et des BlueShip proches.
+
+L'intercepteur tire **uniquement en PURSUIT**, dans le cône du vrai nez `Visuals/Muzzle`, à portée et avec une ligne de vue libre d'astéroïde. La dispersion est tirée à chaque lancement dans un flux déterministe distinct. Il vise approximativement la position courante ; il n'effectue pas de visée parfaite. Un danger peut interrompre la cadence nominale de la rafale.
+
+**EnemyLaser** : bolt rouge/orange, Node3D, **45 m/s**, **3,5 s**, **1 dégât**, droite sans guidage. Son raycast balaie le déplacement avec le masque **3** : BlueShip et astéroïdes. Les verts et les rouges sont ignorés. Les rochers absorbent les deux couleurs de tir sans modification ni score.
+
+| Niveau effectif | PatrolDrone | Interceptor |
+|---|---:|---:|
+| 1 — Facile | 1 | 0 |
+| 2 — Intermédiaire | 2 | 1 |
+| 3 — Difficile | 3 | 2 |
+
+Main maintient les effectifs via les exports `easy_interceptor_count=0`, `intermediate_interceptor_count=1`, `hard_interceptor_count=2`. Une perte rouge attend huit secondes avant remplacement. Les apparitions sont à **115–155 m devant**, **18–38 m latéralement**, avec vérification des rochers, des autres hostiles et d'une distance minimale de **25 m aux BlueShip**. Une baisse de difficulté retire le surplus sans mort ni score. Le champ M5 suffit à ces populations ; ses dimensions et toutes les commandes restent inchangées. La caméra suit uniquement les BlueShip.
 
 ## Paramètres par défaut
 
@@ -185,9 +225,9 @@ Les patterns occupent un volume limité, avec des côtés ouverts pour une route
 | 2 — Intermédiaire | 500 à moins de 1 100 m | 44 m | 18 m | 2–5,5 m | Offset pair, Horizontal pair, Vertical pair, Staggered cluster |
 | 3 — Difficile | À partir de 1 100 m | 34 m | 14 m | 4–6,5 m ; gros central 5,5–7 m et compagnons 1,2–2,2 m | Horizontal pair, Vertical pair, Staggered cluster, Large with companions |
 
-Les paramètres sont `intermediate_distance`, `hard_distance`, `easy_spacing`, `intermediate_spacing`, `hard_spacing`, `easy_gap`, `intermediate_gap` et `hard_gap`. `gap` est l'échelle du gabarit, pas une largeur libre entre surfaces. En AUTO, la difficulté d'une configuration dépend de sa distance en Z depuis l'origine du groupe, comme en M3 : le champ plus difficile est ainsi préparé devant avant que le HUD annonce le franchissement du seuil.
+Les paramètres sont `intermediate_distance`, `hard_distance`, `easy_spacing`, `intermediate_spacing`, `hard_spacing`, `easy_gap`, `intermediate_gap` et `hard_gap`. `gap` est l'échelle du gabarit, pas une largeur libre entre surfaces. En AUTO, la difficulté d'une configuration dépend de sa distance en Z depuis l'origine du groupe : le champ plus difficile est préparé devant avant le franchissement du seuil. Le niveau reste une métrique interne.
 
-M4 protège également les drones encore actifs lors du nettoyage : un rocher ne disparaît pas près d'un drone retardataire. Le plafond d'astéroïdes reste inchangé.
+Le nettoyage protège tous les BlueShip et les hostiles encore actifs, verts et rouges : un rocher ne disparaît pas près d'un agent retardataire. Le plafond d'astéroïdes reste inchangé.
 
 ### Choix de difficulté
 
@@ -204,7 +244,7 @@ La graine **20261012** initialise les chasseurs et un générateur indépendant 
 
 ## HUD
 
-Pour améliorer la lisibilité de la démonstration, le HUD affiche uniquement le nombre de chasseurs détruits. Les autres métriques restent utilisées en interne pour les tests et l'étude.
+Le HUD affiche exactement **Vaisseaux détruits : X**. Aucun HP, niveau, mode, ennemi, tir, score, distance ou commande n'est visible. Toutes les métriques restent internes.
 
 ## Architecture
 
@@ -213,12 +253,16 @@ project.godot                 Scène principale, affichage, couches physiques
 scenes/main.tscn              Environnement, lumières, caméra, conteneurs, HUD
 scenes/blue_ship.tscn         Silhouette du chasseur et deux collisions
 scenes/patrol_drone.tscn      Drone vert, primitives, matériaux et collision
+scenes/interceptor.tscn       Chasseur rouge, primitives, moteurs orange et collision
+scenes/enemy_laser.tscn       Bolt rouge/orange
 scenes/blue_laser.tscn        Bolt cyan emissive, sans asset externe
 scenes/asteroid.tscn          Obstacle environnemental SpaceAsteroid
 scenes/explosion.tscn         Effet visuel temporaire
 scripts/main.gd              Initialisation, statistiques, centre d'observation
 scripts/blue_ship.gd          Perception, règles locales, anticipation, mort
 scripts/patrol_drone.gd       Waypoints, perceptions, états et mort du drone
+scripts/interceptor.gd        Machine de mission locale, poursuite, rafales et désengagement
+scripts/enemy_laser.gd        Balayage, dégâts BlueShip, expiration
 scripts/mobile_avoidance.gd   Estimation locale de l'approche relative
 scripts/blue_laser.gd         Déplacement, balayage physique, dégâts et expiration
 scripts/asteroid.gd           Géométrie procédurale et collisions des rochers
@@ -230,15 +274,16 @@ materials/*.tres              Bleu, gris clair, cockpit, cyan des propulseurs
 materials/nebula.gdshader     Nébuleuse transparente, sans texture externe
 tests/validate_simulation.gd  Validation reproductible du milestone
 tests/validate_combat.gd      Ciblage, sécurité, dégâts et parcours M5 de 90 s
+tests/validate_interceptor.gd FSM, rafales, santé, esquive, populations, parcours M6
 ```
 
 Les 650 étoiles sont distribuées en trois couches : lointaine (environ 62 %), intermédiaire (30 %) et proche (8 %). Leurs profondeurs et tailles diffèrent ; elles restent immobiles dans le monde jusqu'au recyclage aux bords du volume observé. Le déplacement de la caméra produit donc une parallaxe naturelle. Le recyclage fonctionne aussi pendant le pan libre. Deux planètes à atmosphère légère, une petite lune et un quad de nébuleuse discret donnent de la profondeur sans collision. La caméra conserve son dernier centre après la dernière mort.
 
 ### Groupes, signaux et couches
 
-- Groupes : `blue_ships`, `patrol_drones`, `hostile_agents`, `asteroids` et `blue_lasers`.
-- Signaux : `BlueShip.died`, `BlueShip.fired`, `PatrolDrone.died`, `PatrolDrone.destroyed` et `BlueLaser.hit_hostile`. Main compte les tirs, impacts et destructions sans conserver les projectiles supprimés.
-- BlueShip : couche **1** (bit 1), masque **6** (astéroïdes et drones). PatrolDrone : couche **3** (bit 4), masque **2** (astéroïdes). Astéroïdes : couche **2** (bit 2), masque **0**.
+- Groupes : `blue_ships`, `patrol_drones`, `interceptors`, `hostile_agents`, `asteroids`, `blue_lasers`, `hostile_projectiles`. Seuls les verts appartiennent à `patrol_drones` ; verts et rouges appartiennent à `hostile_agents`.
+- Signaux : morts bleues, dégâts/destructions hostiles, tirs et impacts des deux factions, début d'esquive. Main conserve les compteurs sans stocker de projectile supprimé.
+- BlueShip : couche **1** (bit 1), masque **6** (astéroïdes et hostiles). PatrolDrone et Interceptor : couche **3** (bit 4), masque **2**. Astéroïdes : couche **2** (bit 2), masque **0**. BlueLaser raycast **6**, EnemyLaser raycast **3** ; les projectiles n'ont pas de corps physique.
 - Les chasseurs se séparent localement sans collision physique entre eux. Leur balayage détecte les rochers et les drones. Le drone ne se bloque pas physiquement sur un BlueShip ; sa correction locale assure l'évitement réciproque, et un contact détecté par le chasseur reste fatal pour celui-ci.
 - Le HUD conserve « Vaisseaux détruits : X » après la dernière mort bleue. La caméra conserve alors son centre.
 
@@ -248,13 +293,46 @@ Les 650 étoiles sont distribuées en trois couches : lointaine (environ 62 %), 
 & 'CHEMIN\Godot.exe' --headless --path . --editor --import
 & 'CHEMIN\Godot.exe' --headless --path . --fixed-fps 60 --script res://tests/validate_simulation.gd
 & 'CHEMIN\Godot.exe' --headless --path . --fixed-fps 60 --script res://tests/validate_combat.gd
+& 'CHEMIN\Godot.exe' --headless --path . --fixed-fps 60 --script res://tests/validate_interceptor.gd
 ```
 
 La première commande importe les scènes et vérifie le parsing avec les warnings GDScript traités comme erreurs. La seconde vérifie le lancement, les agents/groupes/couches, la rotation des rochers, le vol 3D sans obstacles, le mouvement relatif en Z, la séparation, la perception locale, les quatre directions de contournement, deux dangers voisins, la destruction réelle, l'unicité du signal, l'explosion et le HUD après la dernière mort. Elle teste également le suivi, les événements clavier/souris de la caméra, les bindings AZERTY, le recentrage et le recyclage des trois couches d'étoiles après un grand déplacement libre. Une comparaison du même parcours en Suivi et Libre vérifie l'indépendance des trajectoires des agents. `--fixed-fps 60` conserve un pas physique de 1/60 s en exécutant le test aussi vite que possible.
 
-Validation effectuée avec **Godot 4.7.2 stable** le 12 octobre 2026, graine **20261012**, pas fixe de 1/60 s : tests sans warning ni erreur, code de sortie 0.
+Validation historique M5 avec **Godot 4.7.2 stable** le 12 octobre 2026, graine **20261012**, pas fixe de 1/60 s. Les résultats M6 ci-dessous ont été mesurés le 13 octobre : suites sans warning ni erreur, codes de sortie 0.
 
-### Résultats M5 — test principal MANUEL 3
+### Résultats M6 — 13 octobre 2026
+
+Godot 4.7.2, seed **20261012**, pas fixe 1/60 s, scène complète avec collisions actives. `validate_interceptor.gd` vérifie la FSM, la perte de cible, l'évitement/reprise, la rafale, le cône, la ligne de vue, les trois impacts rouges, le flash, l'esquive et la suspension/reprise des tirs bleus. Les scénarios contrôlés détruisent **un vert et un rouge par huit lasers bleus**, et tuent un BlueShip par **trois lasers rouges** : compteurs et signaux uniques, rochers intacts, factions sans friendly fire, expiration et références nettoyées. La difficulté 1/2/3, le remplacement à huit secondes et le retrait sans score passent. Les suites historiques navigation/caméra et combat passent également.
+
+| Mesure | AUTO 90 s | MANUEL 3 90 s | MANUEL 3 300 s |
+|---|---:|---:|---:|
+| BlueShip vivants / morts | 10 / 0 | 10 / 0 | 10 / 0 |
+| Distance / niveau final | 949,21 m / 2 | 949,97 m / 3 | 3 170,25 m / 3 |
+| Verts actifs / détruits par tir | 2 / 1 | 3 / 0 | 3 / 0 |
+| Rouges actifs / détruits par tir | 1 / 0 | 2 / 0 | 2 / 0 |
+| Verts générés / retirés sans score | 3 / 0 | 3 / 0 | 5 / 2 |
+| Rouges générés / retirés sans score | 1 / 0 | 2 / 0 | 2 / 0 |
+| Tirs bleus / impacts hostiles | 4 / 4 | 6 / 5 | 9 / 8 |
+| Tirs rouges / impacts bleus | 0 / 0 | 46 / 0 | 362 / 0 |
+| Activations d'esquive / ticks-agent actifs | 0 / 0 | 17 / 628 | 85 / 3 047 |
+| Poursuites / désengagements observés | 0 / 0 | 9 / 8 | 45 / 43 |
+| Voisin le plus proche, moyenne temporelle | 10,96 m | 11,68 m | 11,81 m |
+| Espacement final / minimum ponctuel de paire | 9,89 / 5,94 m | 11,27 / 5,24 m | 10,79 / 2,78 m |
+| Dispersion maximale / finale | 23,92 / 17,47 m | 29,41 / 23,21 m | 31,05 / 19,67 m |
+| Isolés à la fin | 0 | 0 | 0 |
+| Astéroïdes maximum / finaux | 28 / 25 | 38 / 32 | 44 / 43 |
+| Projectiles simultanés maximum | 1 | 12 | 12 |
+| Nœuds maximum échantillonnés | 560 | 678 | 757 |
+| Temps headless par tick, fenêtre 60–90 s | 0,572 ms | 0,768 ms | 0,759 ms |
+| Temps headless par tick, dernière fenêtre de 30 s | 0,572 ms | 0,768 ms | 0,825 ms |
+
+Les moyennes d'espacement sont échantillonnées à 5 Hz après la première seconde. Le minimum de paire et les nœuds sont également échantillonnés ; ils peuvent manquer un événement plus bref. Les activations d'esquive comptent des entrées dans le comportement, pouvant concerner plusieurs BlueShip ou plusieurs tirs d'une rafale : elles ne prouvent pas autant de collisions évitées. Les ticks-agent additionnent les pas physiques des chasseurs en esquive.
+
+Le test long génère au total **10 BlueShip + 5 verts + 2 rouges**, avec **aucune mort** et deux retraits verts sans score. Aucun rouge ne touche un bleu sur ces parcours ; le réglage produit donc surtout une perturbation et des esquives sur cette graine. En AUTO 90 s, le premier rouge apparaît au niveau 2 mais ne rejoint pas encore la portée de poursuite. Les tests contrôlés confirment les impacts et destructions, sans les présenter comme des événements du parcours normal. Le rapprochement à **2,78 m** après cinq minutes montre que la séparation n'est pas une garantie géométrique.
+
+Ces mesures CPU incluent la boucle de test et les traitements headless de cette machine ; **elles ne sont pas des FPS graphiques**. Aucun essai de plusieurs heures ni étude multi-seeds n'est réalisé. Les logs et les métriques JSON sont dans `.godot/`, ignoré par Git. Pour le rendu : lancer le script sans `--headless`, avec `-- --capture-m6` ; `.godot/validation/m6_preview.png` montre une fixture avec les trois agents, un bolt orange et un flash survivable, avec le seul compteur de morts bleues dans le HUD.
+
+### Référence historique M5 — test principal MANUEL 3
 
 Godot 4.7.2, seed **20261012**, pas fixe de 1/60 s. Les deux parcours gardent les paramètres de jeu par défaut, avec uniquement le mode de difficulté différent.
 
@@ -339,11 +417,11 @@ Références API : [PrismMesh](https://docs.godotengine.org/en/stable/classes/cl
 ## Limites connues
 
 - Le champ se renouvelle continuellement mais son budget reste borné. Un groupe exceptionnellement étiré en Z ou des paramètres extrêmes peuvent remplir le budget et retarder la préparation devant. Le nettoyage continue de protéger le dernier survivant.
-- Évitement réactif de trois astéroïdes proches au maximum, plus les drones locaux, sans planification d'un chemin complet. Dix survivants sont validés sur les deux parcours M5 de 90 s ; le parcours AUTO de 300 s comporte **deux morts réelles**. La survie n'est donc pas garantie sur une durée plus longue ou avec d'autres paramètres.
+- Évitement réactif de trois astéroïdes proches au maximum, plus les hostiles locaux, sans planification complète. Les parcours M6 décrits gardent dix survivants ; les anciens parcours M5 comportaient deux morts à cinq minutes. La survie n'est pas garantie avec une autre graine ou sur une durée plus longue.
 - L'approche mobile suppose une vitesse constante sur quelques secondes. Des changements brusques ou des dangers opposés peuvent faire échouer l'évitement. Les ticks de réaction ne constituent pas un décompte certain de collisions évitées.
 - Les drones n'évitent pas encore les autres drones. Leur remplacement peut momentanément réduire la population ; leur route n'est pas recentrée continuellement sur le groupe bleu.
 - La récupération ne peut réunir des groupes dont aucun membre ne voit l'autre à 50 m. Aucun rappel global invisible n'impose un regroupement.
-- Le tir n'effectue qu'une estimation initiale à vitesse constante, limitée au cône frontal. Une cible qui change de waypoint ou accélère peut faire rater le bolt. Il n'y a ni poursuite, ni guidage, ni système de visée complet ; les HP et la cadence restent un premier réglage.
+- Les tirs sont droits et leur visée initiale est approximative. L'intercepteur poursuit pendant un temps limité ; les BlueShip ne poursuivent pas de cible. Aucun impact rouge n'est observé dans les trois parcours M6, et aucun hostile n'est détruit dans les deux parcours MANUEL 3 : l'équilibrage reste à étudier sur plusieurs graines.
 - L'objectif de 9–14 m est un espacement moyen, pas une distance minimale imposée. Les manœuvres peuvent créer des rapprochements brefs ; le test normal M3 mesure 6,71 m au plus près.
 - Les hitboxes simplifient et réduisent la silhouette des chasseurs ; les pointes des ailes, le bout du nez et les flammes ne sont pas intégralement couverts.
 - Les tailles des astéroïdes sont nominales : la déformation et les lobes irréguliers modifient leurs dimensions exactes.
@@ -352,4 +430,4 @@ Références API : [PrismMesh](https://docs.godotengine.org/en/stable/classes/cl
 
 ## Hors de ce milestone et perspectives
 
-BlueShip et PatrolDrone sont les deux agents implémentés. Les astéroïdes tournent mais ne dérivent pas et restent indestructibles. Interceptor, Bomber/MineLayer, tirs ennemis et bombes BlueShip restent réservés aux prochains milestones. Aucun leader, poursuite, Agent 3 ou Agent 4 n'est implémenté.
+BlueShip, PatrolDrone et Interceptor sont les trois agents implémentés. Les astéroïdes restent indestructibles et ne sont pas des agents. **Agent 4, Bomber/MineLayer, mines, bombes BlueShip, missiles et vagues clavier ne sont pas implémentés.**

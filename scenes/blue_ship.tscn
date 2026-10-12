@@ -101,6 +101,12 @@ shape = SubResource("WingCollision")
 [node name="Muzzle" type="Marker3D" parent="Visuals"]
 position = Vector3(0, 0, -2.9)
 
+[node name="HitFlash" type="OmniLight3D" parent="Visuals"]
+position = Vector3(0, 1, -0.2)
+light_color = Color(1, 0.14, 0.025, 1)
+light_energy = 0.0
+omni_range = 5.0
+
 [node name="Fuselage" type="MeshInstance3D" parent="Visuals"]
 mesh = SubResource("Hull")
 

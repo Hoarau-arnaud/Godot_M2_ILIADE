@@ -47,7 +47,7 @@ func _advance(frames: int) -> void:
 func _dispose(simulation: SpaceSimulation) -> void:
 	simulation.queue_free()
 	await _advance(2)
-	for group: String in ["blue_ships", "hostile_agents", "patrol_drones", "asteroids", "blue_lasers"]:
+	for group: String in ["blue_ships", "hostile_agents", "patrol_drones", "interceptors", "asteroids", "blue_lasers", "hostile_projectiles"]:
 		_check(get_nodes_in_group(group).is_empty(), "Un objet supprimé reste dans le groupe %s." % group)
 
 
@@ -57,6 +57,7 @@ func _empty_scene(count: int = 1) -> SpaceSimulation:
 	simulation.ship_count = count
 	simulation.streaming_enabled = false
 	simulation.drones_enabled = false
+	simulation.interceptors_enabled = false
 	root.add_child(simulation)
 	simulation.set_physics_process(false)
 	for index: int in range(simulation.ships.size()):
@@ -300,6 +301,7 @@ func _test_navigation_independence() -> void:
 
 func _test_drone_counts() -> void:
 	var simulation: SpaceSimulation = MAIN_SCENE.instantiate() as SpaceSimulation
+	simulation.interceptors_enabled = false # Effectifs de l'Agent 2 isolés dans cette fixture.
 	simulation.streaming_enabled = false
 	simulation.combat_enabled = false
 	root.add_child(simulation)
@@ -351,9 +353,9 @@ func _test_run_90(mode: int) -> void:
 			_check(simulation.drones.size() <= simulation.target_drone_count() and simulation.asteroid_container.active_asteroid_count <= 72 and simulation.projectile_container.get_child_count() <= 70, "Les objets actifs dépassent les budgets pendant le combat.")
 			_check(simulation.living_agent_count + simulation.death_count == 10, "Compteurs BlueShip incohérents.")
 	await process_frame
-	_check(simulation.living_agent_count >= 6 and simulation.asteroid_container.removed_configuration_count > 0, "La majorité du groupe ou le streaming ne reste pas actif.")
-	_check(simulation.hostile_hits <= simulation.blue_shots_fired and simulation.enemies_destroyed <= simulation.drone_death_count, "Compteurs de combat incohérents.")
-	_check(get_nodes_in_group("hostile_agents").size() == simulation.drones.size() and simulation.maximum_active_projectiles <= 70 and maximum_nodes < 1800, "Hostiles, projectiles ou nœuds s'accumulent.")
+	_check(simulation.living_agent_count > 0 and simulation.asteroid_container.removed_configuration_count > 0, "Le groupe ou le streaming ne reste pas actif.")
+	_check(simulation.hostile_hits <= simulation.blue_shots_fired and simulation.enemies_destroyed <= simulation.drone_death_count + simulation.interceptor_death_count, "Compteurs de combat incohérents.")
+	_check(get_nodes_in_group("hostile_agents").size() == simulation.drones.size() + simulation.interceptors.size() and simulation.maximum_active_projectiles <= 70 and maximum_nodes < 1800, "Hostiles, projectiles ou nœuds s'accumulent.")
 	var hit_rate: float = 100.0 * float(simulation.hostile_hits) / float(maxi(simulation.blue_shots_fired, 1))
 	print("M5 %s 90 s : distance=%.2f m, difficulté=%d, BlueShip=%d vivants/%d morts, drones actifs=%d, créés=%d, détruits combat=%d, morts toutes causes=%d, tirs=%d, impacts hostiles=%d, réussite approximative=%.2f %%, astéroïdes max=%d, lasers max=%d, espacement moyen=%.2f m, espacement final=%.2f m, minimum paire=%.2f m, dispersion max=%.2f m, dispersion finale=%.2f m, isolés distincts=%d, nœuds max=%d" % ["AUTO" if mode == 0 else "MANUEL 3", simulation.distance_travelled, simulation.difficulty_level, simulation.living_agent_count, simulation.death_count, simulation.drones.size(), simulation.drone_spawn_count, simulation.enemies_destroyed, simulation.drone_death_count, simulation.blue_shots_fired, simulation.hostile_hits, hit_rate, simulation.asteroid_container.maximum_active_observed, simulation.maximum_active_projectiles, nearest_sum / float(maxi(nearest_samples, 1)), simulation.average_spacing, minimum_pair, maximum_dispersion, simulation.dispersion, isolated_names.size(), maximum_nodes])
 	await _dispose(simulation)

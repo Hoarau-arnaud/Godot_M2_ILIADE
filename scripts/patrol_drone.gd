@@ -184,7 +184,8 @@ func _die(combat_kill: bool = false) -> void:
 	health = 0
 	patrol_state = PatrolState.DESTROYED
 	_obstacle_directions.clear()
-	remove_from_group("patrol_drones")
+	if is_in_group("patrol_drones"):
+		remove_from_group("patrol_drones")
 	remove_from_group("hostile_agents")
 	set_physics_process(false)
 	collision_layer = 0
