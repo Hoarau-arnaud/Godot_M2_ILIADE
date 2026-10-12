@@ -1,0 +1,98 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/main.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/space_environment.gd" id="2"]
+[ext_resource type="Script" path="res://scripts/camera_controller.gd" id="3"]
+
+[sub_resource type="Environment" id="Space"]
+background_mode = 1
+background_color = Color(0.003, 0.006, 0.018, 1)
+ambient_light_source = 2
+ambient_light_color = Color(0.43, 0.52, 0.73, 1)
+ambient_light_energy = 0.75
+tonemap_mode = 0
+
+[sub_resource type="StyleBoxFlat" id="HudPanel"]
+content_margin_left = 18.0
+content_margin_top = 14.0
+content_margin_right = 18.0
+content_margin_bottom = 14.0
+bg_color = Color(0.012, 0.025, 0.065, 0.88)
+border_width_left = 3
+border_color = Color(0.14, 0.7, 0.95, 1)
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+
+[node name="Main" type="Node3D"]
+script = ExtResource("1")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Space")
+
+[node name="KeyLight" type="DirectionalLight3D" parent="."]
+rotation_degrees = Vector3(-38, -32, 0)
+light_color = Color(0.78, 0.86, 1, 1)
+light_energy = 1.65
+
+[node name="FillLight" type="DirectionalLight3D" parent="."]
+rotation_degrees = Vector3(30, 140, 0)
+light_color = Color(0.36, 0.58, 0.95, 1)
+light_energy = 0.65
+
+[node name="SpaceDecor" type="Node3D" parent="."]
+script = ExtResource("2")
+
+[node name="Ships" type="Node3D" parent="."]
+
+[node name="Asteroids" type="Node3D" parent="."]
+
+[node name="Camera3D" type="Camera3D" parent="."]
+position = Vector3(10, 16, 42)
+current = true
+fov = 58.0
+near = 0.1
+far = 4500.0
+script = ExtResource("3")
+
+[node name="HUD" type="CanvasLayer" parent="."]
+
+[node name="Panel" type="PanelContainer" parent="HUD"]
+offset_left = 18.0
+offset_top = 18.0
+mouse_filter = 2
+theme_override_styles/panel = SubResource("HudPanel")
+
+[node name="Lines" type="VBoxContainer" parent="HUD/Panel"]
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 6
+
+[node name="Title" type="Label" parent="HUD/Panel/Lines"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.64, 0.9, 1, 1)
+theme_override_font_sizes/font_size = 22
+text = "Simulation SMA spatiale"
+
+[node name="Statistics" type="Label" parent="HUD/Panel/Lines"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "Vaisseaux vivants : 0\nMorts : 0"
+
+[node name="CameraMode" type="Label" parent="HUD/Panel/Lines"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.65, 0.76, 0.85, 1)
+theme_override_font_sizes/font_size = 15
+text = "Mode caméra : Suivi"
+
+[node name="CameraHints" type="Label" parent="HUD/Panel/Lines"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.47, 0.61, 0.73, 1)
+theme_override_font_sizes/font_size = 13
+text = "F : caméra   ·   G / Home : recentrer"
+
+[node name="EndMessage" type="Label" parent="HUD/Panel/Lines"]
+visible = false
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.57, 0.3, 1)
+theme_override_font_sizes/font_size = 18
+text = "Tous les agents ont été détruits"

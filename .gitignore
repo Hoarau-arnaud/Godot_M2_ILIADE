@@ -1,0 +1,14 @@
+# Godot-generated cache, editor state, imports, shaders and validation previews.
+.godot/
+
+# Generated builds and exports.
+/build/
+/exports/
+export_credentials.cfg
+
+# Operating system metadata.
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Keep Godot .uid files: they are source resource identifiers.
