@@ -12,10 +12,14 @@ const DIFFICULTY_NAMES: Array[String] = ["Facile", "Intermédiaire", "Difficile"
 @export var camera_follow_speed: float = 3.0
 @export var metrics_update_interval: float = 0.4
 @export_range(0, 3, 1) var manual_difficulty: int = 0
+@export var combat_enabled: bool = true
 
 @export_category("Drones de patrouille")
-@export_range(0, 3, 1) var patrol_drone_count: int = 2
-@export var drone_spawn_ahead_distance: float = 80.0
+@export var drones_enabled: bool = true
+@export_range(0, 3, 1) var easy_drone_count: int = 1
+@export_range(0, 3, 1) var intermediate_drone_count: int = 2
+@export_range(0, 3, 1) var hard_drone_count: int = 3
+@export var drone_spawn_ahead_distance: float = 100.0
 @export var drone_replacement_delay: float = 5.0
 @export var drone_retire_distance: float = 120.0
 
@@ -32,6 +36,10 @@ var drones: Array[PatrolDrone] = []
 var drone_death_count: int = 0
 var drone_retired_count: int = 0
 var drone_spawn_count: int = 0
+var enemies_destroyed: int = 0
+var blue_shots_fired: int = 0
+var hostile_hits: int = 0
+var maximum_active_projectiles: int = 0
 var _drone_random: RandomNumberGenerator = RandomNumberGenerator.new()
 var _replacement_timer: float = 0.0
 var _random: RandomNumberGenerator = RandomNumberGenerator.new()
@@ -42,6 +50,7 @@ var _measurement_timer: float = 0.0
 @onready var ship_container: Node3D = $Ships
 @onready var asteroid_container: ObstacleField = $Asteroids
 @onready var drone_container: Node3D = $PatrolDrones
+@onready var projectile_container: Node3D = $Projectiles
 @onready var camera: SimulationCamera = $Camera3D
 @onready var space_decor: SpaceEnvironment = $SpaceDecor
 @onready var statistics: Label = $HUD/Panel/Lines/Statistics
@@ -50,6 +59,7 @@ var _measurement_timer: float = 0.0
 @onready var progression_label: Label = $HUD/Panel/Lines/Progression
 @onready var group_metrics_label: Label = $HUD/Panel/Lines/GroupMetrics
 @onready var drone_statistics_label: Label = $HUD/Panel/Lines/DroneStatistics
+@onready var combat_statistics_label: Label = $HUD/Panel/Lines/CombatStatistics
 
 
 func _ready() -> void:
@@ -80,6 +90,7 @@ func _physics_process(delta: float) -> void:
 	distance_travelled = maxf(distance_travelled, _origin_z - center.z)
 	_update_difficulty()
 	_maintain_drones(center, delta)
+	maximum_active_projectiles = maxi(maximum_active_projectiles, projectile_container.get_child_count())
 	if streaming_enabled:
 		var z_bounds: Vector2 = _fleet_z_bounds()
 		var cleanup_rear: float = z_bounds.y
@@ -115,20 +126,35 @@ func _update_difficulty() -> void:
 	asteroid_container.difficulty_override = manual_difficulty
 
 
+func target_drone_count() -> int:
+	if not drones_enabled:
+		return 0
+	var counts: Array[int] = [easy_drone_count, intermediate_drone_count, hard_drone_count]
+	return clampi(counts[difficulty_level - 1], 0, 3)
+
+
+func _retire_drone(drone: PatrolDrone) -> void:
+	drones.erase(drone)
+	drone.remove_from_group("patrol_drones")
+	drone.remove_from_group("hostile_agents")
+	drone.queue_free()
+	drone_retired_count += 1
+
+
 func _maintain_drones(center: Vector3, delta: float) -> void:
 	_replacement_timer = maxf(_replacement_timer - delta, 0.0)
 	var rear_z: float = _fleet_z_bounds().y
 	for drone: PatrolDrone in drones.duplicate():
 		if drone.global_position.z <= rear_z + maxf(drone_retire_distance, 70.0):
 			continue
-		drones.erase(drone)
-		drone.remove_from_group("patrol_drones")
-		drone.queue_free()
-		drone_retired_count += 1
+		_retire_drone(drone)
 		_replacement_timer = maxf(drone_replacement_delay, 0.0)
+	# Un niveau plus bas retire les excédents sans mort ni score.
+	while drones.size() > target_drone_count():
+		_retire_drone(drones.back())
 	if _replacement_timer > 0.0 or ships.is_empty():
 		return
-	while drones.size() < clampi(patrol_drone_count, 0, 3):
+	while drones.size() < target_drone_count():
 		if not _spawn_drone(center, _fleet_z_bounds().x):
 			_replacement_timer = 1.0
 			break
@@ -138,7 +164,7 @@ func _spawn_drone(center: Vector3, front_z: float) -> bool:
 	var position_candidate: Vector3 = Vector3.ZERO
 	var clear: bool = false
 	for _attempt: int in range(64):
-		position_candidate = Vector3(center.x + _drone_random.randf_range(-24.0, 24.0), center.y + _drone_random.randf_range(-12.0, 12.0), front_z - maxf(drone_spawn_ahead_distance, 80.0) - _drone_random.randf_range(0.0, 45.0))
+		position_candidate = Vector3(center.x + _drone_random.randf_range(-32.0, 32.0), center.y + _drone_random.randf_range(-18.0, 18.0), front_z - maxf(drone_spawn_ahead_distance, 80.0) - _drone_random.randf_range(0.0, 45.0))
 		clear = true
 		for node: Node in get_tree().get_nodes_in_group("asteroids"):
 			var obstacle: SpaceAsteroid = node as SpaceAsteroid
@@ -159,10 +185,27 @@ func _spawn_drone(center: Vector3, front_z: float) -> bool:
 	drone.patrol_anchor = Vector2(center.x, center.y)
 	drone.position = drone_container.to_local(position_candidate)
 	drone.died.connect(_on_drone_died)
+	drone.destroyed.connect(_on_hostile_destroyed)
 	drone_container.add_child(drone)
 	drones.append(drone)
 	drone_spawn_count += 1
 	return true
+
+
+func _on_hostile_destroyed(drone: PatrolDrone) -> void:
+	if drones.has(drone):
+		enemies_destroyed += 1
+		_update_hud()
+
+
+func _on_ship_fired(projectile: BlueLaser) -> void:
+	blue_shots_fired += 1
+	projectile.hit_hostile.connect(_on_hostile_hit)
+	maximum_active_projectiles = maxi(maximum_active_projectiles, projectile_container.get_child_count())
+
+
+func _on_hostile_hit(_target: Node3D, _amount: int) -> void:
+	hostile_hits += 1
 
 
 func _on_drone_died(drone: PatrolDrone) -> void:
@@ -185,8 +228,11 @@ func _create_ships() -> void:
 		var ship: BlueShip = SHIP_SCENE.instantiate() as BlueShip
 		ship.name = "BlueShip_%02d" % (index + 1)
 		ship.individual_seed = simulation_seed + (index + 1) * 997
+		ship.combat_enabled = combat_enabled
+		ship.projectile_container = projectile_container
 		ship.position = _random_ship_position()
 		ship.died.connect(_on_ship_died)
+		ship.fired.connect(_on_ship_fired)
 		ship_container.add_child(ship)
 		ships.append(ship)
 	initial_agent_count = ships.size()
@@ -260,7 +306,8 @@ func _update_hud() -> void:
 	statistics.text = "Vaisseaux vivants : %d\nMorts : %d" % [living_agent_count, death_count]
 	progression_label.text = "Distance : %.0f m\nDifficulté : %d - %s [%s]" % [distance_travelled, difficulty_level, DIFFICULTY_NAMES[difficulty_level - 1], "AUTO" if manual_difficulty == 0 else "MANUEL"]
 	group_metrics_label.text = "Espacement : %.1f m · Dispersion : %.1f m" % [average_spacing, dispersion]
-	drone_statistics_label.text = "Drones actifs : %d" % drones.size()
+	drone_statistics_label.text = "Hostiles actifs : %d" % drones.size()
+	combat_statistics_label.text = "Ennemis détruits : %d" % enemies_destroyed
 	end_message.visible = living_agent_count == 0
 
 

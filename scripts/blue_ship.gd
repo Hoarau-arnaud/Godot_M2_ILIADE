@@ -2,11 +2,14 @@ class_name BlueShip
 extends CharacterBody3D
 
 signal died(ship: BlueShip)
+signal fired(projectile: BlueLaser)
 
 const EXPLOSION_SCENE: PackedScene = preload("res://scenes/explosion.tscn")
+const LASER_SCENE: PackedScene = preload("res://scenes/blue_laser.tscn")
 const SHIP_CLEARANCE: float = 2.5
 
 enum BehaviorState { NAVIGATION, AVOIDANCE, REGROUPING, DESTROYED }
+enum CombatState { NO_TARGET, TARGET_VISIBLE, COOLDOWN }
 
 @export_category("Vol permanent")
 @export var forward_speed: float = 10.5
@@ -49,9 +52,23 @@ enum BehaviorState { NAVIGATION, AVOIDANCE, REGROUPING, DESTROYED }
 @export var mobile_prediction_time: float = 3.0
 @export var mobile_avoidance_weight: float = 7.0
 
+@export_category("Combat frontal")
+@export var combat_enabled: bool = true
+@export var combat_detection_radius: float = 60.0
+@export var firing_range: float = 44.0
+@export var firing_cone_angle: float = 6.0 # Demi-angle en degrés autour du nez visuel.
+@export var fire_cooldown: float = 0.7
+
 var alive: bool = true
 var behavior_state: BehaviorState = BehaviorState.NAVIGATION
 var neighbor_count: int = 0
+var critical_separation_active: bool = false
+var combat_state: CombatState = CombatState.NO_TARGET
+var combat_target: Node3D = null
+var projectile_container: Node3D = null
+var shots_fired: int = 0
+var _personal_cooldown: float = 0.7
+var _fire_timer: float = 0.0
 var mobile_threat_count: int = 0
 var mobile_avoidance_ticks: int = 0
 var _drone_directions: Dictionary[PatrolDrone, Vector3] = {}
@@ -72,6 +89,7 @@ var _recovery: Vector3 = Vector3.ZERO
 @onready var _visuals: Node3D = $Visuals
 @onready var _right_exhaust: MeshInstance3D = $Visuals/RightExhaust
 @onready var _left_exhaust: MeshInstance3D = $Visuals/LeftExhaust
+@onready var _muzzle: Marker3D = $Visuals/Muzzle
 
 
 func _ready() -> void:
@@ -84,6 +102,11 @@ func _ready() -> void:
 	var angle: float = random.randf_range(0.0, TAU)
 	_preferred_avoidance = Vector3(cos(angle), sin(angle), 0.0)
 	velocity = Vector3.FORWARD * maxf(forward_speed * _speed_factor, 0.1)
+	# Flux séparé : les nouveaux tirages ne changent pas le wander validé.
+	var combat_random: RandomNumberGenerator = RandomNumberGenerator.new()
+	combat_random.seed = individual_seed + 31003
+	_personal_cooldown = maxf(fire_cooldown, 0.05) * combat_random.randf_range(0.85, 1.15)
+	_fire_timer = combat_random.randf_range(0.0, _personal_cooldown)
 
 
 func _physics_process(delta: float) -> void:
@@ -119,6 +142,88 @@ func _physics_process(delta: float) -> void:
 		var obstacle: SpaceAsteroid = collision.get_collider() as SpaceAsteroid
 		if obstacle != null or collision.get_collider() is PatrolDrone:
 			_die()
+	if alive:
+		_update_combat(delta)
+
+
+func _firing_forward() -> Vector3:
+	return -_muzzle.global_basis.z.normalized()
+
+
+func _find_combat_target() -> Node3D:
+	var selected: Node3D = null
+	var nearest: float = maxf(combat_detection_radius, 0.0)
+	var forward: Vector3 = _firing_forward()
+	var minimum_dot: float = cos(deg_to_rad(clampf(firing_cone_angle, 0.0, 89.0)))
+	for node: Node in get_tree().get_nodes_in_group("hostile_agents"):
+		var target: Node3D = node as Node3D
+		if target == null or target.is_queued_for_deletion() or not target.has_method("take_damage") or not bool(target.get("alive")):
+			continue
+		var offset: Vector3 = target.global_position - _muzzle.global_position
+		var distance: float = offset.length()
+		if distance < 0.001 or distance > nearest or offset.normalized().dot(forward) < minimum_dot:
+			continue
+		# Chercher aussi derrière une première cible masquée : seul un hostile visible est retenu.
+		if not _has_clear_line_of_sight(target):
+			continue
+		selected = target
+		nearest = distance
+	return selected
+
+
+func _has_clear_line_of_sight(target: Node3D) -> bool:
+	var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(_muzzle.global_position, target.global_position, 2)
+	query.hit_from_inside = true
+	return get_world_3d().direct_space_state.intersect_ray(query).is_empty()
+
+
+func _update_combat(delta: float) -> void:
+	_fire_timer = maxf(_fire_timer - delta, 0.0)
+	combat_target = null
+	if not combat_enabled or not alive:
+		combat_state = CombatState.NO_TARGET
+		return
+	combat_target = _find_combat_target()
+	if _fire_timer > 0.0:
+		combat_state = CombatState.COOLDOWN
+	else:
+		combat_state = CombatState.TARGET_VISIBLE if combat_target != null else CombatState.NO_TARGET
+	if combat_target == null:
+		return
+	var callback: Callable = _forget_combat_target.bind(combat_target)
+	if not combat_target.tree_exiting.is_connected(callback):
+		combat_target.tree_exiting.connect(callback, CONNECT_ONE_SHOT)
+	# Le combat ne modifie aucune vitesse, force ou orientation de navigation.
+	if _fire_timer > 0.0 or behavior_state == BehaviorState.AVOIDANCE or critical_separation_active:
+		return
+	if _muzzle.global_position.distance_to(combat_target.global_position) > maxf(firing_range, 0.0):
+		return
+	var projectile: BlueLaser = LASER_SCENE.instantiate() as BlueLaser
+	# Estimation unique au départ, sans guidage du projectile ni rotation du chasseur.
+	var target_velocity: Vector3 = Vector3.ZERO
+	if combat_target is CharacterBody3D:
+		target_velocity = (combat_target as CharacterBody3D).velocity
+	var offset: Vector3 = combat_target.global_position - _muzzle.global_position
+	var closing_speed: float = maxf(projectile.projectile_speed - target_velocity.dot(offset.normalized()), 1.0)
+	var flight_time: float = offset.length() / closing_speed
+	var direction: Vector3 = (offset + target_velocity * flight_time).normalized()
+	if direction.dot(_firing_forward()) < cos(deg_to_rad(clampf(firing_cone_angle, 0.0, 89.0))):
+		projectile.free()
+		return
+	projectile.flight_direction = direction
+	var container: Node3D = projectile_container if is_instance_valid(projectile_container) else get_parent() as Node3D
+	container.add_child(projectile)
+	projectile.global_transform = Transform3D(Basis.looking_at(projectile.flight_direction, Vector3.UP), _muzzle.global_position)
+	shots_fired += 1
+	_fire_timer = _personal_cooldown
+	combat_state = CombatState.COOLDOWN
+	fired.emit(projectile)
+
+
+func _forget_combat_target(target: Node3D) -> void:
+	if combat_target == target:
+		combat_target = null
+		combat_state = CombatState.COOLDOWN if _fire_timer > 0.0 else CombatState.NO_TARGET
 
 
 func _natural_wander() -> Vector3:
@@ -131,6 +236,7 @@ func _natural_wander() -> Vector3:
 
 
 func _update_neighbor_rules() -> void:
+	critical_separation_active = false
 	_separation = Vector3.ZERO
 	_critical_separation = Vector3.ZERO
 	_cohesion = Vector3.ZERO
@@ -155,6 +261,8 @@ func _update_neighbor_rules() -> void:
 		center += other.global_position
 		average_velocity += other.velocity
 		count += 1
+		if distance < maxf(critical_separation_distance, 0.0):
+			critical_separation_active = true
 		if distance < separation_distance:
 			if distance > 0.001:
 				var strength: float = 1.0 - distance / maxf(separation_distance, 0.001)
@@ -361,6 +469,8 @@ func _die() -> void:
 	if not alive:
 		return
 	alive = false
+	combat_target = null
+	combat_state = CombatState.NO_TARGET
 	behavior_state = BehaviorState.DESTROYED
 	_threats.clear()
 	_avoid_directions.clear()

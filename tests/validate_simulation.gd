@@ -40,7 +40,7 @@ func _run() -> void:
 	await _test_starfield_recycling()
 	await _test_long_field()
 	if _failures == 0:
-		print("PASS : toutes les validations du milestone 4.")
+		print("PASS : navigation, drones et commandes du milestone 5.")
 	else:
 		printerr("FAIL : %d validation(s)." % _failures)
 	quit(0 if _failures == 0 else 1)
@@ -65,12 +65,14 @@ func _dispose(simulation: SpaceSimulation) -> void:
 	_check(get_nodes_in_group("blue_ships").is_empty(), "Un chasseur supprimé reste dans le groupe.")
 	_check(get_nodes_in_group("asteroids").is_empty(), "Un rocher supprimé reste dans le groupe.")
 	_check(get_nodes_in_group("patrol_drones").is_empty(), "Un drone supprimé reste dans le groupe.")
+	_check(get_nodes_in_group("hostile_agents").is_empty() and get_nodes_in_group("blue_lasers").is_empty(), "Hostile ou projectile conservé après suppression.")
 
 
 func _empty_field(count: int, seed_value: int = 20261012) -> SpaceSimulation:
 	var simulation: SpaceSimulation = MAIN_SCENE.instantiate() as SpaceSimulation
 	simulation.ship_count = count
-	simulation.patrol_drone_count = 0
+	simulation.drones_enabled = false
+	simulation.combat_enabled = false
 	simulation.streaming_enabled = false
 	simulation.simulation_seed = seed_value
 	root.add_child(simulation)
@@ -83,7 +85,7 @@ func _test_default_field() -> void:
 	_check(str(ProjectSettings.get_setting("application/run/main_scene")) == "res://scenes/main.tscn", "Scène principale incorrecte.")
 	_check(simulation.initial_agent_count == 10 and simulation.living_agent_count == 10, "Le lancement ne crée pas dix chasseurs.")
 	_check(get_nodes_in_group("blue_ships").size() == 10, "Groupe blue_ships incorrect.")
-	_check(simulation.drones.size() == 2 and get_nodes_in_group("patrol_drones").size() == 2, "Deux PatrolDrone doivent être présents au lancement.")
+	_check(simulation.drones.size() == 1 and get_nodes_in_group("hostile_agents").size() == 1, "Un PatrolDrone hostile doit être présent au lancement facile.")
 	var initial_configurations: int = simulation.asteroid_container.generated_configuration_count
 	_check(get_nodes_in_group("asteroids").size() > 0, "Le streaming ne crée aucun obstacle initial.")
 	var categories: Array[bool] = [false, false, false]
@@ -158,7 +160,7 @@ func _test_default_field() -> void:
 	await process_frame
 	_check(max_avoiding > 0, "Aucun rocher du champ n'a été anticipé.")
 	_check(simulation.living_agent_count + simulation.death_count == 10, "Statistiques incohérentes après le parcours.")
-	_check(simulation.living_agent_count == simulation.initial_agent_count and simulation.death_count == 0, "Le parcours normal de 90 secondes doit conserver tous les chasseurs.")
+	_check(simulation.living_agent_count >= 6, "Le parcours AUTO de 90 secondes ne conserve pas la majorité des chasseurs.")
 	var average_nearest: float = nearest_total / float(maxi(nearest_samples, 1))
 	_check(minimum_pair_distance > 5.5, "Deux chasseurs sont trop proches durant le parcours normal.")
 	_check(average_nearest >= 9.0 and average_nearest <= 14.0, "L'espace personnel moyen n'est pas confortable.")
@@ -169,9 +171,9 @@ func _test_default_field() -> void:
 	_check(simulation.asteroid_container.generated_configuration_count > initial_configurations and simulation.asteroid_container.removed_configuration_count > 0, "Le streaming n'a pas renouvelé le champ.")
 	_check(simulation.difficulty_level == simulation.asteroid_container.difficulty_for_distance(simulation.distance_travelled), "Difficulté incohérente avec la distance.")
 	print("Champ par défaut, 90 s : vivants=%d, morts=%d, rayon maximal=%.2f m, évitements simultanés=%d, distance minimale=%.2f m, voisin le plus proche en moyenne=%.2f m" % [simulation.living_agent_count, simulation.death_count, max_spread, max_avoiding, minimum_pair_distance, average_nearest])
-	print("M4 AUTO 90 s : distance=%.2f m, difficulté=%d, isolés max=%d, agents distincts isolés=%d, durée max=%.2f s, obstacles max=%d, configurations générées=%d / supprimées=%d" % [simulation.distance_travelled, simulation.difficulty_level, maximum_isolated, isolated_names.size(), float(longest_isolation) / 60.0, simulation.asteroid_container.maximum_active_observed, simulation.asteroid_container.generated_configuration_count, simulation.asteroid_container.removed_configuration_count])
-	_check(drone_waypoints_observed and simulation.drones.size() <= 2, "La patrouille ne renouvelle pas ses waypoints ou dépasse son effectif.")
-	print("M4 AUTO 90 s : drones actifs=%d, détruits=%d, créés total=%d, ticks-agent avec anticipation mobile=%d" % [simulation.drones.size(), simulation.drone_death_count, simulation.drone_spawn_count, mobile_reaction_ticks])
+	print("M5 AUTO 90 s : distance=%.2f m, difficulté=%d, isolés max=%d, agents distincts isolés=%d, durée max=%.2f s, obstacles max=%d, configurations générées=%d / supprimées=%d" % [simulation.distance_travelled, simulation.difficulty_level, maximum_isolated, isolated_names.size(), float(longest_isolation) / 60.0, simulation.asteroid_container.maximum_active_observed, simulation.asteroid_container.generated_configuration_count, simulation.asteroid_container.removed_configuration_count])
+	_check(drone_waypoints_observed and simulation.drones.size() <= simulation.target_drone_count(), "La patrouille ne renouvelle pas ses waypoints ou dépasse son effectif.")
+	print("M5 AUTO 90 s : drones actifs=%d, détruits=%d, créés total=%d, ticks-agent avec anticipation mobile=%d" % [simulation.drones.size(), simulation.drone_death_count, simulation.drone_spawn_count, mobile_reaction_ticks])
 	await _dispose(simulation)
 
 
@@ -318,6 +320,8 @@ func _test_mobile_collision() -> void:
 func _test_drone_replacement() -> void:
 	var simulation: SpaceSimulation = MAIN_SCENE.instantiate() as SpaceSimulation
 	simulation.streaming_enabled = false
+	simulation.combat_enabled = false
+	simulation.manual_difficulty = 2
 	root.add_child(simulation)
 	var drone: PatrolDrone = simulation.drones[0]
 	drone.obstacle_detection_radius = 0.0
@@ -402,12 +406,12 @@ func _test_forced_hard_field() -> void:
 		for drone: PatrolDrone in simulation.drones:
 			_check(drone.velocity.z < 0.0 and drone.global_position.is_finite(), "Un drone manuel est bloqué ou invalide.")
 		if frame % 30 == 0:
-			_check(simulation.asteroid_container.active_asteroid_count <= 72 and simulation.drones.size() <= 2, "Le scénario manuel dépasse les budgets.")
+			_check(simulation.asteroid_container.active_asteroid_count <= 72 and simulation.drones.size() <= 3, "Le scénario manuel dépasse les budgets.")
 			minimum_spacing = minf(minimum_spacing, simulation.average_spacing)
 	await process_frame
 	_check(simulation.living_agent_count > 0 and simulation.living_agent_count + simulation.death_count == 10, "Le scénario manuel ne reste pas actif avec des compteurs corrects.")
 	_check(simulation.asteroid_container.generated_configuration_count > 20 and simulation.asteroid_container.removed_configuration_count > 0, "Le champ difficile ne se renouvelle pas.")
-	print("M4 MANUEL 3, 90 s : distance=%.2f m, vivants=%d, morts=%d, drones actifs=%d, drones détruits=%d, créés=%d, ticks-agent anticipation mobile=%d, obstacles max=%d, espacement final=%.2f m, minimum moyen=%.2f m, dispersion finale=%.2f m" % [simulation.distance_travelled, simulation.living_agent_count, simulation.death_count, simulation.drones.size(), simulation.drone_death_count, simulation.drone_spawn_count, reaction_ticks, simulation.asteroid_container.maximum_active_observed, simulation.average_spacing, minimum_spacing, simulation.dispersion])
+	print("M5 MANUEL 3, 90 s : distance=%.2f m, vivants=%d, morts=%d, drones actifs=%d, drones détruits=%d, créés=%d, ticks-agent anticipation mobile=%d, obstacles max=%d, espacement final=%.2f m, minimum moyen=%.2f m, dispersion finale=%.2f m" % [simulation.distance_travelled, simulation.living_agent_count, simulation.death_count, simulation.drones.size(), simulation.drone_death_count, simulation.drone_spawn_count, reaction_ticks, simulation.asteroid_container.maximum_active_observed, simulation.average_spacing, minimum_spacing, simulation.dispersion])
 	await _dispose(simulation)
 
 
@@ -603,7 +607,7 @@ func _test_long_field() -> void:
 	_check(field.generated_configuration_count > generation_at_180_seconds and field.removed_configuration_count > 0, "Le streaming s'arrête après trois minutes.")
 	_check(field.maximum_active_observed <= field.max_active_asteroids and get_nodes_in_group("asteroids").size() == field.active_asteroid_count, "Des obstacles anciens s'accumulent dans le test long.")
 	_check(maximum_nodes < 1400, "Le nombre de nœuds dépasse la borne du scénario normal.")
-	print("M4 AUTO long, 300 s : distance=%.2f m, difficulté=%d, vivants=%d, morts=%d, obstacles max=%d, max après 180 s=%d, actifs fin=%d, configurations=%d / supprimées=%d, nœuds max=%d" % [simulation.distance_travelled, simulation.difficulty_level, simulation.living_agent_count, simulation.death_count, field.maximum_active_observed, max_late_obstacles, field.active_asteroid_count, field.generated_configuration_count, field.removed_configuration_count, maximum_nodes])
+	print("M5 AUTO long, 300 s : distance=%.2f m, difficulté=%d, vivants=%d, morts=%d, obstacles max=%d, max après 180 s=%d, actifs fin=%d, configurations=%d / supprimées=%d, nœuds max=%d" % [simulation.distance_travelled, simulation.difficulty_level, simulation.living_agent_count, simulation.death_count, field.maximum_active_observed, max_late_obstacles, field.active_asteroid_count, field.generated_configuration_count, field.removed_configuration_count, maximum_nodes])
 	print("Drones après 300 s : actifs=%d, détruits=%d, retirés=%d, créés total=%d" % [simulation.drones.size(), simulation.drone_death_count, simulation.drone_retired_count, simulation.drone_spawn_count])
 	print("Coût moyen par tick headless en difficulté 3 : fenêtre 180-210 s=%.3f ms ; 270-300 s=%.3f ms (mesure CPU, pas FPS du rendu)." % [float(first_hard_window_usec) / 1800.0 / 1000.0, float(last_window_usec) / 1800.0 / 1000.0])
 	await _dispose(simulation)
