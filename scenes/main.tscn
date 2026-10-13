@@ -1,9 +1,10 @@
-[gd_scene load_steps=7 format=3]
+[gd_scene load_steps=8 format=3]
 
 [ext_resource type="Script" path="res://scripts/main.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/space_environment.gd" id="2"]
 [ext_resource type="Script" path="res://scripts/camera_controller.gd" id="3"]
 [ext_resource type="Script" path="res://scripts/obstacle_field.gd" id="4"]
+[ext_resource type="PackedScene" path="res://scenes/demo_controls.tscn" id="5"]
 
 [sub_resource type="Environment" id="Space"]
 background_mode = 1
@@ -76,3 +77,5 @@ mouse_filter = 2
 theme_override_colors/font_color = Color(0.82, 0.9, 0.95, 1)
 theme_override_font_sizes/font_size = 16
 text = "Vaisseaux détruits : 0"
+
+[node name="DemoControls" parent="." instance=ExtResource("5")]

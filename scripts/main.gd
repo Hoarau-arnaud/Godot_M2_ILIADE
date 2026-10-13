@@ -15,6 +15,14 @@ const DIFFICULTY_NAMES: Array[String] = ["Facile", "Intermédiaire", "Difficile"
 @export_range(0, 3, 1) var manual_difficulty: int = 0
 @export var combat_enabled: bool = true
 
+@export_category("Démonstration")
+@export_range(0.5, 2.5, 0.1) var simulation_speed_multiplier: float = 1.5
+@export_range(0.5, 2.0, 0.1) var movement_multiplier: float = 1.0
+@export_range(0.8, 1.4, 0.1) var spacing_multiplier: float = 1.0
+@export_range(-1, 8, 1) var manual_drone_count_override: int = -1
+@export_range(-1, 8, 1) var manual_interceptor_count_override: int = -1
+@export var demo_spawn_interval: float = 0.4
+
 @export_category("Drones de patrouille")
 @export var drones_enabled: bool = true
 @export_range(0, 3, 1) var easy_drone_count: int = 1
@@ -34,6 +42,9 @@ const DIFFICULTY_NAMES: Array[String] = ["Facile", "Intermédiaire", "Difficile"
 @export var interceptor_retire_distance: float = 140.0
 
 var initial_agent_count: int = 0
+var ship_spawn_count: int = 0
+var ship_retired_count: int = 0
+var target_ship_count: int = 0
 var living_agent_count: int = 0
 var death_count: int = 0
 var distance_travelled: float = 0.0
@@ -68,6 +79,11 @@ var _random: RandomNumberGenerator = RandomNumberGenerator.new()
 var _last_center: Vector3 = Vector3.ZERO
 var _origin_z: float = 0.0
 var _measurement_timer: float = 0.0
+var _ship_spawn_random: RandomNumberGenerator = RandomNumberGenerator.new()
+var _ship_add_timer: float = 0.0
+var _previous_time_scale: float = 1.0
+var _previous_physics_rate: int = 60
+var _engine_settings_owned: bool = false
 
 @onready var ship_container: Node3D = $Ships
 @onready var asteroid_container: ObstacleField = $Asteroids
@@ -77,10 +93,16 @@ var _measurement_timer: float = 0.0
 @onready var camera: SimulationCamera = $Camera3D
 @onready var space_decor: SpaceEnvironment = $SpaceDecor
 @onready var statistics: Label = $HUD/Panel/Statistics
+@onready var demo_controls: DemoControls = $DemoControls
 
 
 func _ready() -> void:
+	_previous_time_scale = Engine.time_scale
+	_previous_physics_rate = Engine.physics_ticks_per_second
+	_engine_settings_owned = true
+	set_simulation_speed(simulation_speed_multiplier)
 	_random.seed = simulation_seed
+	_ship_spawn_random.seed = simulation_seed + 83003
 	_drone_random.seed = simulation_seed + 91003
 	_interceptor_random.seed = simulation_seed + 93037
 	_create_ships()
@@ -100,6 +122,7 @@ func _ready() -> void:
 
 
 func _physics_process(delta: float) -> void:
+	_maintain_requested_ships(delta)
 	if ships.is_empty():
 		return
 	var center: Vector3 = _fleet_center()
@@ -127,8 +150,14 @@ func _physics_process(delta: float) -> void:
 		_measurement_timer = 0.0
 
 
-func _unhandled_input(event: InputEvent) -> void:
+func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.echo:
+		return
+	# Les raccourcis de démonstration restent disponibles quand un contrôle est utilisé.
+	if event.is_action_pressed("demo_panel_toggle"):
+		demo_controls.toggle_panel()
+		camera.cancel_orbit()
+		get_viewport().set_input_as_handled()
 		return
 	var actions: Array[String] = ["difficulty_auto", "difficulty_easy", "difficulty_medium", "difficulty_hard"]
 	for level: int in range(actions.size()):
@@ -147,20 +176,21 @@ func set_difficulty_mode(level: int) -> void:
 func _update_difficulty() -> void:
 	difficulty_level = manual_difficulty if manual_difficulty > 0 else asteroid_container.difficulty_for_distance(distance_travelled)
 	asteroid_container.difficulty_override = manual_difficulty
+	demo_controls.update_level(difficulty_level)
 
 
 func target_drone_count() -> int:
 	if not drones_enabled:
 		return 0
+	if manual_drone_count_override >= 0:
+		return clampi(manual_drone_count_override, 0, 8)
 	var counts: Array[int] = [easy_drone_count, intermediate_drone_count, hard_drone_count]
 	return clampi(counts[difficulty_level - 1], 0, 3)
 
 
 func _retire_drone(drone: PatrolDrone) -> void:
 	drones.erase(drone)
-	drone.remove_from_group("patrol_drones")
-	drone.remove_from_group("hostile_agents")
-	drone.queue_free()
+	drone.retire()
 	drone_retired_count += 1
 
 
@@ -180,6 +210,9 @@ func _maintain_drones(center: Vector3, delta: float) -> void:
 	while drones.size() < target_drone_count():
 		if not _spawn_drone(center, _fleet_z_bounds().x):
 			_replacement_timer = 1.0
+			break
+		if manual_drone_count_override >= 0:
+			_replacement_timer = maxf(demo_spawn_interval, 0.3)
 			break
 
 
@@ -232,6 +265,8 @@ func _on_hostile_destroyed(drone: PatrolDrone) -> void:
 func target_interceptor_count() -> int:
 	if not interceptors_enabled:
 		return 0
+	if manual_interceptor_count_override >= 0:
+		return clampi(manual_interceptor_count_override, 0, 8)
 	var counts: Array[int] = [easy_interceptor_count, intermediate_interceptor_count, hard_interceptor_count]
 	return clampi(counts[difficulty_level - 1], 0, 2)
 
@@ -239,9 +274,8 @@ func target_interceptor_count() -> int:
 func _retire_interceptor(interceptor: Interceptor) -> void:
 	interceptors.erase(interceptor)
 	interceptor.remove_from_group("interceptors")
-	interceptor.remove_from_group("hostile_agents")
 	interceptor.target = null
-	interceptor.queue_free()
+	interceptor.retire()
 	interceptor_retired_count += 1
 
 
@@ -259,6 +293,9 @@ func _maintain_interceptors(center: Vector3, delta: float) -> void:
 	while interceptors.size() < target_interceptor_count():
 		if not _spawn_interceptor(center, _fleet_z_bounds().x):
 			_interceptor_replacement_timer = 1.0
+			break
+		if manual_interceptor_count_override >= 0:
+			_interceptor_replacement_timer = maxf(demo_spawn_interval, 0.3)
 			break
 
 
@@ -349,20 +386,122 @@ func _process(delta: float) -> void:
 
 
 func _create_ships() -> void:
-	for index: int in range(maxi(ship_count, 0)):
-		var ship: BlueShip = SHIP_SCENE.instantiate() as BlueShip
-		ship.name = "BlueShip_%02d" % (index + 1)
-		ship.individual_seed = simulation_seed + (index + 1) * 997
-		ship.combat_enabled = combat_enabled
-		ship.projectile_container = projectile_container
-		ship.position = _random_ship_position()
-		ship.died.connect(_on_ship_died)
-		ship.fired.connect(_on_ship_fired)
-		ship.projectile_dodge_started.connect(_on_projectile_dodge_started)
-		ship_container.add_child(ship)
-		ships.append(ship)
+	for _index: int in range(maxi(ship_count, 0)):
+		_add_ship(_random_ship_position())
 	initial_agent_count = ships.size()
 	living_agent_count = initial_agent_count
+	target_ship_count = living_agent_count
+
+
+func _add_ship(local_position: Vector3) -> void:
+	var ship: BlueShip = SHIP_SCENE.instantiate() as BlueShip
+	ship.name = "BlueShip_%02d" % (ship_spawn_count + 1)
+	ship.individual_seed = simulation_seed + (ship_spawn_count + 1) * 997
+	ship.combat_enabled = combat_enabled
+	ship.projectile_container = projectile_container
+	ship.demo_movement_multiplier = movement_multiplier
+	ship.demo_spacing_multiplier = spacing_multiplier
+	ship.position = local_position
+	ship.died.connect(_on_ship_died)
+	ship.fired.connect(_on_ship_fired)
+	ship.projectile_dodge_started.connect(_on_projectile_dodge_started)
+	ship_container.add_child(ship)
+	ships.append(ship)
+	ship_spawn_count += 1
+	living_agent_count = ships.size()
+
+
+func set_simulation_speed(value: float) -> void:
+	simulation_speed_multiplier = clampf(value, 0.5, 2.5)
+	# Multiples de 60 : petits pas physiques et cadence régulière sur une vue à 60 Hz.
+	var base_rate: int = maxi(_previous_physics_rate, 60)
+	Engine.physics_ticks_per_second = maxi(base_rate, int(ceil(float(base_rate) * simulation_speed_multiplier / 60.0)) * 60)
+	Engine.time_scale = simulation_speed_multiplier
+	if is_instance_valid(demo_controls):
+		demo_controls.refresh(self)
+
+
+func set_movement_multiplier(value: float) -> void:
+	movement_multiplier = clampf(value, 0.5, 2.0)
+	for ship: BlueShip in ships:
+		ship.demo_movement_multiplier = movement_multiplier
+	demo_controls.refresh(self)
+
+
+func set_spacing_multiplier(value: float) -> void:
+	spacing_multiplier = clampf(value, 0.8, 1.4)
+	for ship: BlueShip in ships:
+		ship.demo_spacing_multiplier = spacing_multiplier
+	demo_controls.refresh(self)
+
+
+func set_ship_count(value: int) -> void:
+	target_ship_count = clampi(value, 5, 20)
+	while ships.size() > target_ship_count:
+		var ship: BlueShip = ships.back()
+		ships.erase(ship)
+		ship.retire()
+		ship_retired_count += 1
+	living_agent_count = ships.size()
+	_ship_add_timer = 0.0
+	_measure_group(_fleet_center())
+	_update_hud()
+
+
+func _maintain_requested_ships(delta: float) -> void:
+	_ship_add_timer = maxf(_ship_add_timer - delta, 0.0)
+	if ships.size() >= target_ship_count or _ship_add_timer > 0.0:
+		return
+	var center: Vector3 = _fleet_center()
+	var rear_z: float = _fleet_z_bounds().y
+	for _attempt: int in range(96):
+		var candidate: Vector3 = Vector3(center.x + _ship_spawn_random.randf_range(-22.0, 22.0), center.y + _ship_spawn_random.randf_range(-14.0, 14.0), rear_z + _ship_spawn_random.randf_range(10.0, 22.0))
+		if not _runtime_ship_position_is_clear(candidate):
+			continue
+		_add_ship(ship_container.to_local(candidate))
+		_ship_add_timer = maxf(demo_spawn_interval, 0.3)
+		_update_hud()
+		return
+	_ship_add_timer = 0.5 # Réessayer plus tard si le volume est encombré.
+
+
+func _runtime_ship_position_is_clear(candidate: Vector3) -> bool:
+	for ship: BlueShip in ships:
+		if candidate.distance_to(ship.global_position) < maxf(initial_ship_spacing, 7.0 * spacing_multiplier + 1.5):
+			return false
+	for node: Node in get_tree().get_nodes_in_group("asteroids"):
+		var obstacle: SpaceAsteroid = node as SpaceAsteroid
+		if candidate.distance_to(obstacle.global_position) < obstacle.avoidance_radius + BlueShip.SHIP_CLEARANCE + 3.0:
+			return false
+	for node: Node in get_tree().get_nodes_in_group("hostile_agents"):
+		var hostile: Node3D = node as Node3D
+		if candidate.distance_to(hostile.global_position) < 12.0:
+			return false
+	return true
+
+
+func set_drone_count_override(value: int) -> void:
+	manual_drone_count_override = clampi(value, 0, 8)
+	_replacement_timer = 0.0
+	demo_controls.refresh(self)
+
+
+func set_interceptor_count_override(value: int) -> void:
+	manual_interceptor_count_override = clampi(value, 0, 8)
+	_interceptor_replacement_timer = 0.0
+	demo_controls.refresh(self)
+
+
+func reset_population_overrides() -> void:
+	manual_drone_count_override = -1
+	manual_interceptor_count_override = -1
+	demo_controls.refresh(self)
+
+
+func _exit_tree() -> void:
+	if _engine_settings_owned:
+		Engine.time_scale = _previous_time_scale
+		Engine.physics_ticks_per_second = _previous_physics_rate
 
 
 func _random_ship_position() -> Vector3:
@@ -423,6 +562,8 @@ func _on_ship_died(ship: BlueShip) -> void:
 		return
 	ships.erase(ship)
 	death_count += 1
+	# Les pertes ne sont jamais remplacées automatiquement par la consigne du panneau.
+	target_ship_count = maxi(target_ship_count - 1, 0)
 	living_agent_count = ships.size()
 	_measure_group(_fleet_center())
 	_update_hud()
@@ -430,6 +571,7 @@ func _on_ship_died(ship: BlueShip) -> void:
 
 func _update_hud() -> void:
 	statistics.text = "Vaisseaux détruits : %d" % death_count
+	demo_controls.refresh(self)
 
 
 func _fleet_center() -> Vector3:

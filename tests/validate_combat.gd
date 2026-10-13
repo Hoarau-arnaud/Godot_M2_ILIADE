@@ -54,6 +54,7 @@ func _dispose(simulation: SpaceSimulation) -> void:
 # Les fixtures isolent la décision de tir ; les parcours 90 s utilisent la scène normale.
 func _empty_scene(count: int = 1) -> SpaceSimulation:
 	var simulation: SpaceSimulation = MAIN_SCENE.instantiate() as SpaceSimulation
+	simulation.simulation_speed_multiplier = 1.0
 	simulation.ship_count = count
 	simulation.streaming_enabled = false
 	simulation.drones_enabled = false
@@ -193,6 +194,7 @@ func _on_destroyed(drone: PatrolDrone) -> void:
 
 func _test_damage_and_replacement() -> void:
 	var simulation: SpaceSimulation = MAIN_SCENE.instantiate() as SpaceSimulation
+	simulation.simulation_speed_multiplier = 1.0
 	simulation.ship_count = 1
 	simulation.streaming_enabled = false
 	simulation.manual_difficulty = 1
@@ -301,6 +303,7 @@ func _test_navigation_independence() -> void:
 
 func _test_drone_counts() -> void:
 	var simulation: SpaceSimulation = MAIN_SCENE.instantiate() as SpaceSimulation
+	simulation.simulation_speed_multiplier = 1.0
 	simulation.interceptors_enabled = false # Effectifs de l'Agent 2 isolés dans cette fixture.
 	simulation.streaming_enabled = false
 	simulation.combat_enabled = false
@@ -324,6 +327,7 @@ func _test_drone_counts() -> void:
 
 func _test_run_90(mode: int) -> void:
 	var simulation: SpaceSimulation = MAIN_SCENE.instantiate() as SpaceSimulation
+	simulation.simulation_speed_multiplier = 1.0
 	simulation.manual_difficulty = mode
 	root.add_child(simulation)
 	var nearest_sum: float = 0.0

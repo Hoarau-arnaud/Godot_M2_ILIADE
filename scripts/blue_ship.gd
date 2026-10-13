@@ -19,6 +19,10 @@ enum CombatState { NO_TARGET, TARGET_VISIBLE, COOLDOWN }
 @export var turn_speed: float = 3.2
 @export var max_forward_variation: float = 3.0
 @export var individual_seed: int = 1
+var demo_movement_multiplier: float = 1.0
+var demo_spacing_multiplier: float = 1.0
+var _demo_movement_current: float = 1.0
+var _demo_spacing_current: float = 1.0
 
 @export_category("Wander 3D")
 @export var wander_strength: float = 2.8
@@ -112,6 +116,8 @@ var _recovery: Vector3 = Vector3.ZERO
 
 func _ready() -> void:
 	health = maxi(max_health, 1)
+	_demo_movement_current = demo_movement_multiplier
+	_demo_spacing_current = demo_spacing_multiplier
 	var random: RandomNumberGenerator = RandomNumberGenerator.new()
 	random.seed = individual_seed
 	_phases = Vector3(random.randf(), random.randf(), random.randf()) * TAU
@@ -132,6 +138,9 @@ func _physics_process(delta: float) -> void:
 	if not alive:
 		return
 	_time += delta
+	var adjustment: float = 1.0 - exp(-4.0 * delta)
+	_demo_movement_current = lerpf(_demo_movement_current, demo_movement_multiplier, adjustment)
+	_demo_spacing_current = lerpf(_demo_spacing_current, demo_spacing_multiplier, adjustment)
 	_update_neighbor_rules()
 	var steering: Vector3 = (
 		_natural_wander()
@@ -260,10 +269,13 @@ func _natural_wander() -> Vector3:
 		(sin(time + _phases.x) + 0.35 * sin(time * 1.83 + _phases.z)) * wander_strength,
 		(cos(time * 0.79 + _phases.y) + 0.3 * sin(time * 1.41 + _phases.x)) * vertical_wander_strength,
 		(sin(time * 0.62 + _phases.z) + 0.22 * sin(time * 1.13 + _phases.x)) * longitudinal_wander_strength
-	) * _personal_amplitude
+	) * _personal_amplitude * _demo_movement_current
 
 
 func _update_neighbor_rules() -> void:
+	var separation_radius: float = separation_distance * _demo_spacing_current
+	var critical_radius: float = critical_separation_distance * _demo_spacing_current
+	var comfort_radius: float = cohesion_comfort_radius * _demo_spacing_current
 	critical_separation_active = false
 	_separation = Vector3.ZERO
 	_critical_separation = Vector3.ZERO
@@ -289,12 +301,12 @@ func _update_neighbor_rules() -> void:
 		center += other.global_position
 		average_velocity += other.velocity
 		count += 1
-		if distance < maxf(critical_separation_distance, 0.0):
+		if distance < maxf(critical_radius, 0.0):
 			critical_separation_active = true
-		if distance < separation_distance:
+		if distance < separation_radius:
 			if distance > 0.001:
-				var strength: float = 1.0 - distance / maxf(separation_distance, 0.001)
-				var critical: float = maxf(1.0 - distance / maxf(critical_separation_distance, 0.001), 0.0)
+				var strength: float = 1.0 - distance / maxf(separation_radius, 0.001)
+				var critical: float = maxf(1.0 - distance / maxf(critical_radius, 0.001), 0.0)
 				strength += critical * critical * maxf(critical_separation_multiplier, 0.0)
 				_separation += (away / distance) * strength
 				_critical_separation += (away / distance) * critical * critical * maxf(critical_separation_multiplier, 0.0)
@@ -307,8 +319,8 @@ func _update_neighbor_rules() -> void:
 		var to_center: Vector3 = center / float(count) - global_position
 		var center_distance: float = to_center.length()
 		# Rester dans la même zone, sans attirer les voisins déjà confortablement proches.
-		if center_distance > maxf(cohesion_comfort_radius, 0.0) and center_distance > 0.001:
-			_cohesion = (to_center / center_distance) * minf(center_distance - maxf(cohesion_comfort_radius, 0.0), 8.0)
+		if center_distance > maxf(comfort_radius, 0.0) and center_distance > 0.001:
+			_cohesion = (to_center / center_distance) * minf(center_distance - maxf(comfort_radius, 0.0), 8.0)
 		_alignment = (average_velocity / float(count) - velocity).limit_length(3.0)
 	neighbor_count = count
 	# Un petit groupe peut aussi chercher un voisin plus loin, sans coller son voisin proche.
@@ -566,11 +578,16 @@ func _update_exhausts() -> void:
 	_left_exhaust.scale.y = 1.0 + 0.14 * sin(_time * 5.7 + _phases.y)
 
 
-func _die() -> void:
+func retire() -> void:
 	if not alive:
 		return
+	_stop_navigation()
+	hide()
+	queue_free()
+
+
+func _stop_navigation() -> void:
 	alive = false
-	health = 0
 	combat_target = null
 	combat_state = CombatState.NO_TARGET
 	behavior_state = BehaviorState.DESTROYED
@@ -582,9 +599,17 @@ func _die() -> void:
 	projectile_avoidance_active = false
 	velocity = Vector3.ZERO
 	set_physics_process(false)
+	set_process(false)
 	remove_from_group("blue_ships")
 	collision_layer = 0
 	collision_mask = 0
+
+
+func _die() -> void:
+	if not alive:
+		return
+	_stop_navigation()
+	health = 0
 	var explosion: Node3D = EXPLOSION_SCENE.instantiate() as Node3D
 	get_parent().add_child(explosion)
 	explosion.global_position = global_position

@@ -157,6 +157,37 @@ Le test long génère **10 chasseurs, 5 drones verts et 2 intercepteurs**, sans 
 
 Aucun impact rouge n'est observé sur ces parcours. En AUTO 90 s, le premier rouge apparaît au niveau 2 mais n'acquiert pas encore de cible. Les tests isolés confirment séparément **trois impacts rouges pour une mort bleue unique**, et **huit impacts bleus pour détruire un vert et un rouge**. Ils vérifient aussi la machine à états, la ligne de vue, les rafales, le flash, l'esquive, la suspension/reprise du tir, l'absence de friendly fire et les populations. Les suites de navigation, caméra et combat restent valides ; le rendu OpenGL a été inspecté. La survie et l'équilibrage doivent encore être étudiés sur d'autres graines.
 
+### Milestone 7 — Contrôles de démonstration
+
+Un panneau de démonstration permet de modifier en temps réel **la vitesse, le nombre d'agents et l'amplitude des mouvements**. Un réglage d'espacement complète les six contrôles. La vitesse initiale est **1,5×**, avec une accélération commune des agents, tirs et délais. La caméra libre conserve un déplacement confortable.
+
+Le niveau effectif est affiché par **trois étoiles : ★☆☆, ★★☆ ou ★★★**. **TAB** masque le panneau : seuls restent le compteur **Vaisseaux détruits : X** et les étoiles. Les commandes 0/1/2/3, F et G/Home sont conservées.
+
+Ces contrôles ne sont **pas des perceptions des agents**. Ce sont des paramètres extérieurs pour expérimenter, produire plusieurs situations et préparer la démonstration. Les règles SMA et le combat des trois agents restent en place ; aucun Agent 4 n'est ajouté.
+
+Les ajouts se font progressivement dans des positions sûres. Les retraits demandés ne sont pas des morts et ne produisent aucun score. Les pertes bleues restent définitives. Les populations ennemies peuvent être forcées temporairement ; **Reset agents** rétablit uniquement leurs nombres normaux pour la difficulté courante, sans effacer les morts, la distance ou le champ.
+
+Validation sous Godot 4.7.2, graine `20261012`, avec collisions :
+
+| Mesure | Difficile par défaut, 90 s | Scène intense, 60 s |
+|---|---:|---:|
+| Vitesse / Mouvement | 1,5× / 1,0 | 1,8× / 1,5 |
+| Temps de simulation correspondant | 135 s | 108 s |
+| BlueShip vivants / morts | 10 / 0 | 15 / 0 |
+| Verts / rouges actifs | 3 / 2 | 6 / 5 |
+| Ennemis détruits par tir | 3 | 4 |
+| Tirs bleus / rouges | 25 / 81 | 27 / 166 |
+| Activations d'esquive | 34 | 57 |
+| Espacement moyen | 11,58 m | 13,85 m |
+| Dispersion maximale | 29,45 m | 67,31 m |
+| Projectiles simultanés maximum | 13 | 21 |
+| Nœuds maximum échantillonnés | 720 | 954 |
+| Coût headless moyen par pas physique | environ 0,67 ms | environ 1,18 ms |
+
+Ces durées sont des secondes de démonstration équivalentes ; les tests headless s'exécutent aussi vite que possible. La scène intense inclut l'arrivée progressive des agents. Ces coûts CPU comprennent les contrôles de test et ne représentent pas les FPS du rendu. Aucun impact rouge n'est observé sur ces deux parcours ; la scène intense reste active mais s'étale davantage.
+
+Les tests vérifient les étoiles, TAB, les vitesses, les populations, le retrait sans mort et le reset sans réinitialisation. Mouvement 2,0 augmente nettement la mobilité latérale par rapport à 0,5, sans pertes sur les deux essais de 30 s. Les commandes de caméra et les contrôles ont été vérifiés avec rendu ; les tests historiques restent reproductibles à vitesse 1,0. La survie n'est pas garantie sur d'autres graines ou avec tous les réglages extrêmes.
+
 ## 3. Agents et environnement actuels
 
 ### Agent 1 — Chasseur bleu
@@ -406,7 +437,7 @@ La caméra sert uniquement à observer la simulation et n'influence pas les agen
 - **2** : Intermédiaire manuel ;
 - **3** : Difficile manuel.
 
-Un retour à AUTO à 800 m reprend le niveau 2. Les obstacles déjà présents restent en place ; le champ se renouvelle selon le mode choisi. Le niveau n'est pas affiché dans le HUD.
+Un retour à AUTO à 800 m reprend le niveau 2. Les obstacles déjà présents restent en place ; le champ se renouvelle selon le mode choisi. Le niveau est représenté uniquement par les trois étoiles du HUD.
 
 | Niveau | PatrolDrone | Interceptor |
 |---|---:|---:|
@@ -414,7 +445,7 @@ Un retour à AUTO à 800 m reprend le niveau 2. Les obstacles déjà présents r
 | 2 — Intermédiaire | 2 | 1 |
 | 3 — Difficile | 3 | 2 |
 
-Le niveau facile présente seulement les drones verts. Le niveau difficile est désormais le scénario principal. Une baisse de niveau retire le surplus sans mort ni score. Les remplacements peuvent réduire momentanément les effectifs.
+Le niveau facile présente normalement seulement les drones verts. Le niveau difficile est le scénario principal. Le panneau M7 peut forcer les populations indépendamment du niveau ; les étoiles continuent de représenter la difficulté effective. Sans override, une baisse de niveau retire le surplus sans mort ni score. Les remplacements peuvent réduire momentanément les effectifs.
 
 ---
 
@@ -473,7 +504,9 @@ La version actuelle comporte plusieurs simplifications :
 - approximation initiale de la trajectoire hostile, pouvant rater une manœuvre brusque ;
 - aucun impact rouge ni ennemi détruit dans les parcours MANUEL 3 M6 de cette graine : équilibrage à étudier ;
 - esquives comptées comme activations du comportement, sans preuve qu'un impact aurait eu lieu ;
-- aucun Agent 4, mine, missile, vague clavier ou bombe BlueShip à ce stade.
+- aucun Agent 4, mine, missile, vague clavier ou bombe BlueShip à ce stade ;
+- les réglages de démonstration peuvent disperser le groupe et ne garantissent pas la survie ;
+- vitesse et fréquence physique sont globales : une seule simulation active est prévue.
 
 Ces limites sont volontaires afin de construire la simulation progressivement.
 
@@ -499,14 +532,14 @@ Tir frontal sûr, ligne de vue, hostile_agents, dégâts PatrolDrone, score, pop
 ### M6 — Interceptor et tirs ennemis ✅
 Agent 3 rouge, poursuite temporaire, rafales et désengagement ; santé BlueShip, esquive, populations par difficulté, HUD minimal et tests AUTO / MANUEL 3 de 90 et 300 secondes.
 
-### M7 — Bomber / MineLayer
+### M7 — Contrôles de démonstration ✅
+Rythme global accéléré, trois étoiles, panneau TAB, réglages runtime, populations sûres et tests de démonstration.
+
+### M8 — Agent 4 : Bomber / MineLayer
 Ajouter l'Agent 4 plus lent, avec un rôle de contrôle de zone par projectile lourd ou mines.
 
-### M8 — Scénarios et vagues
-Créer les scénarios et des vagues déclenchables pour la démonstration.
-
-### M9 — Bombes BlueShip
-Ajouter des bombes limitées avec une zone d'effet plus importante.
+### M9 — Scénarios/vagues et bombes BlueShip
+Préparer les scénarios et vagues de démonstration, puis les bombes limitées avec une zone d'effet.
 
 ### M10 — Étude et finalisation
 Comparer les paramètres, états initiaux, difficultés et mesures. Stabilisation, vidéo, rapport final, diagrammes et PowerPoint de 10 minutes.

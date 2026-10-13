@@ -36,7 +36,7 @@ func observe_group(center: Vector3, spread: float, delta: float) -> void:
 		global_position = global_position.lerp(desired_position, 1.0 - exp(-maxf(follow_speed, 0.0) * delta))
 		look_at(center + Vector3.FORWARD * 8.0, Vector3.UP)
 	else:
-		_pan(delta)
+		_pan(delta / maxf(Engine.time_scale, 0.01))
 		_apply_orbit()
 
 
@@ -84,6 +84,16 @@ func _pan(delta: float) -> void:
 		+ Vector3.UP * Input.get_axis("camera_down", "camera_up")
 	)
 	_orbit_center += movement.limit_length(1.0) * maxf(pan_speed, 0.0) * delta
+
+
+func cancel_orbit() -> void:
+	_dragging = false
+
+
+func _input(event: InputEvent) -> void:
+	# Même une release consommée par un slider termine une orbite commencée dans l'espace.
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT and not event.pressed:
+		_dragging = false
 
 
 func _unhandled_input(event: InputEvent) -> void:
