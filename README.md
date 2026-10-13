@@ -1,6 +1,6 @@
-# Simulation SMA spatiale — milestone 6
+# Simulation SMA spatiale — milestone 7
 
-Projet pédagogique **Godot 4.7.2 / GDScript**. Dix chasseurs bleus progressent vers **Z négatif**, comme un banc de poissons dans un champ d'astéroïdes. M6 ajoute **Interceptor**, le troisième agent, ses rafales rouges, la santé des BlueShip et l'esquive des projectiles. Le regroupement local, le streaming, la difficulté AUTO/MANUEL et les commandes de caméra sont conservés. **MANUEL 3** devient le scénario principal de développement. Aucun asset externe, sol ou formation imposée. Le HUD affiche seulement **Vaisseaux détruits : X**.
+Projet pédagogique **Godot 4.7.2 / GDScript**. Dix chasseurs bleus progressent vers **Z négatif**, comme un banc de poissons dans un champ d'astéroïdes. Les trois agents sont **BlueShip, PatrolDrone et Interceptor**. M7 ajoute un rythme de démonstration à **1,5×**, le niveau représenté par trois étoiles et un panneau de contrôles runtime. Le flocking, le combat et les commandes de caméra sont conservés. **MANUEL 3** est le scénario principal ; le lancement reste en AUTO. Aucun nouvel agent ou asset externe.
 
 ## Lancement
 
@@ -20,8 +20,43 @@ La caméra démarre en **Suivi** : elle suit le barycentre des survivants et s'�
 | PageDown ou C | Descendre |
 | G ou Home | Recentrer sur le groupe |
 | F | Alterner Suivi / Libre |
+| TAB | Afficher / masquer le panneau de contrôles |
 
-Les touches sont définies par des **Input Actions dans `project.godot`**, modifiables dans l'éditeur : `camera_toggle`, `camera_recenter`, `camera_forward`, `camera_backward`, `camera_left`, `camera_right`, `camera_up`, `camera_down`, `camera_orbit`, `camera_zoom_in`, `camera_zoom_out`. Q est réservé au déplacement à gauche, ce qui évite le conflit AZERTY avec la descente. Le pan vaut 24 m/s. La caméra ne transmet aucune force ou consigne aux agents.
+Les touches sont définies par des **Input Actions dans `project.godot`**, dont `demo_panel_toggle` pour TAB. Q est réservé au déplacement à gauche, ce qui évite le conflit AZERTY avec la descente. Le pan vaut 24 m/s en temps réel, indépendamment de la vitesse de simulation. La caméra ne transmet aucune force ou consigne aux agents. **0/1/2/3**, **F** et **G/Home** restent disponibles.
+
+## Contrôles de démonstration M7
+
+Le panneau **Contrôles**, visible au lancement, est placé à droite : largeur **264 px**, marge **18 px**, fond spatial bleu sombre transparent et accent cyan. Il utilise uniquement les nœuds Control Godot standards. **TAB** le masque et le réaffiche. Les étoiles restent visibles dans les deux cas.
+
+| Contrôle | Bornes | Valeur initiale / effet |
+|---|---|---|
+| Vitesse | 0,5–2,5×, pas 0,1 | **1,5×** ; changement immédiat |
+| BlueShip −/+ | 5–20 | 10 ; ajoute ou retire des chasseurs |
+| PatrolDrone −/+ | 0–8 | Cible du niveau, puis override explicite |
+| Interceptor −/+ | 0–8 | Cible du niveau, puis override explicite |
+| Mouvement | 0,5–2,0, pas 0,1 | 1,0 ; amplitude du wander X/Y/Z |
+| Espacement | 0,8–1,4, pas 0,1 | 1,0 ; distances de séparation, seuil critique et confort de cohésion |
+| Reset agents | Bouton | Efface seulement les deux overrides ennemis |
+
+Les étoiles **★☆☆ / ★★☆ / ★★★** représentent toujours `difficulty_level` effectif, avec les étoiles pleines jaunes et les vides gris. Elles changent immédiatement avec les touches 0/1/2/3 et avec les seuils AUTO. Aucun texte « Niveau », « AUTO » ou « MANUEL » ne les accompagne.
+
+### Vitesse et caméra
+
+`simulation_speed_multiplier` utilise **Engine.time_scale** : agents, lasers, délais de poursuite/rafale/remplacement et explosions suivent la même horloge. Les vitesses physiques de base M6 sont conservées. Le taux physique monte par multiples de 60 : **60 Hz jusqu'à 1×, 120 Hz jusqu'à 2×, 180 Hz au-delà**, ce qui conserve un pas de simulation au plus égal à 1/60 s. Les paramètres Engine précédents sont restaurés à la fermeture de la scène. Cette méthode suit les recommandations de la [documentation Engine](https://docs.godotengine.org/en/stable/classes/class_engine.html#class-engine-property-time-scale).
+
+Le suivi utilise le temps de simulation pour rester fluide ; le pan libre utilise le delta divisé par `time_scale`. Orbite et zoom réagissent directement à la souris. Le panneau consomme ses événements : cliquer un slider/bouton ne déclenche ni orbite ni zoom ; relâcher le clic droit au-dessus du panneau termine aussi une orbite commencée dans l'espace. Les contrôles n'accaparent pas le focus clavier. Aucun paramètre de combat n'est exposé.
+
+### Populations et réglages
+
+Les comptes ennemis affichés sont des **cibles**, pas des statistiques de destruction. `manual_drone_count_override` et `manual_interceptor_count_override` valent **−1** par défaut : utiliser la difficulté. Une valeur **0–8** maintient la population choisie, même après un changement de niveau. **Reset agents** restaure −1 : les populations reprennent les nombres du niveau courant. Les morts, la distance, l'environnement, les BlueShip et les autres sliders restent inchangés.
+
+Les ajouts runtime sont espacés de **0,4 s de simulation**. Les ennemis réutilisent leurs apparitions sûres ; les nouveaux BlueShip apparaissent autour/derrière le groupe, avec contrôle des autres corps et du rayon des rochers. Chaque chasseur reçoit une seed unique, les groupes et les connexions de combat, puis rejoint les règles locales. Une position encombrée retarde l'ajout et provoque une nouvelle tentative.
+
+Une réduction BlueShip retire les excédents **sans explosion ni mort**. Les pertes réelles diminuent le compte restant : elles ne sont **jamais remplacées automatiquement**. `ship_spawn_count` et `ship_retired_count` permettent le bilan **vivants + morts + retraits = créations**. Le nombre initial et toutes les métriques M6 sont conservés.
+
+Mouvement et Espacement sont interpolés sur les chasseurs existants ; les futurs chasseurs reçoivent les valeurs courantes. Mouvement multiplie seulement le wander naturel, sans modifier séparation, cohésion ou collisions. Espacement multiplie les trois distances indiquées, avec des bornes limitées ; il ne change pas les poids des forces ou les hitboxes. Ces contrôles sont des paramètres extérieurs d'expérimentation, pas des perceptions supplémentaires des agents.
+
+Exemple de démonstration : **3**, Interceptor **5**, PatrolDrone **6**, BlueShip **15**, Vitesse **1,8×**, Mouvement **1,5**, puis **TAB** pour observer la scène.
 
 ## Agents et obstacles actuels
 
@@ -244,13 +279,14 @@ La graine **20261012** initialise les chasseurs et un générateur indépendant 
 
 ## HUD
 
-Le HUD affiche exactement **Vaisseaux détruits : X**. Aucun HP, niveau, mode, ennemi, tir, score, distance ou commande n'est visible. Toutes les métriques restent internes.
+Le HUD principal affiche **Vaisseaux détruits : X** à gauche et **trois étoiles seules** en haut-centre. Le panneau droit contient uniquement les six réglages et Reset agents. Lorsqu'il est masqué par TAB, seuls le compteur et les étoiles restent visibles. Aucun HP, score, distance, statistique de combat ou mode caméra n'est affiché.
 
 ## Architecture
 
 ```text
 project.godot                 Scène principale, affichage, couches physiques
 scenes/main.tscn              Environnement, lumières, caméra, conteneurs, HUD
+scenes/demo_controls.tscn     Interface de démonstration, distincte du compteur de morts
 scenes/blue_ship.tscn         Silhouette du chasseur et deux collisions
 scenes/patrol_drone.tscn      Drone vert, primitives, matériaux et collision
 scenes/interceptor.tscn       Chasseur rouge, primitives, moteurs orange et collision
@@ -259,6 +295,7 @@ scenes/blue_laser.tscn        Bolt cyan emissive, sans asset externe
 scenes/asteroid.tscn          Obstacle environnemental SpaceAsteroid
 scenes/explosion.tscn         Effet visuel temporaire
 scripts/main.gd              Initialisation, statistiques, centre d'observation
+scripts/demo_controls.gd     Étoiles, sliders, boutons et synchronisation de l'interface
 scripts/blue_ship.gd          Perception, règles locales, anticipation, mort
 scripts/patrol_drone.gd       Waypoints, perceptions, états et mort du drone
 scripts/interceptor.gd        Machine de mission locale, poursuite, rafales et désengagement
@@ -275,6 +312,7 @@ materials/nebula.gdshader     Nébuleuse transparente, sans texture externe
 tests/validate_simulation.gd  Validation reproductible du milestone
 tests/validate_combat.gd      Ciblage, sécurité, dégâts et parcours M5 de 90 s
 tests/validate_interceptor.gd FSM, rafales, santé, esquive, populations, parcours M6
+tests/validate_demo_controls.gd UI, overrides, spawns, temps, caméra et démonstrations M7
 ```
 
 Les 650 étoiles sont distribuées en trois couches : lointaine (environ 62 %), intermédiaire (30 %) et proche (8 %). Leurs profondeurs et tailles diffèrent ; elles restent immobiles dans le monde jusqu'au recyclage aux bords du volume observé. Le déplacement de la caméra produit donc une parallaxe naturelle. Le recyclage fonctionne aussi pendant le pan libre. Deux planètes à atmosphère légère, une petite lune et un quad de nébuleuse discret donnent de la profondeur sans collision. La caméra conserve son dernier centre après la dernière mort.
@@ -294,13 +332,47 @@ Les 650 étoiles sont distribuées en trois couches : lointaine (environ 62 %), 
 & 'CHEMIN\Godot.exe' --headless --path . --fixed-fps 60 --script res://tests/validate_simulation.gd
 & 'CHEMIN\Godot.exe' --headless --path . --fixed-fps 60 --script res://tests/validate_combat.gd
 & 'CHEMIN\Godot.exe' --headless --path . --fixed-fps 60 --script res://tests/validate_interceptor.gd
+& 'CHEMIN\Godot.exe' --headless --path . --fixed-fps 60 --script res://tests/validate_demo_controls.gd
 ```
 
-La première commande importe les scènes et vérifie le parsing avec les warnings GDScript traités comme erreurs. La seconde vérifie le lancement, les agents/groupes/couches, la rotation des rochers, le vol 3D sans obstacles, le mouvement relatif en Z, la séparation, la perception locale, les quatre directions de contournement, deux dangers voisins, la destruction réelle, l'unicité du signal, l'explosion et le HUD après la dernière mort. Elle teste également le suivi, les événements clavier/souris de la caméra, les bindings AZERTY, le recentrage et le recyclage des trois couches d'étoiles après un grand déplacement libre. Une comparaison du même parcours en Suivi et Libre vérifie l'indépendance des trajectoires des agents. `--fixed-fps 60` conserve un pas physique de 1/60 s en exécutant le test aussi vite que possible.
+La première commande importe les scènes et vérifie le parsing avec les warnings GDScript traités comme erreurs. Les trois suites historiques forcent **`simulation_speed_multiplier = 1.0`**, avec 60 Hz physiques, pour conserver leur pas fixe de 1/60 s et leur reproductibilité. Elles vérifient navigation, obstacles, flocking, caméra, combat, santé et esquive. La suite M7 utilise les vitesses runtime et adapte son nombre de pas au taux physique. `--fixed-fps 60` exécute tous ces tests aussi vite que possible ; il ne mesure pas les FPS graphiques.
 
 Validation historique M5 avec **Godot 4.7.2 stable** le 12 octobre 2026, graine **20261012**, pas fixe de 1/60 s. Les résultats M6 ci-dessous ont été mesurés le 13 octobre : suites sans warning ni erreur, codes de sortie 0.
 
-### Résultats M6 — 13 octobre 2026
+### Validation M7 — 13 octobre 2026
+
+Les contrôles sont testés par leurs signaux et par des événements clavier/souris injectés dans le viewport. Le test UI a également été exécuté avec le vrai rendu OpenGL. Il couvre les étoiles 1/2/3, les transitions AUTO, TAB, les vitesses **0,5/1/1,5/2/2,5**, l'indépendance du pan, l'absence d'orbite/zoom sur l'UI, les ajouts **10→15**, retraits **15→8**, les overrides **verts 3→6 / rouges 2→5**, leurs bornes et leur reset. Les retraits n'ajoutent aucun décès, explosion ou score ; une mort réelle n'est pas remplacée. Les nouvelles créations reçoivent aussi les réglages Mouvement et Espacement courants.
+
+Avec dix chasseurs et la difficulté 3 pendant 30 s, Mouvement **0,5** donne environ **1,07 m/s** de vitesse latérale moyenne, contre **4,15 m/s** à **2,0**, avec dix survivants dans les deux cas. Le slider est appliqué à l'essaim existant avec interpolation. Les seuils critiques changent effectivement avec Espacement **0,8 / 1,4**, sans modification des forces ou des collisions.
+
+La comparaison rendue de **1,35× et 1,5×** sur douze secondes de démonstration parcourt respectivement **171,27 m et 190,37 m**. **1,5×** est retenu pour un rythme plus franc en conservant une vue lisible, le pan et les vitesses relatives M6.
+
+Les durées suivantes sont des **secondes de démonstration équivalentes en temps réel**, exécutées aussi vite que possible en headless : 90 s à 1,5× correspondent à **135 s de simulation**, 60 s à 1,8× à **108 s**. La scène intense inclut l'arrivée progressive des agents. Seed `20261012`, 120 pas physiques par seconde de démonstration, panneaux visibles, collisions actives :
+
+| Mesure | Difficile, défaut, 90 s | Démonstration intense, 60 s |
+|---|---:|---:|
+| Vitesse / Mouvement / Espacement | 1,5 / 1,0 / 1,0 | 1,8 / 1,5 / 1,0 |
+| BlueShip vivants / morts | 10 / 0 | 15 / 0 |
+| Verts actifs / rouges actifs | 3 / 2 | 6 / 5 |
+| Verts / rouges détruits par tir | 1 / 2 | 3 / 1 |
+| BlueShip / verts / rouges créés au total | 10 / 4 / 4 | 15 / 9 / 6 |
+| Tirs bleus / impacts hostiles | 25 / 18 | 27 / 22 |
+| Tirs rouges / impacts bleus | 81 / 0 | 166 / 0 |
+| Activations d'esquive / ticks-agent | 34 / 1 705 | 57 / 2 440 |
+| Distance | 1 426,96 m | 1 126,81 m |
+| Voisin le plus proche, moyenne temporelle | 11,58 m | 13,85 m |
+| Minimum ponctuel de paire | 6,00 m | 4,86 m |
+| Dispersion maximale / finale | 29,45 / 19,06 m | 67,31 / 47,30 m |
+| Astéroïdes actifs maximum | 38 | 43 |
+| Projectiles simultanés maximum | 13 | 21 |
+| Nœuds maximum échantillonnés | 720 | 954 |
+| Coût headless moyen par pas physique | environ 0,67 ms | environ 1,18 ms |
+
+Les coûts incluent la boucle de validation, dépendent de la machine et **ne représentent pas les FPS graphiques**. Les extrema de distances et de nœuds sont échantillonnés, et les activations d'esquive ne prouvent pas autant d'impacts évités. Aucun impact rouge n'est observé ici ; la scène intense s'étale davantage et la survie sur d'autres graines n'est pas garantie. Les trois suites historiques restent valides à vitesse 1,0, y compris leurs parcours de 90 et 300 s.
+
+Pour les captures, lancer `validate_demo_controls.gd` avec rendu et `-- --capture-demo` ; ajouter `--speed-135` pour comparer 1,35×. Les images dans `.godot/validation/` montrent le panneau, le HUD après TAB et une fenêtre **800×450**. `-- --ui-only` exécute seulement les contrôles des étoiles, de vitesse et d'interaction souris/caméra. Les métriques JSON sont enregistrées dans `.godot/m7_metrics.json` ; logs et images restent ignorés par Git.
+
+### Référence historique M6 — 13 octobre 2026
 
 Godot 4.7.2, seed **20261012**, pas fixe 1/60 s, scène complète avec collisions actives. `validate_interceptor.gd` vérifie la FSM, la perte de cible, l'évitement/reprise, la rafale, le cône, la ligne de vue, les trois impacts rouges, le flash, l'esquive et la suspension/reprise des tirs bleus. Les scénarios contrôlés détruisent **un vert et un rouge par huit lasers bleus**, et tuent un BlueShip par **trois lasers rouges** : compteurs et signaux uniques, rochers intacts, factions sans friendly fire, expiration et références nettoyées. La difficulté 1/2/3, le remplacement à huit secondes et le retrait sans score passent. Les suites historiques navigation/caméra et combat passent également.
 
@@ -427,6 +499,8 @@ Références API : [PrismMesh](https://docs.godotengine.org/en/stable/classes/cl
 - Les tailles des astéroïdes sont nominales : la déformation et les lobes irréguliers modifient leurs dimensions exactes.
 - L'émission cyan est visible en Compatibility, sans dépendre d'un halo de post-traitement.
 - Le déplacement continu en Z ne recale pas l'origine du monde ; des parcours beaucoup plus longs peuvent perdre en précision numérique. Le test de cinq minutes ne mesure pas une session de plusieurs heures ni les FPS graphiques sur cette durée.
+- Les réglages extrêmes peuvent disperser le groupe ; les apparitions restent sûres et peuvent être retardées. Les comptes ennemis sont des cibles : la destruction et les délais de remplacement réduisent temporairement les effectifs.
+- Engine.time_scale et la fréquence physique sont globaux ; l'application est prévue pour une seule simulation active. Accélérer augmente le nombre de calculs physiques par seconde réelle. L'équilibrage n'a pas été étudié sur plusieurs graines.
 
 ## Hors de ce milestone et perspectives
 

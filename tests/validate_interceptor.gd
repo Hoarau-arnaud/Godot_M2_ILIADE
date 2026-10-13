@@ -50,6 +50,7 @@ func _advance(frames: int) -> void:
 
 func _empty(count: int = 1) -> SpaceSimulation:
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	sim.simulation_speed_multiplier = 1.0
 	sim.ship_count = count
 	sim.streaming_enabled = false
 	sim.drones_enabled = false
@@ -332,6 +333,7 @@ func _test_blue_combat() -> void:
 
 func _test_populations() -> void:
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	sim.simulation_speed_multiplier = 1.0
 	sim.streaming_enabled = false
 	sim.combat_enabled = false
 	root.add_child(sim)
@@ -361,6 +363,7 @@ func _test_populations() -> void:
 
 func _test_run(mode: int, seconds: int) -> void:
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	sim.simulation_speed_multiplier = 1.0
 	sim.manual_difficulty = mode
 	root.add_child(sim)
 	var nodes_max: int = get_node_count()

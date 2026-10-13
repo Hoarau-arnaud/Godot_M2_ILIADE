@@ -169,6 +169,21 @@ func _ship_avoidance() -> Vector3:
 	return result.limit_length(3.0)
 
 
+func retire() -> void:
+	if not alive:
+		return
+	alive = false
+	_obstacle_directions.clear()
+	if is_in_group("patrol_drones"):
+		remove_from_group("patrol_drones")
+	remove_from_group("hostile_agents")
+	set_physics_process(false)
+	collision_layer = 0
+	collision_mask = 0
+	hide()
+	queue_free()
+
+
 func take_damage(amount: int) -> void:
 	if not alive or amount <= 0:
 		return
