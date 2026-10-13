@@ -71,6 +71,7 @@ func _dispose(simulation: SpaceSimulation) -> void:
 
 func _empty_field(count: int, seed_value: int = 20261012) -> SpaceSimulation:
 	var simulation: SpaceSimulation = MAIN_SCENE.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(simulation)
 	HistoricalFixture.configure(simulation, 1.0)
 	simulation.simulation_speed_multiplier = 1.0
 	simulation.ship_count = count
@@ -85,6 +86,7 @@ func _empty_field(count: int, seed_value: int = 20261012) -> SpaceSimulation:
 
 func _test_default_field() -> void:
 	var simulation: SpaceSimulation = MAIN_SCENE.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(simulation)
 	HistoricalFixture.configure(simulation, 1.0)
 	simulation.simulation_speed_multiplier = 1.0
 	root.add_child(simulation)
@@ -187,6 +189,7 @@ func _test_default_field() -> void:
 
 func _fixture_drone(simulation: SpaceSimulation, position_value: Vector3, seed_value: int = 20261012) -> PatrolDrone:
 	var drone: PatrolDrone = DRONE_SCENE.instantiate() as PatrolDrone
+	FlightTuning.legacy_actor(drone)
 	drone.position = position_value
 	drone.patrol_anchor = Vector2(position_value.x, position_value.y)
 	drone.individual_seed = seed_value
@@ -249,6 +252,7 @@ func _test_drone_perceptions() -> void:
 	ship.position = Vector3(200, 0, 0)
 	_check(drone._ship_avoidance() == Vector3.ZERO, "Le drone perçoit un BlueShip au-delà de sa portée locale.")
 	var asteroid: SpaceAsteroid = ASTEROID_SCENE.instantiate() as SpaceAsteroid
+	FlightTuning.legacy_actor(asteroid)
 	asteroid.diameter = 6.0
 	asteroid.shape_seed = 88
 	asteroid.position = Vector3(0, 0, -25)
@@ -327,6 +331,7 @@ func _test_mobile_collision() -> void:
 
 func _test_drone_replacement() -> void:
 	var simulation: SpaceSimulation = MAIN_SCENE.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(simulation)
 	HistoricalFixture.configure(simulation, 1.0)
 	simulation.simulation_speed_multiplier = 1.0
 	simulation.streaming_enabled = false
@@ -336,6 +341,7 @@ func _test_drone_replacement() -> void:
 	var drone: PatrolDrone = simulation.drones[0]
 	drone.obstacle_detection_radius = 0.0
 	var asteroid: SpaceAsteroid = ASTEROID_SCENE.instantiate() as SpaceAsteroid
+	FlightTuning.legacy_actor(asteroid)
 	asteroid.position = drone.global_position + Vector3.FORWARD * 4.0
 	asteroid.diameter = 7.0
 	simulation.asteroid_container.add_child(asteroid)
@@ -401,6 +407,7 @@ func _test_difficulty_controls() -> void:
 
 func _test_forced_hard_field() -> void:
 	var simulation: SpaceSimulation = MAIN_SCENE.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(simulation)
 	HistoricalFixture.configure(simulation, 1.0)
 	simulation.simulation_speed_multiplier = 1.0
 	simulation.manual_difficulty = 3
@@ -492,6 +499,7 @@ func _test_removed_obstacle_memory() -> void:
 	var drone: PatrolDrone = _fixture_drone(simulation, Vector3.ZERO)
 	drone.set_physics_process(false)
 	var asteroid: SpaceAsteroid = ASTEROID_SCENE.instantiate() as SpaceAsteroid
+	FlightTuning.legacy_actor(asteroid)
 	asteroid.position = Vector3(0, 0, -20)
 	simulation.asteroid_container.add_child(asteroid)
 	ship._obstacle_avoidance()
@@ -586,6 +594,7 @@ func _test_streaming_and_difficulty() -> void:
 
 func _test_long_field() -> void:
 	var simulation: SpaceSimulation = MAIN_SCENE.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(simulation)
 	HistoricalFixture.configure(simulation, 1.0)
 	simulation.simulation_speed_multiplier = 1.0
 	root.add_child(simulation)
@@ -679,9 +688,11 @@ func _test_local_perception() -> void:
 	ship.velocity = Vector3.FORWARD * ship.forward_speed
 	ship.set_physics_process(false)
 	var distant: SpaceAsteroid = ASTEROID_SCENE.instantiate() as SpaceAsteroid
+	FlightTuning.legacy_actor(distant)
 	distant.position = Vector3(0.0, 0.0, -80.0)
 	simulation.asteroid_container.add_child(distant)
 	var behind: SpaceAsteroid = ASTEROID_SCENE.instantiate() as SpaceAsteroid
+	FlightTuning.legacy_actor(behind)
 	behind.position = Vector3(0.0, 0.0, 12.0)
 	simulation.asteroid_container.add_child(behind)
 	ship._find_threats()
@@ -689,6 +700,7 @@ func _test_local_perception() -> void:
 	var close_obstacles: Array[SpaceAsteroid] = []
 	for index: int in range(4):
 		var obstacle: SpaceAsteroid = ASTEROID_SCENE.instantiate() as SpaceAsteroid
+		FlightTuning.legacy_actor(obstacle)
 		obstacle.position = Vector3(0.0, 0.0, -18.0 - float(index) * 6.0)
 		simulation.asteroid_container.add_child(obstacle)
 		close_obstacles.append(obstacle)
@@ -711,6 +723,7 @@ func _test_multiple_obstacles() -> void:
 	ship._preferred_avoidance = Vector3.UP
 	for side: float in [-4.0, 4.0]:
 		var asteroid: SpaceAsteroid = ASTEROID_SCENE.instantiate() as SpaceAsteroid
+		FlightTuning.legacy_actor(asteroid)
 		asteroid.position = Vector3(side, 0.0, -27.0)
 		asteroid.diameter = 6.0
 		asteroid.size_category = SpaceAsteroid.SizeCategory.LARGE
@@ -741,6 +754,7 @@ func _test_avoidance(direction: Vector3) -> void:
 	ship.longitudinal_wander_strength = 0.0
 	ship._preferred_avoidance = direction
 	var asteroid: SpaceAsteroid = ASTEROID_SCENE.instantiate() as SpaceAsteroid
+	FlightTuning.legacy_actor(asteroid)
 	asteroid.diameter = 6.0
 	asteroid.size_category = SpaceAsteroid.SizeCategory.LARGE
 	asteroid.shape_seed = 88
@@ -785,6 +799,7 @@ func _test_collision_and_statistics() -> void:
 	ship.forward_speed = 35.0
 	ship.died.connect(_on_test_death)
 	var asteroid: SpaceAsteroid = ASTEROID_SCENE.instantiate() as SpaceAsteroid
+	FlightTuning.legacy_actor(asteroid)
 	asteroid.position = ship.position + Vector3.FORWARD * 8.0
 	asteroid.diameter = 6.0
 	asteroid.size_category = SpaceAsteroid.SizeCategory.LARGE
@@ -894,6 +909,7 @@ func _test_camera_controls() -> void:
 
 func _camera_independence_path(free_camera: bool) -> Array[Vector3]:
 	var simulation: SpaceSimulation = MAIN_SCENE.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(simulation)
 	HistoricalFixture.configure(simulation, 1.0)
 	simulation.simulation_speed_multiplier = 1.0
 	root.add_child(simulation)
@@ -948,6 +964,7 @@ func _test_starfield_recycling() -> void:
 
 func _capture_preview() -> void:
 	var simulation: SpaceSimulation = MAIN_SCENE.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(simulation)
 	HistoricalFixture.configure(simulation, 1.0)
 	simulation.simulation_speed_multiplier = 1.0
 	root.add_child(simulation)

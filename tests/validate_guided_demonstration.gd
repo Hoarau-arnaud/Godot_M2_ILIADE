@@ -61,6 +61,7 @@ func _key(key: Key) -> void:
 
 func _test_controls_and_restore() -> void:
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(sim)
 	sim.manual_difficulty = 3
 	sim.demonstration_legacy_fixture = true
 	root.add_child(sim)
@@ -124,13 +125,16 @@ func _test_controls_and_restore() -> void:
 
 func _test_layout_and_projectiles() -> void:
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(sim)
 	sim.demonstration_legacy_fixture = true
 	root.add_child(sim)
 	await _advance(3)
 	var blue: Node3D = load("res://scenes/blue_laser.tscn").instantiate() as Node3D
+	FlightTuning.legacy_actor(blue)
 	_check((blue.get_node("Bolt").mesh as BoxMesh).size == Vector3(0.24, 0.24, 3.8), "BlueLaser non épaissi x2.")
 	blue.free()
 	var pulse: EnemyLaser = load("res://scenes/enemy_laser.tscn").instantiate() as EnemyLaser
+	FlightTuning.legacy_actor(pulse)
 	pulse.patrol_pulse = true
 	pulse.position = Vector3(400, 400, 0)
 	pulse.projectile_speed = 26
@@ -184,6 +188,7 @@ func _validate_phases(phases: Array[Dictionary]) -> void:
 
 func _complete_run() -> void:
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(sim)
 	sim.demonstration_legacy_fixture = true
 	root.add_child(sim)
 	await _advance(2)
@@ -222,6 +227,7 @@ func _signature(sim: SpaceSimulation) -> String:
 
 func _test_repeatability() -> void:
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(sim)
 	sim.demonstration_legacy_fixture = true
 	root.add_child(sim)
 	sim.demonstration.start()
@@ -246,6 +252,7 @@ func _test_repeatability() -> void:
 func _capture() -> void:
 	DisplayServer.window_set_size(Vector2i(1920, 1080))
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(sim)
 	sim.demonstration_legacy_fixture = true
 	root.add_child(sim)
 	sim.demonstration.start()
@@ -272,6 +279,7 @@ func _native_video() -> void:
 	root.content_scale_size = Vector2i(1920, 1080)
 	root.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_KEEP
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(sim)
 	sim.demonstration_legacy_fixture = true
 	root.add_child(sim)
 	await _advance(5)

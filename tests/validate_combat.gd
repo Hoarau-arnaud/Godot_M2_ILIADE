@@ -54,6 +54,7 @@ func _dispose(simulation: SpaceSimulation) -> void:
 # Les fixtures isolent la décision de tir ; les parcours 90 s utilisent la scène normale.
 func _empty_scene(count: int = 1) -> SpaceSimulation:
 	var simulation: SpaceSimulation = MAIN_SCENE.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(simulation)
 	HistoricalFixture.configure(simulation, 1.0)
 	simulation.simulation_speed_multiplier = 1.0
 	simulation.ship_count = count
@@ -71,6 +72,7 @@ func _empty_scene(count: int = 1) -> SpaceSimulation:
 
 func _drone(simulation: SpaceSimulation, position_value: Vector3, health_value: int = 4) -> PatrolDrone:
 	var drone: PatrolDrone = DRONE_SCENE.instantiate() as PatrolDrone
+	FlightTuning.legacy_actor(drone)
 	drone.position = position_value
 	drone.max_health = health_value
 	drone.patrol_anchor = Vector2(position_value.x, position_value.y)
@@ -81,6 +83,7 @@ func _drone(simulation: SpaceSimulation, position_value: Vector3, health_value: 
 
 func _rock(simulation: SpaceSimulation, position_value: Vector3, diameter: float = 6.0) -> SpaceAsteroid:
 	var asteroid: SpaceAsteroid = ASTEROID_SCENE.instantiate() as SpaceAsteroid
+	FlightTuning.legacy_actor(asteroid)
 	asteroid.position = position_value
 	asteroid.diameter = diameter
 	asteroid.shape_seed = 88
@@ -91,6 +94,7 @@ func _rock(simulation: SpaceSimulation, position_value: Vector3, diameter: float
 
 func _laser(simulation: SpaceSimulation, position_value: Vector3) -> BlueLaser:
 	var laser: BlueLaser = LASER_SCENE.instantiate() as BlueLaser
+	FlightTuning.legacy_actor(laser)
 	laser.position = position_value
 	simulation.projectile_container.add_child(laser)
 	simulation._on_ship_fired(laser)
@@ -195,6 +199,7 @@ func _on_destroyed(drone: PatrolDrone) -> void:
 
 func _test_damage_and_replacement() -> void:
 	var simulation: SpaceSimulation = MAIN_SCENE.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(simulation)
 	HistoricalFixture.configure(simulation, 1.0)
 	simulation.simulation_speed_multiplier = 1.0
 	simulation.ship_count = 1
@@ -305,6 +310,7 @@ func _test_navigation_independence() -> void:
 
 func _test_drone_counts() -> void:
 	var simulation: SpaceSimulation = MAIN_SCENE.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(simulation)
 	HistoricalFixture.configure(simulation, 1.0)
 	simulation.simulation_speed_multiplier = 1.0
 	simulation.interceptors_enabled = false # Effectifs de l'Agent 2 isolés dans cette fixture.
@@ -330,6 +336,7 @@ func _test_drone_counts() -> void:
 
 func _test_run_90(mode: int) -> void:
 	var simulation: SpaceSimulation = MAIN_SCENE.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(simulation)
 	HistoricalFixture.configure(simulation, 1.0)
 	simulation.simulation_speed_multiplier = 1.0
 	simulation.manual_difficulty = mode

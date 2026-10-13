@@ -1,8 +1,105 @@
-# Simulation SMA spatiale — milestone 12
+# Simulation SMA spatiale — milestone 13
 
-Projet pédagogique **Godot 4.7.2 / GDScript**, avec exactement quatre types d'agents : **BlueShip, PatrolDrone, Interceptor et Capital Artillery Ship**. Plusieurs Capital Ships sont plusieurs instances du même Agent 4. Rochers, bolts, bombes, faisceaux et missiles sont des éléments d'environnement/combat. M12 renforce la présentation et la difficulté de GUIDED ; FREE reste le mode initial avec ses réglages.
+Projet pédagogique **Godot 4.7.2 / GDScript**, avec exactement quatre types d'agents : **BlueShip, PatrolDrone, Interceptor et Capital Artillery Ship**. Les projectiles, missiles, bombes, faisceaux et rochers sont des éléments de combat/environnement.
 
-## M12 — Traversée d'une zone de guerre spatiale
+## M13 — Menaces ciblées et boosts individuels
+
+**F5 démarre automatiquement la Démo guidée**, après l'initialisation complète de Main (`auto_start_guided_demo=true`, appel différé). La caméra Cinématique et le titre de phase sont actifs sans entrée utilisateur. **D / Simulation libre** restitue les mêmes entités FREE suspendues, leurs HP, cibles, mémoires, réglages et RNG. TAB ouvre les commandes, H l'aide, F11/Alt+Entrée le plein écran. Recommencer démo/Rejouer repart du début.
+
+Les phases 1–4 durent **18 secondes réelles** chacune ; la flotte Capital dure **28 s**. Chacune recrée 15 BlueShip à 3 HP ; ce retrait n'est pas une mort. **La phase 6 est continue, difficulté 3**, initialement 15 BlueShip, 5 PatrolDrone, 5 Interceptor, 4 Capitaux lointains et **110 météores en streaming** (budget réduit après benchmark), Mouvement 1,6 et Intensité tirs 1,2. Elle ne termine pas sur un timer et n'applique pas d'escalade automatique supplémentaire. Les pertes sont possibles.
+
+**Zéro BlueShip dans n'importe quelle phase arrête immédiatement le combat guidé**, les vols/tirs existants, la génération d'ennemis et de rochers, ainsi que le timer de phase. L'écran centré **ESCADRON DÉTRUIT** propose un grand **REJOUER** et Simulation libre. Rejouer nettoie les entités guidées, restaure la seed 20261012, efface morts/impacts/menaces/boosts/passages proches, recrée 15 chasseurs à 3 HP, reprend la phase 1 et la caméra Cinématique, puis cache l'écran. UI et caméra restent réactives pendant Game Over.
+
+### Vitesses physiques et rythme
+
+| Paramètre | M12 | M13, secondes simulées |
+|---|---:|---:|
+| BlueShip, avance / latéral / accélération | 10,5 / 9 / 12 | **16 m/s / 15 m/s / 22 m/s²** |
+| PatrolDrone, avance | 9,2 (9,8 pour certaines apparitions FREE) | **13 m/s** (13,6 pour certaines apparitions FREE) |
+| Interceptor, patrouille / plafond poursuite | 9 / 18 | **15 / 23 m/s**, latéral 12, accélération 20 |
+| BlueLaser | 60 | **100 m/s**, durée 3 s |
+| Energy Bolt Interceptor | 45 | **85 m/s**, durée 2,5 s |
+| Plasma Pulse Patrol | 26 | **58 m/s**, durée 3 s |
+| Heavy / Rapid / Seeker-Swarm / Bomb / Arc | 27 ou vitesse liée au vol | **52 / 88 / 65 / 48 / 62 m/s** |
+| Spread / Cross | 30 | **80 m/s** |
+
+La variation personnelle Blue ±3 % et la variation longitudinale ±3 m/s subsistent. Le multiplicateur Guided retenu est **2,0× à 120 Hz** après comparaison **2,0 / 2,1 / 2,2×**. La préférence initiale de 2,1× a été écartée car des fenêtres d’une seconde restent sous 60 FPS. FREE conserve son slider **0,5–2,5×**, défaut 1,7×. L'horloge accélère tous les mouvements et délais physiques ; les durées des phases et de caméra restent réelles.
+
+### Visée prédictive, TARGETED et SUPPRESSION
+
+`CombatPrediction` résout l'interception à vitesse constante : `|target_position + target_velocity*t - origin| = projectile_speed*t`, en choisissant la plus petite racine positive. Le tir non guidé conserve ensuite sa direction. La visée d'un Capital est recalculée **au départ effectif de chaque projectile**, puis reçoit une erreur déterministe **±1,8 m X/Y**. Les grandes erreurs M12 ±35/24 m sont réservées aux anciennes fixtures. Les tirs SUPPRESSION visent le centre prédit du groupe avec ±14 m X / ±10 m Y ; ce sont de vrais projectiles, avec collisions.
+
+Les cibles vivantes sont réparties par round-robin, décalé selon le rôle du Capital. **Rapid : 17/24 TARGETED (70,8 %) ; Swarm : 13/18 (72,2 %) réellement guidés vers une cible**, les autres suivent un point prédit fixe. Heavy et Seeker visent individuellement ; Arc vise 2/4, Spread 3/5 et Cross 4/6 individuellement, le reste contrôle la zone. Bombes et grilles sont des attaques de zone. Le budget peut refuser certains départs ; les compteurs TARGETED/SUPPRESSION portent sur les **projectiles effectivement émis**, excluent beams et tracers, et comptent une bombe physique comme SUPPRESSION. Une cible morte avant départ transforme le départ en SUPPRESSION. Seeker/Swarm tournent au maximum **12° par seconde simulée**, perdent proprement leur cible morte et restent esquivables.
+
+L'Interceptor vise **sa cible de poursuite**, avec interception et spread **±0,75° par axe**. Le Patrol choisit un BlueShip dans un demi-cône **32° autour de sa vitesse**, prévoit sa position et ajoute ±1,5 m X/Y. Il continue sa route A–B–C–D et ne poursuit pas. Les tracers décoratifs passent de **90 à 30/s réelles**, environ 157 simultanés au lieu de 522 ; aucun dégât ni collision.
+
+### EVASIVE_BOOST, perception et animation
+
+Chaque BlueShip décide localement, sans chef ni ordre commun. La perception des tirs couvre **80 m**, horizon **4 s simulées**, avec lecture toutes les **0,06 s simulées en GUIDED**, soit environ 30 lectures/s réelles à 2,0×/120 Hz. Une menace doit converger et avoir une distance minimale prévue inférieure à son rayon de sécurité ; un tir passant à 30 m est ignoré. Le score combine manque de clearance, distance actuelle, vitesse relative, temps CPA et poids du type. Un projectile critique a un CPA dans **1 s**, score ≥1 ; une roche critique a une entrée prévue dans son enveloppe de sécurité dans **0,8 s**, score ≥0,8. Bombes/grilles imminentes sont évaluées dans leur zone télégraphiée.
+
+Un boost dure **0,65 s simulée**, augmente l'avance **×1,35**, le latéral **×1,9** et l'accélération **×2,2**. Le cooldown dure **1,1 s simulée après sa fin** ; une nouvelle menace distincte passant à moins de 1,8 m dans 0,25 s peut l'interrompre. Huit directions X/Y sont évaluées : préférence perpendiculaire au tir, espace prévu face aux voisins, rochers et autres tirs. La direction est conservée pendant le boost ; un mélange décroissant rend progressivement le contrôle aux règles locales. **Aucun tir Blue durant EVASIVE_BOOST**, puis reprise si les autres conditions de tir sont sûres.
+
+Les propulseurs cyan reçoivent un allongement ×2,2, une émission 1,5→5 et un streak cyan de 7 m. Le roll peut atteindre **±55°**, le pitch reste **±8°**. Plusieurs boosts élargissent doucement le FOV de **0 à +3°**, plafond 71°. Les streaks/parallax proches sont renforcés ×1,25 en GUIDED ; aucun blur lourd. Ces changements concernent le visuel, sans rotation des hitboxes ni consigne caméra aux agents.
+
+| Arme | Signature |
+|---|---|
+| Patrol plasma | Sphère verte, halo circulaire, courte traînée |
+| Interceptor energy | Trait rouge/orange 7–9 m, noyau clair blanc/orange, coque lumineuse translucide |
+| Heavy torpedo | Capsule de 6 m, gros nez lumineux, quatre ailettes, moteur orange/violet, grosse traînée |
+| Seeker/Swarm | Fuselage capsule, nez, quatre ailettes, moteur et trois segments de traînée |
+| Arc | Capsule magenta, deux anneaux énergétiques, trajectoire physique courbe |
+| Rapid | Petits traits d'énergie orange/jaune de 3 m |
+| Bomb | Grosse sphère pulsante, warning, explosion et shockwave |
+| Grid/Curtain | Faisceaux continus avec Area3D, warning et passage ouvert |
+
+Les signatures d’artillerie sont fusionnées en **une surface et un appel de rendu par projectile**, avec géométrie/couleurs immuables mises en cache par famille et préparées au chargement, avant le combat. Les collisions balayées restent celles du body ; aucun pooling ne réutilise ses cibles ou son état de vol.
+
+Les compteurs internes suivent boosts, paires Blue/menace critique, tirs ciblés/suppression, impacts et near misses, sans encombrer le HUD. Un passage proche est une approximation par segment relatif échantillonné, minimum < `avoidance_radius + 2 m` (enveloppe + marge pour les rochers), comptée une seule fois par paire après passage, puis nettoyée par références faibles et distance. Un même tir peut frôler plusieurs BlueShip. **Ce compteur ne prouve pas à lui seul qu'un boost a empêché un impact** ; le comparatif contrôlé avec/sans perception vérifie séparément l'amélioration de survie.
+
+### Validation M13
+
+`tests/validate_targeted_evasion.gd` contrôle 20 tirs identiques avec/sans esquive, durée/animation/direction/cooldown/exception létale et suspension/reprise du tir Blue, 20 tirs Interceptor, cône/route Patrol, 100 tirs Capital de plusieurs familles, autostart, Game Over et Replay dans chaque phase, restitution des mêmes entités FREE, séquence complète et finale de 60 s ou extinction. Les neuf suites M1–M12 choisissent explicitement leur ancien profil via `FlightTuning.legacy_actor`, désactivent l'autostart et conservent leurs assertions physiques/SMA ; M12 conserve aussi sa finale temporisée et ses anciens tirs.
+
+```powershell
+$godotExe = 'C:\Users\Sora\Desktop\Godot_v4.7.2-stable_win64.exe'
+Start-Process -FilePath $godotExe -ArgumentList '--headless','--path','.','--fixed-fps','60','--script','res://tests/validate_targeted_evasion.gd','--log-file','.godot/m13_validation.log' -WindowStyle Hidden -Wait
+```
+
+`-- --unit-only` isole les tests contrôlés. Pour le rendu réel, retirer `--headless` et `--fixed-fps`, ajouter **`-- --native`**. `--finale` commence directement en phase 6 ; `--pace=2.0`, `2.1` ou `2.2` règle l'essai. **`--native --capture`** réalise séparément les captures des six phases et des écrans Game Over/Replay. Le benchmark FPS n'écrit aucune PNG pendant la mesure. JSON, logs et captures restent dans `.godot/`, ignoré.
+
+Validation de référence **13 octobre 2026, Godot 4.7.2, seed 20261012, Intel Arc Graphics, OpenGL Compatibility, MSAA 4×, VSync**. Les neuf suites historiques complètes M1–M12 passent ; après l’optimisation du rendu, les contrôles M10/M12 et la suite M13 sont relancés. Les journaux d’acceptation ne contiennent ni erreur ni warning Godot. Les captures des six phases, des formes d’armes, du boost, de Game Over et de Replay sont contrôlées séparément.
+
+La comparaison préliminaire, avec **150 rochers en finale avant les dernières optimisations**, donne : 2,0× **85,20 / 65,09 FPS** moyen/minimum d’une seconde ; 2,1× **80,42 / 60,58** ; 2,2× **79,45 / 46,82**. Le parcours complet révélait encore des baisses sous 60 à 2,1×, puis à 2,0× avec 150 rochers. Le réglage final conserve **2,0× / 120 Hz**, fusionne les signatures d’artillerie dans un mesh partagé par famille, prépare leur géométrie avant le combat et limite la finale à **110 rochers physiques**. Les vitesses, le ciblage, les dégâts et les quatre types d’agents sont conservés.
+
+Le parcours complet final, phases 1–5 puis **60,00 secondes réelles de finale**, rend à **1920×1080**, sans PNG pendant la mesure : **96,83 FPS moyens**, minimum sur une seconde **71,98 FPS**. Le chronomètre mesure **159,87 s après l’initialisation**, pour environ 160 s de phases. La finale est encore GUIDED, difficulté 3, sans Game Over ni sortie automatique au terme de l’essai.
+
+| Phase, rendu réel | Vivants / morts de la phase | TARGETED / SUPPRESSION | Menaces critiques | Boosts | Near misses tirs | Impacts de combat | Rochers max | Tirs physiques max / beams inclus |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 15 / 0 | 0 / 0 | 1 | 1 | 0 | 0 | 180 | 0 / 0 |
+| 2 | 15 / 0 | 0 / 0 | 1 | 1 | 0 | 0 | 84 | 0 / 0 |
+| 3 | 15 / 0 | 24 / 0 | 20 | 19 | 24 | 0 | 3 | 6 / 6 |
+| 4 | 13 / 2 | 78 / 0 | 84 | 33 | 82 | 9 | 3 | 36 / 36 |
+| 5 | 12 / 3 | 167 / 77 | 94 | 80 | 80 | 3 | 0 | 90 / 90 |
+| 6 | 13 / 2 | 348 / 99 | 223 | 131 | 200 | 3 | 110 | 54 / 56 |
+
+En finale seule : **348 ciblés / 99 suppression (77,85 % ciblés)**, **223 menaces critiques**, **131 boosts**, **200 passages proches de tirs**, **88 passages proches de rochers**, **3 événements de dégâts de combat**, **2 morts** et **13 survivants**. Configuration initiale : 15/5/5/4 agents ; fin : 13 BlueShip, 5 PatrolDrone, 5 Interceptor, 4 Capital. Maximum **2839 nœuds**, **54 tirs physiques**, **56 unités dangereuses beams inclus**, **110 rochers**. Excursion latérale maximale **203,10 m** ; regroupements locaux observés, dispersion maximale/finale **186,15/179,80 m**.
+
+La phase 5 atteint **68,44 % TARGETED**, au-dessus des 65 % demandés, avec 5 Capitaux, 57 missiles, 11 explosions de bombes et 4 grilles. La phase 3 conserve ses routes avec **24 pulses ciblés, 19 boosts et aucun décès**. La phase 4 montre **17 poursuites, 15 désengagements, 78 tirs, 33 boosts et 2 décès** ; sa dispersion diminue de **63,75 à 39,09 m**, exemple de regroupement après esquives. Les phases 1/2 enregistrent chacune un boost critique, **135/66 passages proches de rochers** et **55,48/28,60 m d’excursion latérale** ; l’évitement ordinaire peut empêcher une situation de devenir assez critique pour déclencher le boost.
+
+Sur le parcours complet : **617 TARGETED, 176 SUPPRESSION, 423 paires critiques, 265 boosts, 386 near misses de tirs, 289 de rochers, 15 impacts de combat et 7 morts cumulées**. Chaque nouvelle phase remet 15 BlueShip ; les morts cumulées ne se confondent donc pas avec les deux pertes de la finale. Le maximum global est **2839 nœuds, 180 rochers, 90 tirs dangereux**.
+
+Les 20 tirs comparatifs sont tous initialement menaçants : **sans perception, 9 impacts/11 survivants ; avec perception, 0 impact/20 survivants, 19 boosts et 23,39 m XY maximum**. Le boost forcé mesure **0,63 s simulée**, environ **11,12 m XY**, avec exhaust allongé, direction tenue, absence de tir puis reprise, cooldown et exception létale vérifiés. Un gros rocher de 8 m provoque un boost réel : survie et **21,13 m XY**. Le missile corrige **6° en 0,5 s simulée**, puis abandonne la cible supprimée ; le choix du boost évite un voisin occupant une direction candidate. Les 20 tirs Interceptor sont menaçants, avec erreur angulaire maximale **0,87°** ; le Patrol anticipe dans son cône et refuse une cible derrière, sans modifier son waypoint.
+
+Le test Capital de **100 projectiles**, avec HP élevés pour observer les réactions jusqu’au bout, donne **69 TARGETED / 31 SUPPRESSION**, **69 trajectoires ciblées initialement menaçantes**, **2 impacts directs / 98 sans impact direct**, **0 dégât de zone et 0 impact rocher**, **16 boosts, 63 épisodes d’évitement, 14 near misses** et **15 cibles distinctes**. Ce scénario contrôlé ne représente pas la survie naturelle à 3 HP.
+
+Autostart, Game Over **dans chacune des six phases**, arrêt des tirs/streaming/timer, bouton Rejouer, retour à 15 chasseurs/0 mort/phase 1/Cinématique, répétition des mêmes configurations initiales et restitution des mêmes agents FREE passent. Les captures natives confirment l’écran centré et le compteur remis à zéro au Replay.
+
+Limites : une seule machine et une graine de référence ; cadence de rendu et intégration peuvent changer les pertes/trajectoires. Les near misses sont des paires approximatives, pas une preuve causale de chaque impact évité. La prédiction suppose la vitesse instantanée, particulièrement imparfaite face aux arcs/guidages ; les rochers absorbent les tirs. Le regroupement reste local et certains survivants demeurent isolés. La finale est continue mais l’essai natif couvre 60 s ; aucune garantie d’équilibrage/performance sur plusieurs heures. Les captures PNG sont séparées du benchmark car leur lecture GPU/compression perturbe les FPS.
+
+
+Les références suivantes décrivent les jalons précédents et leurs fixtures ; le comportement normal courant est celui de M13 ci-dessus.
+
+## Référence historique M12 — Traversée d'une zone de guerre spatiale
 
 **D** ou **Démo guidée** démarre le parcours. D ou **Simulation libre** le termine ; **Recommencer démo** reprend la phase 1. TAB réaffiche le panneau, H l'aide, F11/Alt+Entrée le plein écran. La caméra Libre (F) reste distincte de la simulation FREE.
 
@@ -184,7 +281,7 @@ La taille initiale reste 1280×720, mais **`window/stretch/mode="canvas_items"` 
 
 Après correction, la texture rendue a exactement la taille de la fenêtre. `get_visible_rect().size` décrit les **unités logiques de l'UI**, pas les pixels de cette texture : 1280×720 dans les quatre formats 16:9, 1280×800 à 1600×1000, 1280×1280 à 900×900 et 1728×720 à 1920×800. Le ratio caméra suit la surface étendue sans bandes. F11/Alt+Entrée et la maximisation Windows utilisent également toute la surface. La taille et la position précédentes sont restaurées à la sortie du plein écran, y compris le mode maximisé. Cette distinction suit la [documentation multi-résolutions Godot](https://docs.godotengine.org/en/stable/tutorials/rendering/multiple_resolutions.html). Dans la fenêtre de jeu intégrée à l'éditeur, utiliser son option **Stretch to Fit** pour laisser aussi le panneau hôte transmettre sa taille.
 
-La caméra démarre en **Suivi** : elle suit le barycentre des survivants et s'éloigne doucement quand le groupe s'étale. **F** passe en **Libre**, une vue orbitale avec un point d'observation déplaçable. La vue reste alors à l'endroit choisi pendant que les agents continuent leur vol. **G** ou **Home / Début** recentre sur le groupe actuel. **C** active **Cinématique** ; un second C revient au Suivi. F permet aussi de reprendre la caméra Libre depuis Cinématique. La souris contrôle seulement le mode Libre.
+En Simulation libre, la caméra initiale est en **Suivi** : elle suit le barycentre des survivants et s'éloigne doucement quand le groupe s'étale. **F** passe en **Libre**, une vue orbitale avec un point d'observation déplaçable. La vue reste alors à l'endroit choisi pendant que les agents continuent leur vol. **G** ou **Home / Début** recentre sur le groupe actuel. **C** active **Cinématique** ; un second C revient au Suivi. F permet aussi de reprendre la caméra Libre depuis Cinématique. La souris contrôle seulement le mode Libre.
 
 | Commande | Effet |
 |---|---|
@@ -202,7 +299,7 @@ La caméra démarre en **Suivi** : elle suit le barycentre des survivants et s'�
 | H | Afficher / masquer l'aide caméra en bas à gauche |
 | D | Démarrer / arrêter la démonstration guidée |
 
-Les touches sont définies par des **Input Actions dans `project.godot`**. C est réservé à Cinématique ; Q sert au déplacement à gauche. Le pan vaut 24 m/s en temps réel, indépendamment de la vitesse de simulation. L'aide est visible au lancement. **H puis TAB** laissent uniquement le compteur de pertes et les étoiles pour enregistrer une vidéo. Le plein écran utilise [DisplayServer](https://docs.godotengine.org/en/stable/classes/class_displayserver.html) et restaure le mode, la taille et la position de la fenêtre ; celle-ci reste redimensionnable.
+Les touches sont définies par des **Input Actions dans `project.godot`**. C est réservé à Cinématique ; Q sert au déplacement à gauche. Le pan vaut 24 m/s en temps réel, indépendamment de la vitesse de simulation. L'aide est visible dans FREE ; GUIDED la masque au démarrage. **H puis TAB** laissent uniquement le compteur de pertes et les étoiles pour enregistrer une vidéo. Le plein écran utilise [DisplayServer](https://docs.godotengine.org/en/stable/classes/class_displayserver.html) et restaure le mode, la taille et la position de la fenêtre ; celle-ci reste redimensionnable.
 
 ### Caméra cinématique
 
@@ -214,7 +311,7 @@ M9 ajoute une réaction douce à la vitesse moyenne X/Y du groupe : décalage la
 
 ## Contrôles de démonstration M7–M8
 
-Le panneau **Contrôles**, visible au lancement, est placé à droite : largeur **264 px**, marge **18 px**, fond spatial bleu sombre transparent et accent cyan. Il utilise uniquement les nœuds Control Godot standards. **TAB** le masque et le réaffiche. Les étoiles restent visibles dans les deux cas.
+Le panneau **Contrôles**, visible dans FREE, est placé à droite : largeur **264 px**, marge **18 px**, fond spatial bleu sombre transparent et accent cyan. Il utilise uniquement les nœuds Control Godot standards. **TAB** le masque et le réaffiche. Les étoiles restent visibles dans les deux cas.
 
 | Contrôle | Bornes | Valeur initiale / effet |
 |---|---|---|
@@ -237,7 +334,7 @@ Les étoiles **★☆☆ / ★★☆ / ★★★** représentent toujours `diffi
 
 ### Vitesse et caméra
 
-`simulation_speed_multiplier` utilise **Engine.time_scale** : agents, lasers, délais de poursuite/rafale/remplacement et explosions suivent la même horloge. Les vitesses physiques de base M6 sont conservées. Le taux physique monte par multiples de 60 : **60 Hz jusqu'à 1×, 120 Hz jusqu'à 2×, 180 Hz au-delà**, ce qui conserve un pas de simulation au plus égal à 1/60 s. Les paramètres Engine précédents sont restaurés à la fermeture de la scène. Cette méthode suit les recommandations de la [documentation Engine](https://docs.godotengine.org/en/stable/classes/class_engine.html#class-engine-property-time-scale).
+`simulation_speed_multiplier` utilise **Engine.time_scale** : agents, lasers, délais de poursuite/rafale/remplacement et explosions suivent la même horloge. Les vitesses physiques de base M13 sont appliquées ; seules les fixtures historiques fixent celles de M6. Le taux physique conserve un pas simulé au plus égal à 1/60 s : **60 Hz jusqu’à 1×, 120 Hz jusqu’à 2×**, puis des multiples de **30 Hz** au-delà (150 Hz à 2,1/2,2×, 180 Hz à 2,5×). Les fixtures historiques conservent les multiples de 60 Hz. Les paramètres Engine précédents sont restaurés à la fermeture de la scène. Cette méthode suit les recommandations de la [documentation Engine](https://docs.godotengine.org/en/stable/classes/class_engine.html#class-engine-property-time-scale).
 
 Le suivi utilise le temps de simulation pour rester fluide ; le pan libre utilise le delta divisé par `time_scale`. Orbite et zoom réagissent directement à la souris. Le panneau consomme ses événements : cliquer un slider/bouton ne déclenche ni orbite ni zoom ; relâcher le clic droit au-dessus du panneau termine aussi une orbite commencée dans l'espace. Les contrôles n'accaparent pas le focus clavier. Aucun paramètre de combat n'est exposé.
 
@@ -256,13 +353,14 @@ Exemple de démonstration : **3**, Interceptor **5**, PatrolDrone **6**, BlueShi
 ## Agents et obstacles actuels
 
 - **Type 1 — BlueShip** : `CharacterBody3D`, chasseur spatial original. Le fuselage et les nacelles utilisent chacun un petit **ArrayMesh créé avec SurfaceTool : dix points, seize triangles**, avec un nez effilé en hauteur et en largeur, un dos et un ventre. Les prismes seuls donnaient encore une pointe verticale trop épaisse de profil. Cockpit sombre/cyan surélevé, ailes balayées, pylônes épais et moteurs restent des primitives Godot. Les flammes cyan varient avec la vitesse. Les deux boîtes physiques du M7 restent identiques.
-- **Type 2 — PatrolDrone** : `CharacterBody3D`, drone vert avec un corps hexagonal court, un capteur lumineux vert-cyan, de petites ailes, une dérive et deux propulseurs. Il conserve sa patrouille par waypoints et son évitement local. Il devient le premier **agent hostile destructible**, avec **4 HP**, sans poursuite ni tirs ennemis.
+- **Type 2 — PatrolDrone** : `CharacterBody3D`, drone vert avec un corps hexagonal court, un capteur lumineux vert-cyan, de petites ailes, une dérive et deux propulseurs. Il conserve sa patrouille par waypoints et son évitement local. Il devient le premier **agent hostile destructible**, avec **4 HP**, sans poursuite ; en GUIDED, il tire des pulses prédictifs dans son cône.
 - **Type 3 — Interceptor** : chasseur rouge pointu, cockpit sombre, ailes courtes et moteurs orange. Il détecte localement un BlueShip, le poursuit temporairement et tire par rafales, puis se désengage. **4 HP**, primitives Godot uniquement.
+- **Type 4 — Capital Artillery Ship** : observateur du groupe, batteries prédictives et missiles/attaques de zone. En GUIDED, plusieurs instances du même type restent à grande distance ; en FREE, population 0–1 et rapprochement vulnérable conservés.
 - **Obstacle environnemental — SpaceAsteroid** : `AnimatableBody3D` indépendant, avec les mêmes volumes low-poly et formes convexes. Petits : 1–2 m ; moyens : 2–4 m ; grands : 4–7 m de diamètre nominal. La racine physique n'est pas mise à l'échelle. Rotation et trajectoire sont appliquées au pas physique par une seule écriture de transform. Certains restent sans translation. **Les astéroïdes sont des obstacles, pas des agents**, même lorsqu'ils bougent.
 
 ### Orientation visuelle du BlueShip
 
-Le nez garde −Z comme direction dominante. Pitch **±8°**, yaw **±10°**, roll **±30°** : le pitch réagit plus lentement, le roll plus vite, puis revient progressivement à plat. La vitesse physique X/Y peut rester importante sans relever le nez de 30°. Ces angles concernent seulement `Visuals` ; ils ne modifient ni les forces SMA ni les collisions. Le marqueur de tir suit le nouveau nez à **Z = −4,55 m**.
+Le nez garde −Z comme direction dominante. Pitch **±8°**, yaw **±10°**, roll **±30°**, ou **±55° pendant EVASIVE_BOOST** : le pitch réagit plus lentement, le roll plus vite, puis revient progressivement à plat. La vitesse physique X/Y peut rester importante sans relever le nez de 30°. Ces angles concernent seulement `Visuals` ; ils ne modifient ni les forces SMA ni les collisions. Le marqueur de tir suit le nouveau nez à **Z = −4,55 m**.
 
 ## Comportement des chasseurs
 
@@ -380,9 +478,9 @@ Les paramètres sont exportés dans l'Inspector du nœud racine de `blue_ship.ts
 
 | Paramètre | Valeur | Effet |
 |---|---:|---|
-| `forward_speed` | 10,5 m/s | Vitesse avant, variation individuelle ±3 % |
-| `max_side_speed` | 9 m/s | Limite combinée en X/Y |
-| `acceleration` | 12 m/s² | Lissage de la vitesse |
+| `forward_speed` | 16 m/s | Vitesse avant, variation individuelle ±3 % |
+| `max_side_speed` | 15 m/s | Limite combinée en X/Y |
+| `acceleration` | 22 m/s² | Lissage de la vitesse |
 | `turn_speed` | 3,2 s⁻¹ | Lissage de l'orientation visuelle |
 | `max_forward_variation` | 3 m/s | Limite de variation longitudinale |
 | `wander_strength` | 2,8 | Oscillation horizontale |
@@ -419,7 +517,7 @@ En **PATROL**, il ajuste sa vitesse X/Y pour rejoindre la cible. En **AVOIDING**
 
 | Paramètre PatrolDrone | Valeur par défaut |
 |---|---:|
-| `forward_speed` | 9,2 m/s ; Main alterne 9,2 et 9,8 m/s |
+| `forward_speed` | 13 m/s ; Main alterne 13 et 13,6 m/s en FREE |
 | `forward_variation` | ±1 m/s, oscillation lente |
 | `max_side_speed` / `acceleration` | 7 m/s / 10 m/s² |
 | `segment_length` / `waypoint_reach_distance` | 55 m / 7 m |

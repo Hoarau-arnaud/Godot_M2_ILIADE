@@ -50,6 +50,7 @@ func _advance(frames: int) -> void:
 
 func _empty(count: int = 1) -> SpaceSimulation:
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(sim)
 	HistoricalFixture.configure(sim, 1.0)
 	sim.simulation_speed_multiplier = 1.0
 	sim.ship_count = count
@@ -75,6 +76,7 @@ func _dispose(sim: SpaceSimulation) -> void:
 
 func _red(sim: SpaceSimulation, pos: Vector3) -> Interceptor:
 	var red: Interceptor = RED.instantiate() as Interceptor
+	FlightTuning.legacy_actor(red)
 	red.position = pos
 	red.individual_seed = 7361
 	red.projectile_container = sim.projectile_container
@@ -90,6 +92,7 @@ func _red(sim: SpaceSimulation, pos: Vector3) -> Interceptor:
 
 func _green(sim: SpaceSimulation, pos: Vector3) -> PatrolDrone:
 	var green: PatrolDrone = GREEN.instantiate() as PatrolDrone
+	FlightTuning.legacy_actor(green)
 	green.position = pos
 	green.died.connect(sim._on_drone_died)
 	green.destroyed.connect(sim._on_hostile_destroyed)
@@ -102,6 +105,7 @@ func _green(sim: SpaceSimulation, pos: Vector3) -> PatrolDrone:
 
 func _rock(sim: SpaceSimulation, pos: Vector3) -> SpaceAsteroid:
 	var rock: SpaceAsteroid = ROCK.instantiate() as SpaceAsteroid
+	FlightTuning.legacy_actor(rock)
 	rock.position = pos
 	rock.diameter = 5.0
 	rock.shape_seed = 881
@@ -112,6 +116,7 @@ func _rock(sim: SpaceSimulation, pos: Vector3) -> SpaceAsteroid:
 
 func _enemy(sim: SpaceSimulation, pos: Vector3, direction: Vector3) -> EnemyLaser:
 	var bolt: EnemyLaser = ENEMY.instantiate() as EnemyLaser
+	FlightTuning.legacy_actor(bolt)
 	bolt.position = pos
 	bolt.flight_direction = direction
 	sim.projectile_container.add_child(bolt)
@@ -334,6 +339,7 @@ func _test_blue_combat() -> void:
 
 func _test_populations() -> void:
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(sim)
 	HistoricalFixture.configure(sim, 1.0)
 	sim.simulation_speed_multiplier = 1.0
 	sim.streaming_enabled = false
@@ -365,6 +371,7 @@ func _test_populations() -> void:
 
 func _test_run(mode: int, seconds: int) -> void:
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(sim)
 	HistoricalFixture.configure(sim, 1.0)
 	sim.simulation_speed_multiplier = 1.0
 	sim.manual_difficulty = mode

@@ -5,7 +5,7 @@ signal hit_hostile(target: Node3D, amount: int)
 
 const HIT_MASK: int = 6 # Couche 2 astéroïdes + couche 3 hostiles, jamais les BlueShip.
 
-@export var projectile_speed: float = 60.0
+@export var projectile_speed: float = 100.0
 @export var lifetime: float = 3.0
 @export var damage: int = 1
 

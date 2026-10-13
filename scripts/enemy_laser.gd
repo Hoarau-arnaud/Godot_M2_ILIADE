@@ -6,7 +6,7 @@ signal hit_blue_ship(target: BlueShip, amount: int)
 const HIT_MASK: int = 3 # BlueShip (1) et astéroïdes (2), jamais les hostiles (4).
 enum VisualVariant { BOLT, SPEAR, PULSE }
 
-@export var projectile_speed: float = 45.0
+@export var projectile_speed: float = 85.0
 @export var lifetime: float = 3.5
 @export var damage: int = 1
 @export var avoidance_radius: float = 4.0
@@ -17,6 +17,9 @@ var flight_direction: Vector3 = Vector3.FORWARD
 var velocity: Vector3:
 	get:
 		return flight_direction.normalized() * maxf(projectile_speed, 0.0)
+var targeted: bool = false
+var initial_target_position: Vector3
+var initial_target_velocity: Vector3
 var _age: float = 0.0
 var _spent: bool = false
 
@@ -59,9 +62,9 @@ func _ready() -> void:
 		core.mesh = streak
 		var white: StandardMaterial3D = StandardMaterial3D.new()
 		white.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		white.albedo_color = Color(1, 0.85, 0.6)
+		white.albedo_color = Color(1, 1, 1)
 		white.emission_enabled = true
-		white.emission = Color(1, 0.8, 0.5)
+		white.emission = Color(1, 1, 1)
 		white.emission_energy_multiplier = 3
 		core.material_override = white
 		core.position.z = 1.1 if visual_variant == VisualVariant.BOLT else 2

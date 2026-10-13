@@ -1,6 +1,8 @@
 class_name DemoControls
 extends CanvasLayer
 
+var game_over_panel: Control
+var replay_button: Button
 var panel: PanelContainer
 var stars: HBoxContainer
 var speed_slider: HSlider
@@ -37,6 +39,7 @@ func _ready() -> void:
 	_build_panel()
 	_build_help()
 	_build_phase_label()
+	_build_game_over()
 	update_level(1)
 
 
@@ -354,3 +357,45 @@ func toggle_panel() -> void:
 
 func toggle_help() -> void:
 	help_panel.visible = not help_panel.visible
+
+
+func _build_game_over() -> void:
+	game_over_panel = Control.new()
+	game_over_panel.name = "SquadronDestroyed"
+	add_child(game_over_panel)
+	game_over_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var shade: ColorRect = ColorRect.new()
+	shade.color = Color(0.005, 0.015, 0.04, 0.8)
+	game_over_panel.add_child(shade)
+	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var center: CenterContainer = CenterContainer.new()
+	game_over_panel.add_child(center)
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var layout: VBoxContainer = VBoxContainer.new()
+	layout.add_theme_constant_override("separation", 24)
+	center.add_child(layout)
+	var title: Label = _label("ESCADRON DÉTRUIT")
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 42)
+	layout.add_child(title)
+	replay_button = _button("REJOUER")
+	replay_button.name = "Replay"
+	replay_button.focus_mode = Control.FOCUS_ALL
+	replay_button.custom_minimum_size = Vector2(420, 72)
+	replay_button.add_theme_font_size_override("font_size", 28)
+	replay_button.pressed.connect(func() -> void: _simulation().demonstration.restart())
+	layout.add_child(replay_button)
+	var free: Button = _button("Simulation libre")
+	free.custom_minimum_size.y = 42
+	free.pressed.connect(func() -> void: _simulation().demonstration.stop())
+	layout.add_child(free)
+	game_over_panel.hide()
+
+
+func show_game_over(enabled: bool) -> void:
+	game_over_panel.visible = enabled
+	if enabled:
+		panel.hide()
+		help_panel.hide()
+		phase_panel.hide()
+		replay_button.grab_focus()

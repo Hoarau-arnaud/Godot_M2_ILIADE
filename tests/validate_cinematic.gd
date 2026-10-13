@@ -55,6 +55,7 @@ func _advance(frames: int) -> void:
 
 func _empty(count: int = 10) -> SpaceSimulation:
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(sim)
 	sim.capital_ships_enabled = false
 	sim.ship_count = count
 	sim.simulation_speed_multiplier = 1.0
@@ -208,6 +209,7 @@ func _test_projectile_variants() -> void:
 	var sim: SpaceSimulation = _empty(1)
 	for variant: EnemyLaser.VisualVariant in [EnemyLaser.VisualVariant.BOLT, EnemyLaser.VisualVariant.SPEAR, EnemyLaser.VisualVariant.PULSE]:
 		var bolt: EnemyLaser = ENEMY.instantiate() as EnemyLaser
+		FlightTuning.legacy_actor(bolt)
 		bolt.visual_variant = variant
 		bolt.position = Vector3(200, 200, 0)
 		sim.projectile_container.add_child(bolt)
@@ -282,6 +284,7 @@ func _test_barrage(pattern: int, inverted: bool = false) -> void:
 
 func _test_run(action: bool) -> void:
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(sim)
 	sim.capital_ships_enabled = false
 	(sim.get_node("Asteroids") as ObstacleField).moving_asteroids_enabled = false
 	sim.manual_difficulty = 3
@@ -351,6 +354,7 @@ func _test_run(action: bool) -> void:
 func _native_capture() -> void:
 	_check(DisplayServer.get_name() != "headless", "Les tests plein écran et captures nécessitent le rendu.")
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(sim)
 	sim.capital_ships_enabled = false
 	sim.manual_difficulty = 3
 	(sim.get_node("Asteroids") as ObstacleField).irregular_barrages = false
@@ -423,6 +427,7 @@ func _capture_pace() -> void:
 	DisplayServer.window_set_size(Vector2i(1920, 1080))
 	for speed: float in [1.7, 1.8]:
 		var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+		FlightTuning.legacy_actor(sim)
 		sim.capital_ships_enabled = false
 		sim.manual_difficulty = 3
 		sim.simulation_speed_multiplier = speed
@@ -445,6 +450,7 @@ func _capture_pace() -> void:
 func _capture_action() -> void:
 	DisplayServer.window_set_size(Vector2i(1920, 1080))
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(sim)
 	sim.capital_ships_enabled = false
 	sim.manual_difficulty = 3
 	(sim.get_node("Asteroids") as ObstacleField).irregular_barrages = false
@@ -465,6 +471,7 @@ func _capture_action() -> void:
 func _render_benchmark() -> void:
 	DisplayServer.window_set_size(Vector2i(1920, 1080))
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(sim)
 	sim.capital_ships_enabled = false
 	sim.manual_difficulty = 3
 	(sim.get_node("Asteroids") as ObstacleField).irregular_barrages = false

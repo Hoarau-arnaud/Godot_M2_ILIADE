@@ -6,7 +6,7 @@ Le projet consiste à réaliser sous **Godot 4.7.2** une simulation 3D de systè
 
 L'objectif est d'observer comment plusieurs agents autonomes se déplacent, perçoivent leur environnement, évitent des dangers et réagissent à d'autres agents. Le projet est développé progressivement afin de conserver un modèle simple, compréhensible et facile à présenter.
 
-La simulation comporte désormais **quatre types d’agents : BlueShip, PatrolDrone, Interceptor et Capital Artillery Ship**. Elle remplit explicitement le critère « au moins 4 types d’agents ». Le phénomène étudié reste l’organisation collective, la dispersion et le regroupement.
+La simulation comporte désormais **quatre types d’agents : BlueShip, PatrolDrone, Interceptor et Capital Artillery Ship**. Elle remplit explicitement le critère « au moins 4 types d’agents ». Le phénomène étudié reste l’organisation collective, la dispersion et le regroupement. Les projectiles, missiles et obstacles ne sont pas de nouveaux agents.
 
 ---
 
@@ -238,9 +238,26 @@ Validation finale, Godot 4.7.2, graine `20261012`, collisions actives :
 
 Le minimum graphique sur les fenêtres d'une seconde vaut **92,9 FPS**, au-dessus de l'objectif 60 FPS sur cette machine. Le test de montée conserve 18,75 m de déplacement vertical en quatre secondes avec un pitch inférieur à 8°. Chaque trajectoire passe trente secondes de contrôle physique ; le croisement anticipé survit, tandis que le stress sans perception provoque une mort réelle. Les fenêtres redimensionnées, la maximisation et le plein écran passent avec rendu. Les suites historiques sont conservées en obstacles sans translation. Les données headless et graphiques sont distinguées dans le README ; ces essais ne garantissent ni le regroupement complet ni la survie sur toutes les graines.
 
-## Démonstration guidée — Milestones 11 et 12
+## Milestone 13 — Attaques prédictives et boost local
 
-M11 a ajouté FREE/GUIDED et la restitution des mêmes entités libres. M12 renforce le spectacle et la difficulté du parcours. **D** ou **Démo guidée** lance désormais environ **130 secondes réelles**, puis revient automatiquement en FREE. D/Simulation libre arrête le parcours ; Recommencer démo reprend la phase 1. Les entités libres sont suspendues puis reprises avec leurs identités, réglages, HP, cibles, mémoires et RNG.
+Les attaques ennemies visent maintenant davantage les BlueShip, avec une interception calculée à partir de la position, de la vitesse de la cible et de la vitesse du projectile. Une petite erreur déterministe conserve une imprécision. Rapid cible individuellement 17 tirs sur 24, Swarm 13 missiles sur 18 ; les autres départs contrôlent une zone proche du groupe. Le Patrol tire dans un cône tout en conservant sa route ; l'Interceptor vise sa propre cible de poursuite. Les missiles restent limités à 12°/s simulée. Les tirs décoratifs ont été réduits.
+
+Chaque BlueShip possède la réaction locale **EVASIVE_BOOST**. Il évalue lui-même une menace convergente, sa distance minimale et le temps avant danger. Il choisit un côté moins encombré parmi les directions X/Y, conserve ce choix pendant 0,65 s simulée, puis revient progressivement au flocking. Avance ×1,35, latéral ×1,9, accélération ×2,2 ; cooldown 1,1 s, avec exception pour une nouvelle menace mortelle. Propulseurs cyan, traînée et roulis jusqu'à 55° rendent cette décision visible ; le pitch reste limité à 8°. Il donne la priorité à sa survie et ne tire pas pendant le boost.
+
+Le phénomène à observer à l'oral est : **salve ciblée → esquives individuelles → dispersion collective → fin du danger → cohésion/alignement → regroupement local**. Aucune direction d'esquive commune n'est imposée. Un survivant sorti de la portée locale peut rester isolé : le regroupement complet n'est pas garanti.
+
+Le programme démarre en Démo guidée. Après cinq phases temporisées, la finale reste en difficulté 3 sans timer, avec les quatre types d'agents. La destruction de tous les BlueShip dans n'importe quelle phase arrête immédiatement le combat et affiche **ESCADRON DÉTRUIT / REJOUER**. Rejouer restaure la seed, 15 BlueShip à 3 HP, les compteurs, la phase 1 et la caméra Cinématique. Simulation libre restitue les mêmes agents d'origine.
+
+Validation M13 : les neuf suites historiques restent vertes. Sur 20 tirs identiques, sans perception **9 impacts / 11 survivants**, avec perception **0 impact / 20 survivants** et **19 boosts**. Sur 100 tirs Capital, **69 ciblés**, tous initialement menaçants, **2 impacts directs** et **16 boosts**. Les tests valident également gros rocher convergent, guidage borné, autostart, Game Over dans chaque phase et Replay déterministe.
+
+Le réglage retenu est **2,0×**, après comparaison avec 2,1/2,2× : les vitesses physiques Blue/Patrol/Interceptor deviennent **16 / 13 / 15–23 m/s**. Les signatures d’armes sont différenciées et regroupées en un mesh par projectile. La finale conserve **110 rochers physiques**, afin de consacrer le budget aux menaces réelles. Le parcours complet à **1080p** mesure **96,83 FPS moyens**, minimum d’une seconde **71,98 FPS**, sans captures pendant la mesure.
+
+Pendant **60 s réelles de finale continue** : **348 tirs ciblés / 99 suppression (77,85 % ciblés), 223 menaces critiques, 131 boosts, 200 passages proches de tirs, 3 impacts de combat, 2 morts et 13 survivants**. La phase 5 dépasse aussi le seuil demandé : **68,44 % ciblés**, 80 boosts et 3 pertes. Le regroupement local est visible en phase 4 : dispersion **63,75 → 39,09 m**. Maximum global : **2839 nœuds, 180 rochers et 90 tirs dangereux**, finale limitée à 60 unités avec beams. La survie et le regroupement complet ne sont pas garantis ; les near misses sont une mesure approximative. Les détails de validation restent dans le README.
+
+
+## Référence historique — Démonstration guidée M11 et M12
+
+M11 a ajouté FREE/GUIDED et la restitution des mêmes entités libres. M12 renforce le spectacle et la difficulté du parcours. **D** ou **Démo guidée** lançait en M12 environ **130 secondes réelles**, puis revenait automatiquement en FREE ; M13 remplace cette sortie par une finale continue. D/Simulation libre arrête le parcours ; Recommencer démo reprend la phase 1. Les entités libres sont suspendues puis reprises avec leurs identités, réglages, HP, cibles, mémoires et RNG.
 
 | Phase | Durée réelle | Ce qu'elle montre à l'oral |
 |---|---:|---|
@@ -307,11 +324,11 @@ Le chasseur perçoit les dangers, les agents de **`hostile_agents`** devant lui 
 4. tirer sur un hostile visible si la situation et la cadence le permettent ;
 5. continuer sa navigation.
 
-**Survivre avant de combattre.** Le flocking et le regroupement continuent pendant le vol et cèdent devant les dangers. L'esquive perçoit seulement les tirs entrants proches, à **32 m**, avec une prédiction de **2 s** et une distance de sécurité de **4 m**. Le côté X/Y reste mémorisé brièvement (**0,45 s**) et le mouvement conserve une accélération limitée. Pendant l'esquive, le chasseur ne tire pas.
+**Survivre avant de combattre.** Le flocking et le regroupement continuent pendant le vol et cèdent devant les dangers. L'esquive perçoit seulement les tirs entrants proches, à **80 m**, avec une prédiction de **4 s** et une distance de sécurité de **4 m**. Le côté X/Y reste mémorisé brièvement (**0,45 s**) et le mouvement conserve une accélération limitée. Pendant l'esquive, le chasseur ne tire pas.
 
 Le BlueShip commence à **3 HP** ; chaque laser rouge enlève **1 HP**. Un impact survivable produit un petit flash orange, sans barre de vie. À zéro HP, il explose et le compteur de morts augmente une seule fois. Un contact physique sérieux avec un rocher ou un hostile reste immédiatement fatal.
 
-La perception de combat porte à **60 m**, le tir à **44 m**, dans un cône de **6° de chaque côté** du nez. Les tirs sont espacés d'environ **0,6 à 0,8 seconde**, avec des décalages individuels reproductibles. Le laser vole à **60 m/s**, disparaît après **3 secondes** au maximum et retire **un point de vie**.
+La perception de combat porte à **60 m**, le tir à **44 m**, dans un cône de **6° de chaque côté** du nez. Les tirs sont espacés d'environ **0,6 à 0,8 seconde**, avec des décalages individuels reproductibles. Le laser vole à **100 m/s**, disparaît après **3 secondes** au maximum et retire **un point de vie**.
 
 Les astéroïdes ne sont pas des cibles. PatrolDrone et Interceptor sont destructibles. Le BlueShip choisit le plus proche hostile frontal valide sans préférence de type ; il ne poursuit pas directement une cible.
 
@@ -325,11 +342,11 @@ Il perçoit :
 - les astéroïdes dans une portée de **44 m** ;
 - les chasseurs à moins de **10 m**.
 
-Il peut avancer, monter, descendre, changer de côté, ralentir légèrement, changer de waypoint et éviter un danger. Sa vitesse de base vaut **9,2 ou 9,8 m/s**, avec une petite variation. Une nouvelle cible se trouve **55 m plus loin**, avec des décalages X/Y autour du couloir.
+Il peut avancer, monter, descendre, changer de côté, ralentir légèrement, changer de waypoint et éviter un danger. Sa vitesse de base vaut **13 ou 13,6 m/s**, avec une petite variation. Une nouvelle cible se trouve **55 m plus loin**, avec des décalages X/Y autour du couloir.
 
 Main vise **un, deux ou trois drones actifs** selon le niveau. Un drone détruit ou à plus de **120 m derrière tous les chasseurs** est remplacé après **5 secondes**, à **100–145 m devant le premier chasseur**, dans une position vérifiée sans rocher trop proche. Il peut y avoir momentanément moins de drones pendant le délai. Aucun drone n'est téléporté pendant sa patrouille et aucun ne choisit un chasseur à poursuivre.
 
-Le drone rejoint **`hostile_agents`** et possède **4 HP**. `take_damage(amount)` diminue ses points de vie. À zéro HP par tir, il explose, émet un seul signal de destruction et disparaît ; Main ajoute un ennemi détruit. Un retrait ou une collision du drone avec un rocher ne rapporte pas de score de tir. Le drone ne tire pas encore.
+Le drone rejoint **`hostile_agents`** et possède **4 HP**. `take_damage(amount)` diminue ses points de vie. À zéro HP par tir, il explose, émet un seul signal de destruction et disparaît ; Main ajoute un ennemi détruit. Un retrait ou une collision du drone avec un rocher ne rapporte pas de score de tir. En GUIDED, le drone tire des pulses verts prédictifs à 58 m/s, dans un demi-cône de 32°, en conservant sa route.
 
 ### Agent 3 — Intercepteur
 
@@ -361,7 +378,7 @@ stateDiagram-v2
 
 L'intercepteur possède **4 HP**. Il appartient à `hostile_agents`, donc les BlueLaser le touchent naturellement. Sa destruction par tir produit une explosion et un score interne unique ; Main le remplace après **8 s**, devant et latéralement, hors des rochers et loin des chasseurs.
 
-Il tire seulement pendant la poursuite, devant son nez, à **52 m**, dans un demi-cône de **10°** et avec une ligne de vue libre. Les rafales comptent **trois tirs espacés de 0,2 s**, puis une pause de **1,6 s**. Le laser rouge/orange avance en ligne droite à **45 m/s**, vit au plus **3,5 s** et retire **1 HP**. Il ignore les ennemis verts et rouges. Les deux couleurs de laser sont absorbées par les astéroïdes sans les endommager.
+Il tire seulement pendant la poursuite, devant son nez, à **52 m**, dans un demi-cône de **10°** et avec une ligne de vue libre. En FREE, les rafales comptent **trois tirs espacés de 0,2 s**, puis une pause de **1,6 s** ; en GUIDED, **cinq tirs / 0,16 s / 1,05 s**, modulés par l’intensité de tir. Le laser rouge/orange avance en ligne droite à **85 m/s**, vit au plus **2,5 s** et retire **1 HP**. Il ignore les ennemis verts et rouges. Les deux couleurs de laser sont absorbées par les astéroïdes sans les endommager.
 
 ### Agent 4 — Capital Artillery Ship
 
@@ -369,7 +386,7 @@ Un grand vaisseau low-poly à coque de 66 m, pont central, deux bras, batteries,
 
 Il accompagne le groupe vers −Z, généralement à 190 m devant (zone normale visée 120–250 m), avec une lente dérive. Il dispose de **24 HP**, chaque BlueLaser retire **1 HP**. Après trois salves, il peut se rapprocher vers **65 m** (zone visée 50–90 m) pendant 10 s. Son blindage arrière devient accessible au tir frontal bleu, sans changer la portée ni faire poursuivre les chasseurs.
 
-Les cinq patterns sont **HEAVY_SHOT** (27 m/s, 2 HP, rayon d’esquive 10 m), **SPREAD** (5 tirs en éventail), **ARC_SALVO** (4 trajectoires courbes), **CROSS_FIRE** (6 tirs issus de deux lanceurs) et **SEEKER_SALVO** (3 missiles à correction limitée à 6°/s). Les quatre dernières familles progressent à 30 m/s, retirent 1 HP et ont un rayon de 4 m, ou 5 m pour le Seeker. Les missiles sont des objets de combat, avec une durée de vie de 14 s et un plafond partagé de 50. Le choix est reproductible et fait une fois, au passage Observation → Préparation.
+Les cinq patterns d’origine sont **HEAVY_SHOT** (52 m/s, 2 HP, rayon d’esquive 10 m), **SPREAD** (5 tirs en éventail), **ARC_SALVO** (4 trajectoires courbes), **CROSS_FIRE** (6 tirs issus de deux lanceurs) et **SEEKER_SALVO** (3 missiles à correction limitée à 12°/s). Spread/Cross progressent à 80 m/s, Arc à 62 m/s et Seeker à 65 m/s, retirent 1 HP et ont un rayon de 4 m, ou 5 m pour le Seeker. Les missiles sont des objets de combat, avec une durée de vie maximale de 18 s et un plafond partagé de 50. Le choix est reproductible et fait une fois, au passage Observation → Préparation.
 
 La préparation lumineuse dure **0,8–1,8 s**, le cooldown **3–6 s**. À zéro HP, les moteurs s’éteignent, plusieurs explosions précèdent une explosion finale, puis le vaisseau disparaît après 3,4 s. Le score ennemi augmente une fois ; les tirs existants continuent. Un remplaçant sûr peut arriver après **25 s**. Population selon niveau : **0 / 0 / 1**. Le panneau permet 0–1 et Reset agents reprend le niveau. Le spectacle demande **15 BlueShip, 5 PatrolDrone, 4 Interceptor, 1 Capital**, vitesse 1,7×, mouvement 1,3 et caméra cinématique.
 
@@ -418,6 +435,12 @@ Le diagramme suivant représente le comportement général d'un chasseur sans d�
 stateDiagram-v2
     [*] --> Navigation
 
+    state "EVASIVE_BOOST" as Boost
+    Navigation --> Boost : menace critique imminente
+    Evitement --> Boost : menace critique imminente
+    Regroupement --> Boost : menace critique imminente
+    Boost --> Navigation : boost terminé, retour progressif
+    Boost --> Detruit : collision ou HP = 0
     Navigation --> Evitement : danger détecté
     Evitement --> Navigation : danger dépassé, voisins proches
     Evitement --> Regroupement : danger dépassé, voisin éloigné visible
