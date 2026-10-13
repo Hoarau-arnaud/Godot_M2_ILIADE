@@ -21,6 +21,8 @@ enum Shot { CHASE, SIDE_LEFT, SIDE_RIGHT, HIGH, LOW_CLOSE, WIDE }
 var cinematic_shot: Shot = Shot.CHASE
 var shot_changes: int = 0
 var shot_history: Array[int] = []
+var group_velocity: Vector3 = Vector3.ZERO
+var _demo_pace: float = 1.0
 var _cine_random: RandomNumberGenerator = RandomNumberGenerator.new()
 var _cine_time: float = 0.0
 var _shot_time: float = 0.0
@@ -54,11 +56,13 @@ func initialize_view(center: Vector3, seed_value: int = 1) -> void:
 	look_at(center + Vector3.FORWARD * 8.0, Vector3.UP)
 
 
-func observe_group(center: Vector3, spread: float, delta: float, positions: Array[Vector3] = [], intensity: float = 0.0) -> void:
+func observe_group(center: Vector3, spread: float, delta: float, positions: Array[Vector3] = [], intensity: float = 0.0, mean_velocity: Vector3 = Vector3.ZERO, demo_pace: float = 1.0) -> void:
 	_group_center = center
 	_group_spread = spread
 	_agent_positions = positions
 	_action_intensity = clampf(intensity, 0.0, 1.0)
+	group_velocity = group_velocity.lerp(mean_velocity, 1.0 - exp(-2.0 * delta / maxf(Engine.time_scale, 0.01)))
+	_demo_pace = demo_pace
 	if mode == Mode.FOLLOW:
 		fov = lerpf(fov, _normal_fov, 1.0 - exp(-3.0 * delta))
 		var distance: float = 42.0 + maxf(spread - 14.0, 0.0) * 1.3
@@ -146,12 +150,15 @@ func _update_cinematic(delta: float) -> void:
 	var eased: float = progress * progress * (3.0 - 2.0 * progress)
 	_current_shot_offset = _previous_shot_offset.lerp(offsets[effective_shot], eased)
 	var fields: Array[float] = [57.0, 60.0, 60.0, 58.0, 61.0, 65.0]
-	var desired_fov: float = fields[effective_shot] + _action_intensity * 3.0 + sin(_cine_time * 0.13) * 0.7
+	var side_speed: float = Vector2(group_velocity.x, group_velocity.y).length()
+	var desired_fov: float = clampf(fields[effective_shot] + _action_intensity * 3.0 + maxf(_demo_pace - 1.0, 0.0) * 1.7 + side_speed * 0.2 + sin(_cine_time * 0.13) * 0.7, 54, 68)
 	var blending: float = 1.0 - exp(-3.0 * delta / maxf(cinematic_transition_time, 0.5))
 	fov = lerpf(fov, desired_fov, blending)
 	var offset: Vector3 = _current_shot_offset * (1.0 - _action_intensity * 0.04)
 	offset += Vector3(sin(_cine_time * 0.23) * 3.0, sin(_cine_time * 0.19) * 1.8, cos(_cine_time * 0.17) * 2.5)
-	var target: Vector3 = _group_center + Vector3.FORWARD * 8.0
+	var lead_lag: float = sin(_cine_time * 0.35) * 3.5 * clampf(-group_velocity.z / 10.5, 0.0, 1.2)
+	offset += Vector3(-group_velocity.x * 1.2, group_velocity.y * 0.7, lead_lag)
+	var target: Vector3 = _group_center + Vector3(group_velocity.x * 0.65, group_velocity.y * 0.5, -8.0)
 	var direction: Vector3 = offset.normalized()
 	var desired_position: Vector3 = target + direction * maxf(offset.length(), _framing_distance(target, direction))
 	if cinematic_obstacle_avoidance:
@@ -167,7 +174,7 @@ func _update_cinematic(delta: float) -> void:
 		_cine_offset = position_candidate - _group_center
 	global_position = position_candidate
 	var desired_basis: Basis = Basis.looking_at((target - global_position).normalized(), Vector3.UP)
-	var roll: float = sin(_cine_time * 0.11) * 0.018
+	var roll: float = clampf(deg_to_rad(-group_velocity.x * 0.65) + sin(_cine_time * 0.11) * 0.018, deg_to_rad(-4.0), deg_to_rad(4.0))
 	desired_basis = desired_basis.rotated(-desired_basis.z, roll)
 	# Garder le barycentre dans l'axe pendant la translation déjà interpolée.
 	quaternion = quaternion.slerp(desired_basis.get_rotation_quaternion(), 1.0 - exp(-5.0 * delta))

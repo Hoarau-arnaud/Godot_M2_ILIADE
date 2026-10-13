@@ -50,6 +50,7 @@ var target_ship_count: int = 0
 var living_agent_count: int = 0
 var death_count: int = 0
 var distance_travelled: float = 0.0
+var elapsed_simulation_time: float = 0.0
 var difficulty_level: int = 1
 var average_spacing: float = 0.0
 var dispersion: float = 0.0
@@ -66,6 +67,8 @@ var enemy_shots_fired: int = 0
 var blue_ship_hits: int = 0
 var projectile_dodge_count: int = 0
 var projectile_dodge_ticks: int = 0
+var moving_asteroid_dodge_count: int = 0
+var moving_asteroid_avoidance_ticks: int = 0
 var drone_death_count: int = 0
 var drone_retired_count: int = 0
 var drone_spawn_count: int = 0
@@ -128,6 +131,7 @@ func _ready() -> void:
 
 
 func _physics_process(delta: float) -> void:
+	elapsed_simulation_time += delta
 	_maintain_requested_ships(delta)
 	if ships.is_empty():
 		return
@@ -140,6 +144,8 @@ func _physics_process(delta: float) -> void:
 	for ship: BlueShip in ships:
 		if ship.projectile_avoidance_active:
 			projectile_dodge_ticks += 1
+		if ship.moving_asteroid_threat_count > 0:
+			moving_asteroid_avoidance_ticks += 1
 	maximum_active_projectiles = maxi(maximum_active_projectiles, projectile_container.get_child_count())
 	_update_action_intensity(center, delta)
 	if streaming_enabled:
@@ -397,7 +403,7 @@ func _on_drone_died(drone: PatrolDrone) -> void:
 func _process(delta: float) -> void:
 	var center: Vector3 = _fleet_center()
 	_update_camera(center, delta)
-	space_decor.recycle_stars(camera.global_position)
+	space_decor.recycle_stars(camera.global_position, delta, simulation_speed_multiplier, camera.group_velocity)
 
 
 func _create_ships() -> void:
@@ -420,6 +426,7 @@ func _add_ship(local_position: Vector3) -> void:
 	ship.died.connect(_on_ship_died)
 	ship.fired.connect(_on_ship_fired)
 	ship.projectile_dodge_started.connect(_on_projectile_dodge_started)
+	ship.moving_asteroid_dodge_started.connect(func() -> void: moving_asteroid_dodge_count += 1)
 	ship_container.add_child(ship)
 	ships.append(ship)
 	ship_spawn_count += 1
@@ -637,8 +644,11 @@ func _fleet_center() -> Vector3:
 func _update_camera(center: Vector3, delta: float) -> void:
 	var spread: float = 0.0
 	var positions: Array[Vector3] = []
+	var mean_velocity: Vector3 = Vector3.ZERO
 	for ship: BlueShip in ships:
 		if is_instance_valid(ship) and ship.alive:
 			spread = maxf(spread, center.distance_to(ship.global_position))
 			positions.append(ship.global_position)
-	camera.observe_group(center, spread, delta, positions, action_intensity)
+			mean_velocity += ship.velocity
+	mean_velocity /= maxf(positions.size(), 1.0)
+	camera.observe_group(center, spread, delta, positions, action_intensity, mean_velocity, simulation_speed_multiplier)

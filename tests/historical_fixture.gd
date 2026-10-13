@@ -8,6 +8,7 @@ static func configure(simulation: SpaceSimulation, speed: float = 1.0) -> void:
 	simulation.movement_multiplier = 1.0
 	var field: ObstacleField = simulation.get_node("Asteroids") as ObstacleField
 	field.cinematic_patterns_enabled = false
+	field.moving_asteroids_enabled = false
 	field.horizontal_spread = 38.0
 	field.vertical_spread = 26.0
 	field.max_active_asteroids = 72

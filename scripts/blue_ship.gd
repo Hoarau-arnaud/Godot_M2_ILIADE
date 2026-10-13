@@ -4,6 +4,7 @@ extends CharacterBody3D
 signal died(ship: BlueShip)
 signal fired(projectile: BlueLaser)
 signal projectile_dodge_started
+signal moving_asteroid_dodge_started
 
 const EXPLOSION_SCENE: PackedScene = preload("res://scenes/explosion.tscn")
 const LASER_SCENE: PackedScene = preload("res://scenes/blue_laser.tscn")
@@ -17,6 +18,10 @@ enum CombatState { NO_TARGET, TARGET_VISIBLE, COOLDOWN }
 @export var max_side_speed: float = 9.0
 @export var acceleration: float = 12.0
 @export var turn_speed: float = 3.2
+@export_category("Orientation visuelle")
+@export var visual_pitch_limit_degrees: float = 8.0
+@export var visual_yaw_limit_degrees: float = 10.0
+@export var visual_roll_limit_degrees: float = 30.0
 @export var max_forward_variation: float = 3.0
 @export var individual_seed: int = 1
 var demo_movement_multiplier: float = 1.0
@@ -92,6 +97,9 @@ var _personal_cooldown: float = 0.7
 var _fire_timer: float = 0.0
 var mobile_threat_count: int = 0
 var mobile_avoidance_ticks: int = 0
+var moving_asteroid_threat_count: int = 0
+var moving_asteroid_avoidance_ticks: int = 0
+var _visual_angles: Vector3 = Vector3.ZERO
 var _drone_directions: Dictionary[CharacterBody3D, Vector3] = {}
 var _time: float = 0.0
 var _phases: Vector3 = Vector3.ZERO
@@ -347,7 +355,11 @@ func _find_threats() -> void:
 			_avoid_directions.erase(key)
 			continue
 		var remembered: SpaceAsteroid = key as SpaceAsteroid
-		if remembered.is_queued_for_deletion() or global_position.z < remembered.global_position.z - remembered.avoidance_radius - SHIP_CLEARANCE:
+		var passed: bool = global_position.z < remembered.global_position.z - remembered.avoidance_radius - SHIP_CLEARANCE
+		if remembered.motion_type != SpaceAsteroid.MotionType.STATIC:
+			var offset: Vector3 = remembered.global_position - global_position
+			passed = offset.dot(remembered.velocity - velocity) >= 0 and offset.length() > remembered.avoidance_radius + SHIP_CLEARANCE + obstacle_clearance + 2.0
+		if remembered.is_queued_for_deletion() or passed:
 			_avoid_directions.erase(remembered)
 	var heading: Vector3 = velocity.normalized() if velocity.length_squared() > 0.001 else Vector3.FORWARD
 	for node: Node in get_tree().get_nodes_in_group("asteroids"):
@@ -358,9 +370,14 @@ func _find_threats() -> void:
 		if offset.length() > maxf(obstacle_detection_radius, 0.0):
 			continue
 		var remembered: bool = _avoid_directions.has(obstacle)
+		var clearance: float = obstacle.avoidance_radius + SHIP_CLEARANCE + maxf(obstacle_clearance, 0.0)
+		if obstacle.motion_type != SpaceAsteroid.MotionType.STATIC:
+			var prediction: Vector2 = MobileAvoidance.approach(offset, obstacle.velocity - velocity, mobile_prediction_time)
+			if prediction.y < clearance + 1.0 or remembered:
+				_insert_threat(obstacle)
+			continue
 		if offset.z >= 0.0 and not remembered:
 			continue
-		var clearance: float = obstacle.avoidance_radius + SHIP_CLEARANCE + maxf(obstacle_clearance, 0.0)
 		var ahead: float = offset.dot(heading)
 		var predicted_miss: float = (offset - heading * maxf(ahead, 0.0)).length()
 		var forward_miss: float = Vector2(offset.x, offset.y).length()
@@ -370,10 +387,10 @@ func _find_threats() -> void:
 
 
 func _insert_threat(obstacle: SpaceAsteroid) -> void:
-	var entry_distance: float = global_position.z - obstacle.global_position.z - obstacle.avoidance_radius
+	var entry_distance: float = _obstacle_urgency(obstacle)
 	var index: int = 0
 	while index < _threats.size():
-		var other_entry: float = global_position.z - _threats[index].global_position.z - _threats[index].avoidance_radius
+		var other_entry: float = _obstacle_urgency(_threats[index])
 		if entry_distance < other_entry:
 			break
 		index += 1
@@ -385,12 +402,23 @@ func _insert_threat(obstacle: SpaceAsteroid) -> void:
 		_threats.pop_back()
 
 
+func _obstacle_urgency(obstacle: SpaceAsteroid) -> float:
+	if obstacle.motion_type == SpaceAsteroid.MotionType.STATIC:
+		return global_position.z - obstacle.global_position.z - obstacle.avoidance_radius
+	var prediction: Vector2 = MobileAvoidance.approach(obstacle.global_position - global_position, obstacle.velocity - velocity, mobile_prediction_time)
+	return prediction.x * maxf(-velocity.z, 0.1) - obstacle.avoidance_radius
+
+
 func _obstacle_avoidance() -> Vector3:
+	var was_mobile: bool = moving_asteroid_threat_count > 0
+	moving_asteroid_threat_count = 0
 	_find_threats()
 	var result: Vector3 = Vector3.ZERO
 	var primary_force: Vector3 = Vector3.ZERO
 	for index: int in range(_threats.size()):
 		var obstacle: SpaceAsteroid = _threats[index]
+		if obstacle.motion_type != SpaceAsteroid.MotionType.STATIC:
+			moving_asteroid_threat_count += 1
 		if not _avoid_directions.has(obstacle):
 			_avoid_directions[obstacle] = _choose_avoidance_direction(obstacle)
 			obstacle.tree_exiting.connect(_forget_obstacle.bind(obstacle), CONNECT_ONE_SHOT)
@@ -398,6 +426,10 @@ func _obstacle_avoidance() -> Vector3:
 		if index == 0:
 			primary_force = force
 		result += force / (1.0 + float(index) * 0.7)
+	if moving_asteroid_threat_count > 0:
+		moving_asteroid_avoidance_ticks += 1
+		if not was_mobile:
+			moving_asteroid_dodge_started.emit()
 	# Deux corrections opposées ne doivent pas annuler la menace la plus urgente.
 	if primary_force.length_squared() > 0.001:
 		var primary_direction: Vector3 = primary_force.normalized()
@@ -525,6 +557,10 @@ func _forget_obstacle(obstacle: SpaceAsteroid) -> void:
 func _avoidance_force(obstacle: SpaceAsteroid, direction: Vector3) -> Vector3:
 	var offset: Vector3 = obstacle.global_position - global_position
 	var clearance: float = obstacle.avoidance_radius + SHIP_CLEARANCE + maxf(obstacle_clearance, 0.0)
+	if obstacle.motion_type != SpaceAsteroid.MotionType.STATIC:
+		var relative_velocity: Vector3 = obstacle.velocity - velocity
+		var prediction: Vector2 = MobileAvoidance.approach(offset, relative_velocity, mobile_prediction_time)
+		return MobileAvoidance.steering(offset, relative_velocity, prediction.x, clearance + 0.5, direction)
 	var lateral_offset: Vector3 = Vector3(-offset.x, -offset.y, 0.0)
 	var remaining: float = clearance + 0.5 - lateral_offset.dot(direction)
 	var time_before_contact: float = maxf((-offset.z - obstacle.avoidance_radius - SHIP_CLEARANCE) / maxf(-velocity.z, 0.1), 0.4)
@@ -535,7 +571,9 @@ func _avoidance_force(obstacle: SpaceAsteroid, direction: Vector3) -> Vector3:
 func _choose_avoidance_direction(obstacle: SpaceAsteroid) -> Vector3:
 	var offset: Vector3 = obstacle.global_position - global_position
 	var time_to_obstacle: float = maxf(-offset.z / maxf(-velocity.z, 0.1), 0.0)
-	var future_offset: Vector3 = global_position + velocity * time_to_obstacle - obstacle.global_position
+	if obstacle.motion_type != SpaceAsteroid.MotionType.STATIC:
+		time_to_obstacle = MobileAvoidance.approach(offset, obstacle.velocity - velocity, mobile_prediction_time).x
+	var future_offset: Vector3 = global_position + velocity * time_to_obstacle - (obstacle.global_position + obstacle.velocity * time_to_obstacle)
 	future_offset.z = 0.0
 	var preferred: Vector3 = future_offset.normalized() if future_offset.length_squared() > 0.04 else _preferred_avoidance
 	var best: Vector3 = preferred
@@ -564,13 +602,17 @@ func _route_score(obstacle: SpaceAsteroid, direction: Vector3, preferred: Vector
 
 
 func _update_orientation(delta: float) -> void:
-	if velocity.length_squared() < 0.001:
-		return
-	var direction: Vector3 = velocity.normalized()
-	var target_basis: Basis = Basis.looking_at(direction, Vector3.UP)
-	var bank: float = clampf(velocity.x * 0.065, -0.46, 0.46)
-	target_basis = target_basis.rotated(direction, bank)
-	_visuals.quaternion = _visuals.quaternion.slerp(target_basis.get_rotation_quaternion(), 1.0 - exp(-maxf(turn_speed, 0.0) * delta))
+	# Le nez reste dominé par -Z ; ces angles n'entrent jamais dans le steering physique.
+	var lateral: Vector2 = Vector2(velocity.x, velocity.y) / maxf(max_side_speed, 0.1)
+	var target: Vector3 = Vector3(
+		clampf(lateral.y, -1, 1) * deg_to_rad(visual_pitch_limit_degrees),
+		-clampf(lateral.x, -1, 1) * deg_to_rad(visual_yaw_limit_degrees),
+		-clampf(lateral.x, -1, 1) * deg_to_rad(visual_roll_limit_degrees)
+	)
+	_visual_angles.x = lerpf(_visual_angles.x, target.x, 1.0 - exp(-turn_speed * 0.55 * delta))
+	_visual_angles.y = lerpf(_visual_angles.y, target.y, 1.0 - exp(-turn_speed * delta))
+	_visual_angles.z = lerpf(_visual_angles.z, target.z, 1.0 - exp(-turn_speed * 1.8 * delta))
+	_visuals.basis = Basis.from_euler(_visual_angles)
 
 
 func _update_exhausts() -> void:
