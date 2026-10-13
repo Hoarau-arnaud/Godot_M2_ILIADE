@@ -3,15 +3,16 @@ extends Node3D
 
 const ASTEROID_SCENE: PackedScene = preload("res://scenes/asteroid.tscn")
 
-enum Pattern { SINGLE, OFFSET_PAIR, HORIZONTAL_PAIR, VERTICAL_PAIR, STAGGERED_CLUSTER, LARGE_WITH_COMPANIONS }
+enum Pattern { SINGLE, OFFSET_PAIR, HORIZONTAL_PAIR, VERTICAL_PAIR, STAGGERED_CLUSTER, LARGE_WITH_COMPANIONS, ASTEROID_GATE, OFFSET_GATE, DIAGONAL_BARRAGE, DOUBLE_CURTAIN, DIVE, ASTEROID_CANYON }
 
 @export_category("Streaming")
 @export var spawn_ahead_distance: float = 320.0
 @export var start_distance: float = 55.0
 @export var cleanup_distance: float = 100.0
-@export_range(9, 180, 1) var max_active_asteroids: int = 72
-@export var horizontal_spread: float = 38.0
-@export var vertical_spread: float = 26.0
+@export_range(16, 180, 1) var max_active_asteroids: int = 96
+@export var horizontal_spread: float = 56.0
+@export var vertical_spread: float = 36.0
+@export var cinematic_patterns_enabled: bool = true
 
 @export_category("Difficulte selon la distance")
 @export var intermediate_distance: float = 500.0
@@ -34,6 +35,8 @@ var _random: RandomNumberGenerator = RandomNumberGenerator.new()
 var _seed: int = 0
 var _origin_z: float = 0.0
 var _next_z: float = 0.0
+var _pending_pattern: int = -1
+var _pending_level: int = 1
 
 
 func initialize_field(seed_value: int, center: Vector3, front_z: float) -> void:
@@ -41,6 +44,7 @@ func initialize_field(seed_value: int, center: Vector3, front_z: float) -> void:
 	_random.seed = seed_value + 73013
 	_origin_z = center.z
 	_next_z = front_z - maxf(start_distance, 50.0)
+	_pending_pattern = -1
 
 
 func difficulty_for_distance(distance: float) -> int:
@@ -68,23 +72,51 @@ func allowed_patterns(level: int) -> Array[int]:
 		1:
 			return [Pattern.SINGLE, Pattern.OFFSET_PAIR]
 		2:
-			return [Pattern.OFFSET_PAIR, Pattern.HORIZONTAL_PAIR, Pattern.VERTICAL_PAIR, Pattern.STAGGERED_CLUSTER]
+			var medium: Array[int] = [Pattern.OFFSET_PAIR, Pattern.HORIZONTAL_PAIR, Pattern.VERTICAL_PAIR, Pattern.STAGGERED_CLUSTER]
+			if cinematic_patterns_enabled:
+				medium.append(Pattern.ASTEROID_GATE)
+			return medium
 		_:
-			return [Pattern.HORIZONTAL_PAIR, Pattern.VERTICAL_PAIR, Pattern.STAGGERED_CLUSTER, Pattern.LARGE_WITH_COMPANIONS]
+			var hard: Array[int] = [Pattern.HORIZONTAL_PAIR, Pattern.VERTICAL_PAIR, Pattern.STAGGERED_CLUSTER, Pattern.LARGE_WITH_COMPANIONS]
+			if cinematic_patterns_enabled:
+				hard.append_array([Pattern.ASTEROID_GATE, Pattern.OFFSET_GATE, Pattern.DIAGONAL_BARRAGE, Pattern.DOUBLE_CURTAIN, Pattern.DIVE, Pattern.ASTEROID_CANYON])
+			return hard
+
+
+func _choose_pattern(level: int) -> int:
+	var choices: Array[int] = allowed_patterns(level)
+	if cinematic_patterns_enabled and level >= 2:
+		var originals: Array[int] = choices.slice(0, 4)
+		# Niveau 2 : gate rare (1/25). Niveau 3 : deux tiers de patterns classiques.
+		for _repeat: int in range(5 if level == 2 else 2):
+			choices.append_array(originals)
+	return choices[_random.randi_range(0, choices.size() - 1)]
 
 
 func advance(center: Vector3, front_z: float, rear_z: float) -> void:
 	_cleanup_passed(rear_z)
-	# Trois corps au maximum par configuration : réserver la place avant de tirer le pattern.
 	var safety_limit: int = 0
-	while _next_z >= front_z - maxf(spawn_ahead_distance, 80.0) and active_asteroid_count + 3 <= max_active_asteroids:
-		var level: int = difficulty_for_distance(maxf(_origin_z - _next_z, 0.0))
-		if difficulty_override > 0:
-			level = clampi(difficulty_override, 1, 3)
-		var choices: Array[int] = allowed_patterns(level)
-		var pattern: int = choices[_random.randi_range(0, choices.size() - 1)]
+	while _next_z >= front_z - maxf(spawn_ahead_distance, 80.0):
+		var effective_level: int = difficulty_for_distance(maxf(_origin_z - _next_z, 0.0)) if difficulty_override == 0 else clampi(difficulty_override, 1, 3)
+		if _pending_pattern >= 0 and _pending_level != effective_level:
+			_pending_pattern = -1
+		if _pending_pattern < 0:
+			_pending_level = difficulty_for_distance(maxf(_origin_z - _next_z, 0.0))
+			if difficulty_override > 0:
+				_pending_level = clampi(difficulty_override, 1, 3)
+			_pending_pattern = _choose_pattern(_pending_level)
+		var pattern: int = _pending_pattern
+		var level: int = _pending_level
+		var gap: float = easy_gap if level == 1 else (intermediate_gap if level == 2 else hard_gap)
+		var offsets: Array[Vector3] = pattern_offsets(pattern, maxf(gap, 14.0))
+		if active_asteroid_count + offsets.size() > max_active_asteroids:
+			break # Conserver le tirage pendant l'attente : pas de reroll à chaque frame.
 		_spawn_configuration(pattern, level, center, _next_z)
-		_next_z -= spacing_for_level(level)
+		_pending_pattern = -1
+		var depth: float = 0.0
+		for point: Vector3 in offsets:
+			depth = maxf(depth, -point.z)
+		_next_z -= spacing_for_level(level) + (depth if pattern >= Pattern.ASTEROID_GATE else 0.0)
 		safety_limit += 1
 		if safety_limit >= 12:
 			break
@@ -94,8 +126,8 @@ func _spawn_configuration(pattern: int, level: int, center: Vector3, z_position:
 	var configuration: Node3D = Node3D.new()
 	configuration.name = "Configuration_%05d" % generated_configuration_count
 	configuration.position = Vector3(
-		center.x + _random.randf_range(-horizontal_spread, horizontal_spread) * 0.45,
-		center.y + _random.randf_range(-vertical_spread, vertical_spread) * 0.45,
+		center.x + _random.randf_range(-horizontal_spread, horizontal_spread) * (0.25 if pattern >= Pattern.ASTEROID_GATE else 0.45),
+		center.y + _random.randf_range(-vertical_spread, vertical_spread) * (0.25 if pattern >= Pattern.ASTEROID_GATE else 0.45),
 		z_position
 	)
 	configuration.set_meta("pattern", pattern)
@@ -104,6 +136,9 @@ func _spawn_configuration(pattern: int, level: int, center: Vector3, z_position:
 	add_child(configuration)
 	var gap: float = easy_gap if level == 1 else (intermediate_gap if level == 2 else hard_gap)
 	var offsets: Array[Vector3] = pattern_offsets(pattern, maxf(gap, 14.0))
+	var inverted: bool = pattern == Pattern.DIVE and generated_configuration_count % 2 == 1
+	configuration.set_meta("inverted", inverted)
+	configuration.set_meta("passages", passage_points(pattern, inverted))
 	var cleanup_z: float = z_position
 	for index: int in range(offsets.size()):
 		var asteroid: SpaceAsteroid = ASTEROID_SCENE.instantiate() as SpaceAsteroid
@@ -112,6 +147,8 @@ func _spawn_configuration(pattern: int, level: int, center: Vector3, z_position:
 		asteroid.size_category = _size_category(asteroid.diameter)
 		asteroid.shape_seed = _seed + generated_configuration_count * 193 + index * 53
 		asteroid.position = offsets[index] + Vector3(_random.randf_range(-0.25, 0.25), _random.randf_range(-0.25, 0.25), 0.0)
+		if inverted:
+			asteroid.position.y *= -1.0
 		asteroid.rotation = Vector3(_random.randf_range(-PI, PI), _random.randf_range(-PI, PI), _random.randf_range(-PI, PI))
 		configuration.add_child(asteroid)
 		cleanup_z = minf(cleanup_z, asteroid.global_position.z - asteroid.avoidance_radius)
@@ -135,11 +172,60 @@ func pattern_offsets(pattern: int, gap: float) -> Array[Vector3]:
 			return [Vector3(0, -gap * 0.7, 0), Vector3(0, gap * 0.7, 0)]
 		Pattern.STAGGERED_CLUSTER:
 			return [Vector3(-gap * 0.7, -gap * 0.35, 0), Vector3(gap * 0.7, gap * 0.35, -8), Vector3(0, gap * 0.8, -16)]
+		Pattern.ASTEROID_GATE:
+			return _gate_offsets(Vector3.ZERO)
+		Pattern.OFFSET_GATE:
+			return _gate_offsets(Vector3(18, 8, 0))
+		Pattern.DIAGONAL_BARRAGE:
+			var diagonal: Array[Vector3] = []
+			for index: int in range(7):
+				diagonal.append(Vector3(-27 + index * 9, -18 + index * 6, -index * 2))
+			return diagonal
+		Pattern.DOUBLE_CURTAIN:
+			var curtains: Array[Vector3] = _gate_offsets(Vector3(-16, 0, 0))
+			curtains.append_array(_gate_offsets(Vector3(16, 0, -50)))
+			return curtains
+		Pattern.DIVE:
+			var dive: Array[Vector3] = []
+			for x: int in [-24, -12, 0, 12, 24]:
+				for y: int in [6, 18]:
+					dive.append(Vector3(x, y, 0))
+			return dive
+		Pattern.ASTEROID_CANYON:
+			var canyon: Array[Vector3] = []
+			for x: int in [-26, 26]:
+				for z: int in [0, -28]:
+					for y: int in [-12, 0, 12]:
+						canyon.append(Vector3(x, y, z))
+			return canyon
 		_:
 			return [Vector3.ZERO, Vector3(-gap * 0.8, gap * 0.6, -8), Vector3(gap * 0.8, -gap * 0.6, -16)]
 
 
+func _gate_offsets(center: Vector3) -> Array[Vector3]:
+	var result: Array[Vector3] = []
+	for x: int in [-21, 21]:
+		for y: int in [-14, 0, 14]:
+			result.append(center + Vector3(x, y, 0))
+	result.append(center + Vector3(0, -26, 0))
+	result.append(center + Vector3(0, 26, 0))
+	return result
+
+
+func passage_points(pattern: int, inverted: bool = false) -> Array[Vector3]:
+	match pattern:
+		Pattern.ASTEROID_GATE: return [Vector3.ZERO]
+		Pattern.OFFSET_GATE: return [Vector3(18, 8, 0)]
+		Pattern.DIAGONAL_BARRAGE: return [Vector3(0, -27, -6), Vector3(0, 27, -6)]
+		Pattern.DOUBLE_CURTAIN: return [Vector3(-16, 0, 0), Vector3(16, 0, -50)]
+		Pattern.DIVE: return [Vector3(0, 18 if inverted else -18, 0)]
+		Pattern.ASTEROID_CANYON: return [Vector3(0, 0, 0), Vector3(0, 0, -28)]
+	return []
+
+
 func _diameter_for_pattern(pattern: int, level: int, index: int) -> float:
+	if pattern >= Pattern.ASTEROID_GATE:
+		return _random.randf_range(4.8, 6.2) if level == 3 else _random.randf_range(3.5, 4.8)
 	if pattern == Pattern.LARGE_WITH_COMPANIONS:
 		return _random.randf_range(5.5, 7.0) if index == 0 else _random.randf_range(1.2, 2.2)
 	match level:

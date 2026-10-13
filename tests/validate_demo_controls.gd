@@ -63,6 +63,7 @@ func _dispose(sim: SpaceSimulation) -> void:
 
 func _empty(count: int = 10) -> SpaceSimulation:
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	HistoricalFixture.configure(sim, 1.5)
 	sim.simulation_speed_multiplier = 1.0
 	sim.ship_count = count
 	sim.streaming_enabled = false
@@ -241,6 +242,7 @@ func _test_blue_population() -> void:
 
 func _test_enemy_overrides() -> void:
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	HistoricalFixture.configure(sim, 1.5)
 	sim.simulation_speed_multiplier = 1.0
 	sim.manual_difficulty = 3
 	sim.streaming_enabled = false
@@ -293,6 +295,7 @@ func _test_spacing() -> void:
 
 func _movement_probe(value: float) -> Dictionary:
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	HistoricalFixture.configure(sim, 1.5)
 	sim.simulation_speed_multiplier = 1.0
 	sim.manual_difficulty = 3
 	root.add_child(sim)
@@ -313,6 +316,7 @@ func _movement_probe(value: float) -> Dictionary:
 
 func _test_run(intense: bool) -> void:
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	HistoricalFixture.configure(sim, 1.5)
 	sim.manual_difficulty = 3
 	root.add_child(sim)
 	var seconds: int = 60 if intense else 90
@@ -392,6 +396,7 @@ func _test_run(intense: bool) -> void:
 
 func _capture() -> void:
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	HistoricalFixture.configure(sim, 1.5)
 	sim.manual_difficulty = 3
 	var suffix: String = "1_5"
 	if OS.get_cmdline_user_args().has("--speed-135"):

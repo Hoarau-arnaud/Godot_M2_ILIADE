@@ -71,6 +71,7 @@ func _dispose(simulation: SpaceSimulation) -> void:
 
 func _empty_field(count: int, seed_value: int = 20261012) -> SpaceSimulation:
 	var simulation: SpaceSimulation = MAIN_SCENE.instantiate() as SpaceSimulation
+	HistoricalFixture.configure(simulation, 1.0)
 	simulation.simulation_speed_multiplier = 1.0
 	simulation.ship_count = count
 	simulation.drones_enabled = false
@@ -84,6 +85,7 @@ func _empty_field(count: int, seed_value: int = 20261012) -> SpaceSimulation:
 
 func _test_default_field() -> void:
 	var simulation: SpaceSimulation = MAIN_SCENE.instantiate() as SpaceSimulation
+	HistoricalFixture.configure(simulation, 1.0)
 	simulation.simulation_speed_multiplier = 1.0
 	root.add_child(simulation)
 	_check(str(ProjectSettings.get_setting("application/run/main_scene")) == "res://scenes/main.tscn", "Scène principale incorrecte.")
@@ -325,6 +327,7 @@ func _test_mobile_collision() -> void:
 
 func _test_drone_replacement() -> void:
 	var simulation: SpaceSimulation = MAIN_SCENE.instantiate() as SpaceSimulation
+	HistoricalFixture.configure(simulation, 1.0)
 	simulation.simulation_speed_multiplier = 1.0
 	simulation.streaming_enabled = false
 	simulation.combat_enabled = false
@@ -398,6 +401,7 @@ func _test_difficulty_controls() -> void:
 
 func _test_forced_hard_field() -> void:
 	var simulation: SpaceSimulation = MAIN_SCENE.instantiate() as SpaceSimulation
+	HistoricalFixture.configure(simulation, 1.0)
 	simulation.simulation_speed_multiplier = 1.0
 	simulation.manual_difficulty = 3
 	root.add_child(simulation)
@@ -582,6 +586,7 @@ func _test_streaming_and_difficulty() -> void:
 
 func _test_long_field() -> void:
 	var simulation: SpaceSimulation = MAIN_SCENE.instantiate() as SpaceSimulation
+	HistoricalFixture.configure(simulation, 1.0)
 	simulation.simulation_speed_multiplier = 1.0
 	root.add_child(simulation)
 	var field: ObstacleField = simulation.asteroid_container
@@ -889,6 +894,7 @@ func _test_camera_controls() -> void:
 
 func _camera_independence_path(free_camera: bool) -> Array[Vector3]:
 	var simulation: SpaceSimulation = MAIN_SCENE.instantiate() as SpaceSimulation
+	HistoricalFixture.configure(simulation, 1.0)
 	simulation.simulation_speed_multiplier = 1.0
 	root.add_child(simulation)
 	if free_camera:
@@ -942,6 +948,7 @@ func _test_starfield_recycling() -> void:
 
 func _capture_preview() -> void:
 	var simulation: SpaceSimulation = MAIN_SCENE.instantiate() as SpaceSimulation
+	HistoricalFixture.configure(simulation, 1.0)
 	simulation.simulation_speed_multiplier = 1.0
 	root.add_child(simulation)
 	await _advance(180)

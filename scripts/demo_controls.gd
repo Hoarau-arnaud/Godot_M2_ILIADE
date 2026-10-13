@@ -7,6 +7,11 @@ var speed_slider: HSlider
 var movement_slider: HSlider
 var spacing_slider: HSlider
 var reset_button: Button
+var help_panel: PanelContainer
+var fullscreen_button: Button
+var cinematic_button: Button
+var action_button: Button
+var normal_button: Button
 var _speed_value: Label
 var _movement_value: Label
 var _spacing_value: Label
@@ -20,6 +25,7 @@ func _ready() -> void:
 	layer = 2
 	_build_stars()
 	_build_panel()
+	_build_help()
 	update_level(1)
 
 
@@ -88,6 +94,40 @@ func _build_panel() -> void:
 	reset_button.name = "ResetAgents"
 	reset_button.pressed.connect(func() -> void: _simulation().reset_population_overrides())
 	layout.add_child(reset_button)
+	fullscreen_button = _button("Plein écran")
+	fullscreen_button.toggle_mode = true
+	fullscreen_button.pressed.connect(func() -> void: _simulation().presentation_window.toggle_fullscreen())
+	layout.add_child(fullscreen_button)
+	cinematic_button = _button("Caméra cinématique")
+	cinematic_button.toggle_mode = true
+	cinematic_button.pressed.connect(func() -> void: _simulation().camera.toggle_cinematic())
+	layout.add_child(cinematic_button)
+	var presets: HBoxContainer = HBoxContainer.new()
+	action_button = _button("Mode spectacle")
+	action_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	action_button.pressed.connect(func() -> void: _simulation().apply_action_preset())
+	presets.add_child(action_button)
+	normal_button = _button("Normal")
+	normal_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	normal_button.pressed.connect(func() -> void: _simulation().apply_normal_preset())
+	presets.add_child(normal_button)
+	layout.add_child(presets)
+
+
+func _build_help() -> void:
+	help_panel = PanelContainer.new()
+	help_panel.name = "CameraHelp"
+	help_panel.anchor_top = 1.0
+	help_panel.anchor_bottom = 1.0
+	help_panel.offset_left = 18.0
+	help_panel.offset_bottom = -18.0
+	help_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	help_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	help_panel.add_theme_stylebox_override("panel", _box(Color(0.012, 0.025, 0.065, 0.75), 10))
+	add_child(help_panel)
+	var label: Label = _label("F : Suivi / Libre    C : Cinématique\nClic droit + souris : Orbite (Libre)\nMolette : Zoom (Libre)\nFlèches / ZQSD / WASD : Déplacer\nPageUp / E : Monter · PageDown : Descendre\nG / Home : Recentrer\nF11 / Alt+Entrée : Plein écran\nTAB : Réglages    H : Aide")
+	label.add_theme_font_size_override("font_size", 13)
+	help_panel.add_child(label)
 
 
 func _box(color: Color, margin: int = 6) -> StyleBoxFlat:
@@ -213,6 +253,8 @@ func refresh(simulation: SpaceSimulation) -> void:
 	_set_count("BlueShip", simulation.target_ship_count, 5, 20)
 	_set_count("PatrolDrone", simulation.target_drone_count(), 0, 8)
 	_set_count("Interceptor", simulation.target_interceptor_count(), 0, 8)
+	cinematic_button.set_pressed_no_signal(simulation.camera.mode == SimulationCamera.Mode.CINEMATIC)
+	fullscreen_button.set_pressed_no_signal(simulation.presentation_window.is_fullscreen())
 
 
 func _set_count(kind: String, value: int, minimum: int, maximum: int) -> void:
@@ -223,3 +265,7 @@ func _set_count(kind: String, value: int, minimum: int, maximum: int) -> void:
 
 func toggle_panel() -> void:
 	panel.visible = not panel.visible
+
+
+func toggle_help() -> void:
+	help_panel.visible = not help_panel.visible

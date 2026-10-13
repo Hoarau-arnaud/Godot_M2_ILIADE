@@ -1,0 +1,189 @@
+[gd_scene load_steps=19 format=3]
+
+[ext_resource type="Material" path="res://materials/ship_hull_ice.tres" id="1"]
+[ext_resource type="Material" path="res://materials/ship_blue.tres" id="2"]
+[ext_resource type="Material" path="res://materials/ship_trim.tres" id="3"]
+[ext_resource type="Material" path="res://materials/cockpit.tres" id="4"]
+[ext_resource type="Material" path="res://materials/engine_cyan.tres" id="5"]
+
+[sub_resource type="BoxMesh" id="Hull"]
+material = ExtResource("1")
+size = Vector3(0.88, 0.5, 3.7)
+
+[sub_resource type="CylinderMesh" id="Nose"]
+material = ExtResource("1")
+top_radius = 0.0
+bottom_radius = 0.5
+height = 2.1
+radial_segments = 4
+rings = 1
+
+[sub_resource type="BoxMesh" id="Nacelle"]
+material = ExtResource("2")
+size = Vector3(0.86, 0.65, 3.5)
+
+[sub_resource type="CylinderMesh" id="NacelleNose"]
+material = ExtResource("2")
+top_radius = 0.0
+bottom_radius = 0.48
+height = 1.6
+radial_segments = 4
+rings = 1
+
+[sub_resource type="PrismMesh" id="RightWing"]
+material = ExtResource("2")
+left_to_right = 1.0
+size = Vector3(3.4, 3.9, 0.16)
+
+[sub_resource type="PrismMesh" id="LeftWing"]
+material = ExtResource("2")
+left_to_right = 0.0
+size = Vector3(3.4, 3.9, 0.16)
+
+[sub_resource type="SphereMesh" id="Cockpit"]
+material = ExtResource("4")
+radius = 0.46
+height = 0.92
+radial_segments = 8
+rings = 4
+
+[sub_resource type="BoxMesh" id="CockpitBase"]
+material = ExtResource("3")
+size = Vector3(0.8, 0.18, 1.5)
+
+[sub_resource type="PrismMesh" id="Pylon"]
+material = ExtResource("1")
+left_to_right = 0.15
+size = Vector3(1.3, 1.2, 0.14)
+
+[sub_resource type="CylinderMesh" id="Engine"]
+material = ExtResource("3")
+top_radius = 0.32
+bottom_radius = 0.3
+height = 0.85
+radial_segments = 8
+rings = 1
+
+[sub_resource type="CylinderMesh" id="Flame"]
+material = ExtResource("5")
+top_radius = 0.0
+bottom_radius = 0.25
+height = 1.8
+radial_segments = 8
+rings = 1
+
+[sub_resource type="CylinderMesh" id="FlameCore"]
+material = ExtResource("5")
+top_radius = 0.0
+bottom_radius = 0.12
+height = 1.45
+radial_segments = 6
+rings = 1
+
+[sub_resource type="BoxMesh" id="Rail"]
+material = ExtResource("5")
+size = Vector3(0.09, 0.055, 2.0)
+
+[node name="Visuals" type="Node3D"]
+
+[node name="Muzzle" type="Marker3D" parent="."]
+position = Vector3(0, 0, -3.5)
+
+[node name="HitFlash" type="OmniLight3D" parent="."]
+position = Vector3(0, 1.1, -0.3)
+light_color = Color(1, 0.14, 0.025, 1)
+light_energy = 0.0
+omni_range = 5.0
+
+[node name="Fuselage" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.02, -0.05)
+mesh = SubResource("Hull")
+
+[node name="Nose" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0, -2.35)
+rotation = Vector3(-1.5707963, 0, 0)
+scale = Vector3(1, 1, 0.58)
+mesh = SubResource("Nose")
+
+[node name="LeftNacelle" type="MeshInstance3D" parent="."]
+position = Vector3(-1.2, -0.08, 0.5)
+mesh = SubResource("Nacelle")
+
+[node name="LeftNacelleNose" type="MeshInstance3D" parent="."]
+position = Vector3(-1.2, -0.08, -1.8)
+rotation = Vector3(-1.5707963, 0, 0)
+scale = Vector3(1, 1, 0.7)
+mesh = SubResource("NacelleNose")
+
+[node name="LeftWing" type="MeshInstance3D" parent="."]
+transform = Transform3D(0, -1, 0, 0, 0, 1, -1, 0, 0, -2.05, -0.12, 1.25)
+mesh = SubResource("LeftWing")
+
+[node name="LeftTailFin" type="MeshInstance3D" parent="."]
+position = Vector3(-1.2, 0.65, 1.65)
+rotation = Vector3(0, 1.5707963, 0.18)
+mesh = SubResource("Pylon")
+
+[node name="LeftEngine" type="MeshInstance3D" parent="."]
+position = Vector3(-1.2, -0.08, 2.3)
+rotation = Vector3(1.5707963, 0, 0)
+mesh = SubResource("Engine")
+
+[node name="LeftExhaust" type="MeshInstance3D" parent="."]
+position = Vector3(-1.2, -0.08, 3.3)
+rotation = Vector3(1.5707963, 0, 0)
+mesh = SubResource("Flame")
+
+[node name="Core" type="MeshInstance3D" parent="LeftExhaust"]
+position = Vector3(0, -0.12, 0)
+mesh = SubResource("FlameCore")
+
+[node name="LeftRail" type="MeshInstance3D" parent="."]
+position = Vector3(-1.2, 0.28, 0.2)
+mesh = SubResource("Rail")
+
+[node name="RightNacelle" type="MeshInstance3D" parent="."]
+position = Vector3(1.2, -0.08, 0.5)
+mesh = SubResource("Nacelle")
+
+[node name="RightNacelleNose" type="MeshInstance3D" parent="."]
+position = Vector3(1.2, -0.08, -1.8)
+rotation = Vector3(-1.5707963, 0, 0)
+scale = Vector3(1, 1, 0.7)
+mesh = SubResource("NacelleNose")
+
+[node name="RightWing" type="MeshInstance3D" parent="."]
+transform = Transform3D(0, 1, 0, 0, 0, 1, 1, 0, 0, 2.05, -0.12, 1.25)
+mesh = SubResource("RightWing")
+
+[node name="RightTailFin" type="MeshInstance3D" parent="."]
+position = Vector3(1.2, 0.65, 1.65)
+rotation = Vector3(0, 1.5707963, -0.18)
+mesh = SubResource("Pylon")
+
+[node name="RightEngine" type="MeshInstance3D" parent="."]
+position = Vector3(1.2, -0.08, 2.3)
+rotation = Vector3(1.5707963, 0, 0)
+mesh = SubResource("Engine")
+
+[node name="RightExhaust" type="MeshInstance3D" parent="."]
+position = Vector3(1.2, -0.08, 3.3)
+rotation = Vector3(1.5707963, 0, 0)
+mesh = SubResource("Flame")
+
+[node name="Core" type="MeshInstance3D" parent="RightExhaust"]
+position = Vector3(0, -0.12, 0)
+mesh = SubResource("FlameCore")
+
+[node name="RightRail" type="MeshInstance3D" parent="."]
+position = Vector3(1.2, 0.28, 0.2)
+mesh = SubResource("Rail")
+
+[node name="CockpitBase" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.32, -0.7)
+mesh = SubResource("CockpitBase")
+
+[node name="Cockpit" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.66, -0.75)
+scale = Vector3(0.86, 0.82, 1.65)
+mesh = SubResource("Cockpit")

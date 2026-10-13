@@ -1,6 +1,6 @@
-# Simulation SMA spatiale — milestone 7
+# Simulation SMA spatiale — milestone 8
 
-Projet pédagogique **Godot 4.7.2 / GDScript**. Dix chasseurs bleus progressent vers **Z négatif**, comme un banc de poissons dans un champ d'astéroïdes. Les trois agents sont **BlueShip, PatrolDrone et Interceptor**. M7 ajoute un rythme de démonstration à **1,5×**, le niveau représenté par trois étoiles et un panneau de contrôles runtime. Le flocking, le combat et les commandes de caméra sont conservés. **MANUEL 3** est le scénario principal ; le lancement reste en AUTO. Aucun nouvel agent ou asset externe.
+Projet pédagogique **Godot 4.7.2 / GDScript**. Dix chasseurs bleus progressent vers **Z négatif**, comme un banc de poissons dans un champ d'astéroïdes. Les trois agents sont **BlueShip, PatrolDrone et Interceptor**. M8 ajoute une caméra cinématique, un chasseur spatial redessiné, six barrages ouverts et des projectiles plus visibles. La démonstration démarre à **1,7×**, avec **Mouvement 1,2**. Le flocking et l'équilibrage du combat sont conservés. **MANUEL 3** est le scénario principal ; le lancement reste en AUTO. Aucun nouvel agent ou asset externe.
 
 ## Lancement
 
@@ -8,35 +8,50 @@ Importer `project.godot` dans **Godot 4.7.2**, puis appuyer sur **F5**. La scèn
 
 ## Caméra et commandes
 
-La caméra démarre en **Suivi** : elle suit le barycentre des survivants et s'éloigne doucement quand le groupe s'étale. **F** passe en **Libre**, une vue orbitale avec un point d'observation déplaçable. La vue reste alors à l'endroit choisi pendant que les agents continuent leur vol. **G** ou **Home / Début** recentre immédiatement sur le groupe actuel, sans quitter le mode libre. **F** ramène au suivi et à une vue cadrée sur le groupe.
+La caméra démarre en **Suivi** : elle suit le barycentre des survivants et s'éloigne doucement quand le groupe s'étale. **F** passe en **Libre**, une vue orbitale avec un point d'observation déplaçable. La vue reste alors à l'endroit choisi pendant que les agents continuent leur vol. **G** ou **Home / Début** recentre sur le groupe actuel. **C** active **Cinématique** ; un second C revient au Suivi. F permet aussi de reprendre la caméra Libre depuis Cinématique. La souris contrôle seulement le mode Libre.
 
-| Commande | Effet en mode libre |
+| Commande | Effet |
 |---|---|
 | Clic droit maintenu + souris | Orbite autour du point d'observation |
 | Molette haut / bas | Zoom avant / arrière, distance limitée à 6–220 m |
 | Flèches haut / bas, ou W / Z et S | Pan avant / arrière sur le plan horizontal de la vue |
 | Flèches gauche / droite, ou A / Q et D | Pan gauche / droite |
 | PageUp ou E | Monter |
-| PageDown ou C | Descendre |
+| PageDown | Descendre en Libre |
 | G ou Home | Recentrer sur le groupe |
 | F | Alterner Suivi / Libre |
+| C | Activer Cinématique / revenir au Suivi |
+| F11 ou Alt+Entrée | Basculer Fenêtré / Plein écran |
 | TAB | Afficher / masquer le panneau de contrôles |
+| H | Afficher / masquer l'aide caméra en bas à gauche |
 
-Les touches sont définies par des **Input Actions dans `project.godot`**, dont `demo_panel_toggle` pour TAB. Q est réservé au déplacement à gauche, ce qui évite le conflit AZERTY avec la descente. Le pan vaut 24 m/s en temps réel, indépendamment de la vitesse de simulation. La caméra ne transmet aucune force ou consigne aux agents. **0/1/2/3**, **F** et **G/Home** restent disponibles.
+Les touches sont définies par des **Input Actions dans `project.godot`**. C est réservé à Cinématique ; Q sert au déplacement à gauche. Le pan vaut 24 m/s en temps réel, indépendamment de la vitesse de simulation. L'aide est visible au lancement. **H puis TAB** laissent uniquement le compteur de pertes et les étoiles pour enregistrer une vidéo. Le plein écran utilise [DisplayServer](https://docs.godotengine.org/en/stable/classes/class_displayserver.html) et restaure le mode, la taille et la position de la fenêtre ; celle-ci reste redimensionnable.
 
-## Contrôles de démonstration M7
+### Caméra cinématique
+
+Les six cadrages sont **CHASE, SIDE_LEFT, SIDE_RIGHT, HIGH, LOW_CLOSE et WIDE**. La séquence alterne arrière, gauche, haut, droite, bas et large, toutes les **6–12 secondes de démonstration**, avec des durées déterministes issues de `simulation_seed`. Les offsets changent par une interpolation douce de **2 s**, complétée par le lissage de la position, de l'orientation (slerp) et du FOV. G/Home reprend CHASE par une transition. Une légère oscillation et un très faible roulis évitent la vue rigide sans orbite permanente.
+
+Le cadrage tient compte des positions bleues et du format du viewport ; WIDE prend le relais au-delà de 45 m de dispersion. `action_intensity` résume tirs, esquives, explosions et hostiles proches pour élargir légèrement le FOV. Une correction d'enveloppe et un raycast sur le déplacement de la caméra limitent l'entrée dans les astéroïdes. Le micro-shake est exporté, **désactivé par défaut**. La caméra n'est pas un agent et ne transmet aucune consigne de trajectoire aux chasseurs.
+
+## Contrôles de démonstration M7–M8
 
 Le panneau **Contrôles**, visible au lancement, est placé à droite : largeur **264 px**, marge **18 px**, fond spatial bleu sombre transparent et accent cyan. Il utilise uniquement les nœuds Control Godot standards. **TAB** le masque et le réaffiche. Les étoiles restent visibles dans les deux cas.
 
 | Contrôle | Bornes | Valeur initiale / effet |
 |---|---|---|
-| Vitesse | 0,5–2,5×, pas 0,1 | **1,5×** ; changement immédiat |
+| Vitesse | 0,5–2,5×, pas 0,1 | **1,7×** ; changement immédiat |
 | BlueShip −/+ | 5–20 | 10 ; ajoute ou retire des chasseurs |
 | PatrolDrone −/+ | 0–8 | Cible du niveau, puis override explicite |
 | Interceptor −/+ | 0–8 | Cible du niveau, puis override explicite |
-| Mouvement | 0,5–2,0, pas 0,1 | 1,0 ; amplitude du wander X/Y/Z |
+| Mouvement | 0,5–2,0, pas 0,1 | **1,2** ; amplitude du wander X/Y/Z |
 | Espacement | 0,8–1,4, pas 0,1 | 1,0 ; distances de séparation, seuil critique et confort de cohésion |
 | Reset agents | Bouton | Efface seulement les deux overrides ennemis |
+| Plein écran | Toggle | Même bascule que F11 |
+| Caméra cinématique | Toggle | Synchronisé avec C et F |
+| Mode spectacle | Bouton | Manuel 3, vitesse 1,7×, mouvement 1,3, verts 5, rouges 4, espacement 1,0 et Cinématique |
+| Normal | Bouton | Vitesse 1,7×, mouvement 1,2, populations du niveau courant, espacement 1,0 et Suivi |
+
+Les presets réutilisent les réglages runtime. Ils ne recréent pas la scène et conservent les morts, la distance, les BlueShip et le champ. Normal conserve la difficulté courante. HUD, panneau et aide sont ancrés dans un viewport logique 1280×720, adapté aux fenêtres **1280×720, 1920×1080 et 800×450**.
 
 Les étoiles **★☆☆ / ★★☆ / ★★★** représentent toujours `difficulty_level` effectif, avec les étoiles pleines jaunes et les vides gris. Elles changent immédiatement avec les touches 0/1/2/3 et avec les seuils AUTO. Aucun texte « Niveau », « AUTO » ou « MANUEL » ne les accompagne.
 
@@ -56,11 +71,11 @@ Une réduction BlueShip retire les excédents **sans explosion ni mort**. Les pe
 
 Mouvement et Espacement sont interpolés sur les chasseurs existants ; les futurs chasseurs reçoivent les valeurs courantes. Mouvement multiplie seulement le wander naturel, sans modifier séparation, cohésion ou collisions. Espacement multiplie les trois distances indiquées, avec des bornes limitées ; il ne change pas les poids des forces ou les hitboxes. Ces contrôles sont des paramètres extérieurs d'expérimentation, pas des perceptions supplémentaires des agents.
 
-Exemple de démonstration : **3**, Interceptor **5**, PatrolDrone **6**, BlueShip **15**, Vitesse **1,8×**, Mouvement **1,5**, puis **TAB** pour observer la scène.
+Exemple de démonstration : **3**, Interceptor **5**, PatrolDrone **6**, BlueShip **15**, Vitesse **1,8×**, Mouvement **1,5**, puis **H** et **TAB** pour observer la scène.
 
 ## Agents et obstacles actuels
 
-- **Type 1 — BlueShip** : `CharacterBody3D`, chasseur bleu construit avec des boîtes, cônes, prismes et une sphère aplatie pour le cockpit. Nez allongé vers −Z, cockpit bombé bleu sombre/cyan sur un cadre clair, ailes triangulaires fines dont les pointes sont rejetées vers l'arrière, deux dérives et deux moteurs visibles. Les cônes cyan des réacteurs pulsent avec des phases individuelles. L'orientation et le roulis interpolés concernent le nœud visuel ; les deux petites boîtes physiques restent stables.
+- **Type 1 — BlueShip** : `CharacterBody3D`, chasseur spatial original en primitives Godot. Long fuselage bleu clair, nez très pointu vers −Z, cockpit sombre/cyan surélevé, deux grosses nacelles bleu profond, ailes balayées et pointes arrière, deux pylônes et moteurs intégrés. Les flammes cyan à deux couches s'allongent selon la vitesse et pulsent avec des phases individuelles. Le banking plus marqué concerne seulement les visuels ; les deux boîtes physiques du M7 restent identiques.
 - **Type 2 — PatrolDrone** : `CharacterBody3D`, drone vert avec un corps hexagonal court, un capteur lumineux vert-cyan, de petites ailes, une dérive et deux propulseurs. Il conserve sa patrouille par waypoints et son évitement local. Il devient le premier **agent hostile destructible**, avec **4 HP**, sans poursuite ni tirs ennemis.
 - **Type 3 — Interceptor** : chasseur rouge pointu, cockpit sombre, ailes courtes et moteurs orange. Il détecte localement un BlueShip, le poursuit temporairement et tire par rafales, puis se désengage. **4 HP**, primitives Godot uniquement.
 - **Obstacle environnemental — SpaceAsteroid** : `StaticBody3D` indépendant. Deux à quatre volumes low-poly déformés composent un rocher irrégulier ; les grands combinent aussi des blocs anguleux. Petits : 1–2 m ; moyens : 2–4 m ; grands : 4–7 m de diamètre nominal. Échelles, orientations des lobes et palettes gris foncé/gris clair/brun varient par graine. Chaque volume possède une enveloppe convexe qui reprend les points déformés du mesh. La racine physique n'est pas mise à l'échelle. Chaque astéroïde tourne autour d'un axe individuel à environ 0,055–0,12 rad/s ; visuels et collisions tournent ensemble au pas physique, sans translation. **Les astéroïdes sont des obstacles, pas des agents.**
@@ -119,7 +134,7 @@ BlueShip recherche seulement les membres de **`hostile_agents`**, vivants et exp
 
 Le tir est interdit en **AVOIDANCE**, pendant **`projectile_avoidance_active`** et dès qu'un voisin bleu est à moins de **7 m**, même si les forces de voisins symétriques s'annulent. Un raycast depuis le nez vérifie qu'aucun astéroïde ne masque la cible. Le plus proche hostile valide est choisi, vert ou rouge sans préférence spéciale.
 
-Le `Marker3D` **Visuals/Muzzle**, placé à **Z = −2,9 m** dans le modèle, donne le vrai départ du projectile. La direction initiale estime une seule fois le déplacement de la cible pendant le vol, à vitesse constante. Elle doit rester dans le même cône frontal. Le chasseur ne s'oriente pas vers la cible ; après son lancement, le projectile suit une droite sans correction ni guidage.
+Le `Marker3D` **Visuals/Muzzle**, placé à **Z = −3,5 m** devant le nouveau nez, donne le vrai départ du projectile. La direction initiale estime une seule fois le déplacement de la cible pendant le vol, à vitesse constante. Elle doit rester dans le même cône frontal. Le chasseur ne s'oriente pas vers la cible ; après son lancement, le projectile suit une droite sans correction ni guidage.
 
 | Paramètre de combat | Valeur |
 |---|---:|
@@ -135,6 +150,8 @@ Un générateur séparé, issu d'`individual_seed`, règle la cadence et le déc
 ### BlueLaser et dégâts
 
 `BlueLaser` est un simple Node3D avec un bolt géométrique cyan/blanc emissive : **60 m/s**, **3 s de vie**, **1 dégât**. À chaque pas physique, un raycast balaie tout le déplacement. Le projectile ne traverse donc pas un petit corps entre deux positions successives. Il disparaît au premier impact ou à l'expiration ; il n'a ni guidage, ni particules lourdes.
+
+M8 allonge le trait bleu à **3,8 m**, avec une section fine et une pointe cyan. Les tirs rouges alternent **BOLT** (court/épais), **PULSE** (noyau et traînée) et **SPEAR** (long/fin), selon le compteur de tirs de l'intercepteur. Ces trois variantes conservent les mêmes **45 m/s, 3,5 s de vie et 1 dégât**. Matériaux emissive uniquement, sans nouvelle lumière dynamique. HP, dégâts, portées et cadences restent ceux du M6/M7.
 
 Le masque du raycast vaut **6** : astéroïdes, bit 2, et hostiles, bit 4. Les BlueShip, bit 1, sont ignorés. Un rocher absorbe le bolt **sans dégât ni score**. Un hostile vivant reçoit `take_damage(1)` ; le tir disparaît après un seul impact.
 
@@ -171,7 +188,7 @@ L'intercepteur tire **uniquement en PURSUIT**, dans le cône du vrai nez `Visual
 | 2 — Intermédiaire | 2 | 1 |
 | 3 — Difficile | 3 | 2 |
 
-Main maintient les effectifs via les exports `easy_interceptor_count=0`, `intermediate_interceptor_count=1`, `hard_interceptor_count=2`. Une perte rouge attend huit secondes avant remplacement. Les apparitions sont à **115–155 m devant**, **18–38 m latéralement**, avec vérification des rochers, des autres hostiles et d'une distance minimale de **25 m aux BlueShip**. Une baisse de difficulté retire le surplus sans mort ni score. Le champ M5 suffit à ces populations ; ses dimensions et toutes les commandes restent inchangées. La caméra suit uniquement les BlueShip.
+Main maintient les effectifs via les exports `easy_interceptor_count=0`, `intermediate_interceptor_count=1`, `hard_interceptor_count=2`. Une perte rouge attend huit secondes avant remplacement. Les apparitions sont à **115–155 m devant**, **18–38 m latéralement**, avec vérification des rochers, des autres hostiles et d'une distance minimale de **25 m aux BlueShip**. Une baisse de difficulté retire le surplus sans mort ni score. Les populations normales restent celles du M6/M7 ; Mode spectacle utilise des overrides explicites. La caméra suit uniquement les BlueShip.
 
 ## Paramètres par défaut
 
@@ -233,7 +250,7 @@ Le nombre cible est **1 / 2 / 3** en facile / intermédiaire / difficile, y comp
 
 ## Espace élargi
 
-Les spreads du champ passent à **38 m en X et 26 m en Y**, contre 18 / 12 au M4. Le centre aléatoire du pattern utilise 45 % de ces spreads, puis ses propres offsets s'ajoutent : les configurations couvrent habituellement une zone de l'ordre de **±35–45 m en X et ±20–30 m en Y** selon leur niveau et leur forme. Les waypoints utilisent ±38 / ±24 m et les apparitions hostiles sont reculées à 100–145 m devant. Ce sont des distributions de placement, sans mur invisible ni limite imposée aux agents.
+Les spreads du champ passent à **56 m en X et 36 m en Y**. Le centre du pattern utilise 45 % de ces spreads pour les configurations classiques et 25 % pour les nouveaux barrages, puis leurs offsets s'ajoutent. Les waypoints verts gardent ±38 / ±24 m et leurs apparitions restent à 100–145 m devant. Ce sont des distributions de placement, sans mur invisible ni limite imposée aux agents.
 
 Le zoom libre monte à **220 m**. Le cadrage de suivi garde son adaptation à la dispersion et reste centré sur les seuls BlueShip ; un drone éloigné ne déplace pas la caméra.
 
@@ -241,7 +258,7 @@ Le zoom libre monte à **220 m**. Le cadrage de suivi garde son adaptation à la
 
 Le nœud `Asteroids`, piloté par `scripts/obstacle_field.gd`, renouvelle le champ à chaque pas physique depuis Main. Il prépare des configurations jusqu'à **320 m devant le chasseur le plus avancé**. Leur position X/Y utilise le centre actuel des survivants, avec une variation aléatoire ; la caméra ne participe pas à la génération. La première configuration commence à **55 m** devant. Une configuration est supprimée seulement lorsque toute son enveloppe est à plus de **100 m derrière le dernier survivant**, y compris un retardataire. Les références de menaces et de directions mémorisées sont effacées lors de la sortie d'un obstacle de l'arbre.
 
-Le budget est de **72 astéroïdes actifs maximum**, avec un à trois rochers par configuration et au plus douze nouvelles configurations par appel. Les listes gardent uniquement les configurations actives. Les collisions restent actives jusqu'à la suppression. Les paramètres du champ sont exportés sur `Main/Asteroids` : `spawn_ahead_distance`, `start_distance`, `cleanup_distance`, `max_active_asteroids`, `horizontal_spread = 38 m` et `vertical_spread = 26 m`. Les deux spreads règlent le décalage aléatoire du centre du pattern, multiplié par 0,45 ; les offsets du pattern s'ajoutent ensuite.
+Le budget est de **96 astéroïdes actifs maximum**, avec un à seize rochers par configuration et au plus douze nouvelles configurations par appel. Le nombre exact de rochers est réservé avant la création ; un tirage en attente reste conservé si le budget est plein. Les listes gardent uniquement les configurations actives et les collisions restent actives jusqu'à la suppression. Les paramètres du champ sont exportés sur `Main/Asteroids`, dont `horizontal_spread = 56 m`, `vertical_spread = 36 m` et `cinematic_patterns_enabled`. La profondeur des nouveaux barrages s'ajoute à l'espacement de génération pour éviter leur superposition.
 
 | Pattern | Disposition |
 |---|---|
@@ -251,18 +268,26 @@ Le budget est de **72 astéroïdes actifs maximum**, avec un à trois rochers pa
 | `VERTICAL_PAIR` | Deux rochers superposés verticalement |
 | `STAGGERED_CLUSTER` | Trois rochers répartis sur trois profondeurs |
 | `LARGE_WITH_COMPANIONS` | Un gros rocher central et deux petits compagnons décalés |
+| `ASTEROID_GATE` | Huit rochers entourent une ouverture centrale large |
+| `OFFSET_GATE` | Même porte décalée de 18 m en X et 8 m en Y |
+| `DIAGONAL_BARRAGE` | Sept rochers en diagonale, routes ouvertes au-dessus et dessous |
+| `DOUBLE_CURTAIN` | Deux portes, gauche puis droite, séparées de 50 m en profondeur |
+| `DIVE` | Dix rochers au centre/haut, passage bas ; version inversée alternée |
+| `ASTEROID_CANYON` | Deux flancs de rochers à X ±26 m, sur deux profondeurs |
 
 Les patterns occupent un volume limité, avec des côtés ouverts pour une route gauche, droite, haute ou basse. Ils ne forment pas de mur fermé. La géométrie et les collisions des rochers sont celles du M2.
+
+Les nouveaux barrages sont absents en facile. En intermédiaire, seule la porte simple est disponible, avec une probabilité de **1/25**. En difficile, les six nouveaux barrages représentent ensemble **un tiers des tirages**, mélangés aux quatre patterns classiques. Les nouveaux rochers mesurent nominalement 3,5–4,8 m en intermédiaire et 4,8–6,2 m en difficile. Les ouvertures sont des possibilités géométriques : les agents choisissent leurs détours par perception locale, sans route prescrite.
 
 | Niveau | Distance parcourue | Distance entre configurations | Échelle des écarts X/Y (`gap`) | Diamètres nominaux | Patterns autorisés |
 |---|---|---:|---:|---|---|
 | 1 — Facile | 0 à moins de 500 m | 56 m | 22 m | 1,2–3,7 m | Single, Offset pair |
-| 2 — Intermédiaire | 500 à moins de 1 100 m | 44 m | 18 m | 2–5,5 m | Offset pair, Horizontal pair, Vertical pair, Staggered cluster |
-| 3 — Difficile | À partir de 1 100 m | 34 m | 14 m | 4–6,5 m ; gros central 5,5–7 m et compagnons 1,2–2,2 m | Horizontal pair, Vertical pair, Staggered cluster, Large with companions |
+| 2 — Intermédiaire | 500 à moins de 1 100 m | 44 m + profondeur du barrage | 18 m | 2–5,5 m | Offset pair, Horizontal pair, Vertical pair, Staggered cluster, Gate rare |
+| 3 — Difficile | À partir de 1 100 m | 34 m + profondeur du barrage | 14 m | 4–6,5 m ; gros central 5,5–7 m et compagnons 1,2–2,2 m | Quatre classiques et six barrages M8 |
 
 Les paramètres sont `intermediate_distance`, `hard_distance`, `easy_spacing`, `intermediate_spacing`, `hard_spacing`, `easy_gap`, `intermediate_gap` et `hard_gap`. `gap` est l'échelle du gabarit, pas une largeur libre entre surfaces. En AUTO, la difficulté d'une configuration dépend de sa distance en Z depuis l'origine du groupe : le champ plus difficile est préparé devant avant le franchissement du seuil. Le niveau reste une métrique interne.
 
-Le nettoyage protège tous les BlueShip et les hostiles encore actifs, verts et rouges : un rocher ne disparaît pas près d'un agent retardataire. Le plafond d'astéroïdes reste inchangé.
+Le nettoyage protège tous les BlueShip et les hostiles encore actifs, verts et rouges : un rocher ne disparaît pas près d'un agent retardataire.
 
 ### Choix de difficulté
 
@@ -279,7 +304,7 @@ La graine **20261012** initialise les chasseurs et un générateur indépendant 
 
 ## HUD
 
-Le HUD principal affiche **Vaisseaux détruits : X** à gauche et **trois étoiles seules** en haut-centre. Le panneau droit contient uniquement les six réglages et Reset agents. Lorsqu'il est masqué par TAB, seuls le compteur et les étoiles restent visibles. Aucun HP, score, distance, statistique de combat ou mode caméra n'est affiché.
+Le HUD principal affiche **Vaisseaux détruits : X** à gauche et **trois étoiles seules** en haut-centre. Le panneau droit contient les six réglages, Reset agents et les outils de présentation M8. L'aide caméra est en bas à gauche. **H puis TAB** masquent les deux panneaux ; le compteur et les étoiles restent visibles. Aucun HP, score, distance ou statistique de combat n'est affiché.
 
 ## Architecture
 
@@ -287,7 +312,8 @@ Le HUD principal affiche **Vaisseaux détruits : X** à gauche et **trois étoil
 project.godot                 Scène principale, affichage, couches physiques
 scenes/main.tscn              Environnement, lumières, caméra, conteneurs, HUD
 scenes/demo_controls.tscn     Interface de démonstration, distincte du compteur de morts
-scenes/blue_ship.tscn         Silhouette du chasseur et deux collisions
+scenes/blue_ship.tscn         Racine du chasseur et deux collisions stables
+scenes/blue_ship_visuals.tscn Silhouette spatiale M8 en primitives
 scenes/patrol_drone.tscn      Drone vert, primitives, matériaux et collision
 scenes/interceptor.tscn       Chasseur rouge, primitives, moteurs orange et collision
 scenes/enemy_laser.tscn       Bolt rouge/orange
@@ -304,7 +330,8 @@ scripts/mobile_avoidance.gd   Estimation locale de l'approche relative
 scripts/blue_laser.gd         Déplacement, balayage physique, dégâts et expiration
 scripts/asteroid.gd           Géométrie procédurale et collisions des rochers
 scripts/obstacle_field.gd     Patterns, difficulté, streaming et nettoyage borné
-scripts/camera_controller.gd  Suivi, orbite libre, pan, zoom et recentrage
+scripts/camera_controller.gd  Suivi, Libre, six plans cinématiques et cadrage
+scripts/presentation_window.gd Plein écran et restauration de fenêtre
 scripts/space_environment.gd  Trois couches d'étoiles, planètes et lune
 scripts/explosion.gd          Animation des débris, puis suppression
 materials/*.tres              Bleu, gris clair, cockpit, cyan des propulseurs
@@ -313,13 +340,15 @@ tests/validate_simulation.gd  Validation reproductible du milestone
 tests/validate_combat.gd      Ciblage, sécurité, dégâts et parcours M5 de 90 s
 tests/validate_interceptor.gd FSM, rafales, santé, esquive, populations, parcours M6
 tests/validate_demo_controls.gd UI, overrides, spawns, temps, caméra et démonstrations M7
+tests/historical_fixture.gd  Profil M1–M7 pour isoler les régressions SMA/combat
+tests/validate_cinematic.gd  Caméra, barrages, presets, rendu et captures M8
 ```
 
 Les 650 étoiles sont distribuées en trois couches : lointaine (environ 62 %), intermédiaire (30 %) et proche (8 %). Leurs profondeurs et tailles diffèrent ; elles restent immobiles dans le monde jusqu'au recyclage aux bords du volume observé. Le déplacement de la caméra produit donc une parallaxe naturelle. Le recyclage fonctionne aussi pendant le pan libre. Deux planètes à atmosphère légère, une petite lune et un quad de nébuleuse discret donnent de la profondeur sans collision. La caméra conserve son dernier centre après la dernière mort.
 
 ### Groupes, signaux et couches
 
-- Groupes : `blue_ships`, `patrol_drones`, `interceptors`, `hostile_agents`, `asteroids`, `blue_lasers`, `hostile_projectiles`. Seuls les verts appartiennent à `patrol_drones` ; verts et rouges appartiennent à `hostile_agents`.
+- Groupes : `blue_ships`, `patrol_drones`, `interceptors`, `hostile_agents`, `asteroids`, `blue_lasers`, `hostile_projectiles` et `explosions` (effets temporaires). Seuls les verts appartiennent à `patrol_drones` ; verts et rouges appartiennent à `hostile_agents`.
 - Signaux : morts bleues, dégâts/destructions hostiles, tirs et impacts des deux factions, début d'esquive. Main conserve les compteurs sans stocker de projectile supprimé.
 - BlueShip : couche **1** (bit 1), masque **6** (astéroïdes et hostiles). PatrolDrone et Interceptor : couche **3** (bit 4), masque **2**. Astéroïdes : couche **2** (bit 2), masque **0**. BlueLaser raycast **6**, EnemyLaser raycast **3** ; les projectiles n'ont pas de corps physique.
 - Les chasseurs se séparent localement sans collision physique entre eux. Leur balayage détecte les rochers et les drones. Le drone ne se bloque pas physiquement sur un BlueShip ; sa correction locale assure l'évitement réciproque, et un contact détecté par le chasseur reste fatal pour celui-ci.
@@ -333,13 +362,62 @@ Les 650 étoiles sont distribuées en trois couches : lointaine (environ 62 %), 
 & 'CHEMIN\Godot.exe' --headless --path . --fixed-fps 60 --script res://tests/validate_combat.gd
 & 'CHEMIN\Godot.exe' --headless --path . --fixed-fps 60 --script res://tests/validate_interceptor.gd
 & 'CHEMIN\Godot.exe' --headless --path . --fixed-fps 60 --script res://tests/validate_demo_controls.gd
+& 'CHEMIN\Godot.exe' --headless --path . --fixed-fps 60 --script res://tests/validate_cinematic.gd
 ```
 
-La première commande importe les scènes et vérifie le parsing avec les warnings GDScript traités comme erreurs. Les trois suites historiques forcent **`simulation_speed_multiplier = 1.0`**, avec 60 Hz physiques, pour conserver leur pas fixe de 1/60 s et leur reproductibilité. Elles vérifient navigation, obstacles, flocking, caméra, combat, santé et esquive. La suite M7 utilise les vitesses runtime et adapte son nombre de pas au taux physique. `--fixed-fps 60` exécute tous ces tests aussi vite que possible ; il ne mesure pas les FPS graphiques.
+La première commande importe les scènes et vérifie le parsing avec les warnings GDScript traités comme erreurs. Les suites historiques utilisent `HistoricalFixture` : décor M1–M7 sans les barrages M8, spreads 38/26 m, plafond 72 et mouvement 1,0. Les trois premières forcent la vitesse 1,0 à 60 Hz ; M7 conserve son profil 1,5× et ses réglages runtime. Cela isole les régressions SMA/combat de la nouvelle mise en scène. La suite M8 exerce le nouveau décor et les nouvelles valeurs. `--fixed-fps 60` exécute ces tests aussi vite que possible ; il ne mesure pas les FPS graphiques.
 
 Validation historique M5 avec **Godot 4.7.2 stable** le 12 octobre 2026, graine **20261012**, pas fixe de 1/60 s. Les résultats M6 ci-dessous ont été mesurés le 13 octobre : suites sans warning ni erreur, codes de sortie 0.
 
-### Validation M7 — 13 octobre 2026
+### Validation M8 — 13 octobre 2026
+
+Les cinq suites complètes passent sans erreur, avec leurs scénarios contrôlés et parcours longs. M8 vérifie C/F, H/TAB, presets sans reset, bindings F11/Alt+Entrée, variantes de lasers et budget du champ. Deux essais contrôlés de 90 s donnent la même séquence de plans ; les trajectoires des agents en Suivi et Cinématique ont un écart maximal de **0,000000 m**. Le streaming sur 8,4 km artificiels exerce les dix patterns difficiles, génère/supprime **223 / 210 configurations** et atteint au plus **90 astéroïdes**, sous le budget 96.
+
+Seed `20261012`, niveau manuel 3, collisions actives, 120 pas physiques par seconde de démonstration, exécution accélérée headless :
+
+| Mesure | Cinématique, 90 s | Mode spectacle, 60 s |
+|---|---:|---:|
+| Vitesse / Mouvement | 1,7× / 1,25 | 1,7× / 1,3 |
+| Temps simulé | 153 s | 102 s |
+| BlueShip vivants / morts | 10 / 0 | 10 / 0 |
+| Verts / rouges actifs | 3 / 2 | 5 / 4 |
+| Verts / rouges détruits par tir | 1 / 1 | 0 / 0 |
+| Tirs bleus / impacts hostiles | 21 / 16 | 17 / 8 |
+| Tirs rouges / impacts bleus | 127 / 1 | 102 / 0 |
+| Activations d'esquive | 43 | 35 |
+| Projectiles / astéroïdes maximum | 12 / 77 | 18 / 75 |
+| Nœuds maximum échantillonnés | 1 207 | 1 232 |
+| Dispersion maximale / finale | 39,16 / 37,01 m | 39,65 / 34,53 m |
+| Espacement final moyen | 15,33 m | 13,39 m |
+| Changements de plan | 10 | 6 |
+| Centres bleus dans le cadre, échantillons | 100 % | 100 % |
+| Déplacement caméra relatif maximum par frame | 1,095 m | 1,109 m |
+| Marge minimale caméra / enveloppe d'astéroïde, échantillons | 0,80 m | 1,21 m |
+| Coût headless moyen par pas | 0,91 ms | 1,07 ms |
+
+Les marges de cadrage incluent une réserve autour des centres, mais le test ne prouve pas que tous les sommets du modèle sont toujours visibles. Le déplacement caméra relatif soustrait le déplacement du barycentre ; aucune téléportation n'est observée. Les coûts CPU incluent les vérifications de test et ne représentent pas les FPS de rendu.
+
+Chaque barrage est également joué seul pendant **30 s de simulation**, avec dix chasseurs initialement étalés :
+
+| Barrage | Vivants / morts | Directions de détour observées | Dispersion maximale / finale | Isolés finaux |
+|---|---:|---:|---:|---:|
+| ASTEROID_GATE | 10 / 0 | 3 | 28,53 / 18,36 m | 0 |
+| OFFSET_GATE | 10 / 0 | 4 | 29,47 / 20,61 m | 0 |
+| DIAGONAL_BARRAGE | 10 / 0 | 4 | 30,94 / 21,63 m | 0 |
+| DOUBLE_CURTAIN | 10 / 0 | 4 | 24,92 / 21,75 m | 0 |
+| DIVE | 9 / 1 | 4 | 34,92 / 21,37 m | 0 |
+| ASTEROID_CANYON | 10 / 0 | 4 | 34,76 / 22,79 m | 0 |
+| DIVE inversé | 10 / 0 | 4 | 28,67 / 18,50 m | 0 |
+
+Les points de passage ont au moins **15,10 m** libres après soustraction de l'enveloppe du rocher et de la marge du chasseur. Les réactions d'évitement et la récupération locale sont observées ; les ouvertures ne garantissent pas la route choisie ni la survie. Les catégories de directions indiquent les signes X/Y des corrections, pas un nombre de trajectoires planifiées.
+
+Avec rendu natif, **1280×720, 1920×1080 et 800×450**, F11 aller-retour, Alt+Entrée, bouton plein écran et H/TAB passent. Les captures montrent les deux panneaux, le HUD vidéo et le BlueShip en gros plan. La comparaison native de **12 s par vitesse**, à 1,7× puis 1,8×, conserve dix survivants et change de plan ; **1,7×** est retenu pour une lecture légèrement plus posée. Une série Mode spectacle de 60 s avec rendu vérifie aussi les six plans et les tirs.
+
+Pour reproduire les captures, lancer `validate_cinematic.gd` **sans `--headless`**, avec `--fixed-fps 60 -- --capture-native`, `-- --capture-pace` ou `-- --capture-action`. Pour mesurer le rendu, lancer **sans `--headless` et sans `--fixed-fps`**, avec `-- --render-benchmark` : 3 s de chauffe puis 12 s de temps réel, résolution 1920×1080, Mode spectacle, H/TAB masqués, VSync active, OpenGL Compatibility sur Intel Arc. Images et métriques restent dans `.godot/validation/`, `.godot/m8_metrics.json` et `.godot/m8_graphics.json`, ignorés par Git.
+
+Sur cette machine, cet échantillon graphique mesure **99,6 FPS moyens**, environ 100 FPS à la fin, avec dix survivants et 65 astéroïdes actifs. Il s'agit d'une fenêtre courte de rendu réel, pas d'une garantie sur toute la vidéo de 90 s ou sur une autre machine.
+
+### Référence historique M7 — 13 octobre 2026
 
 Les contrôles sont testés par leurs signaux et par des événements clavier/souris injectés dans le viewport. Le test UI a également été exécuté avec le vrai rendu OpenGL. Il couvre les étoiles 1/2/3, les transitions AUTO, TAB, les vitesses **0,5/1/1,5/2/2,5**, l'indépendance du pan, l'absence d'orbite/zoom sur l'UI, les ajouts **10→15**, retraits **15→8**, les overrides **verts 3→6 / rouges 2→5**, leurs bornes et leur reset. Les retraits n'ajoutent aucun décès, explosion ou score ; une mort réelle n'est pas remplacée. Les nouvelles créations reçoivent aussi les réglages Mouvement et Espacement courants.
 
@@ -501,7 +579,10 @@ Références API : [PrismMesh](https://docs.godotengine.org/en/stable/classes/cl
 - Le déplacement continu en Z ne recale pas l'origine du monde ; des parcours beaucoup plus longs peuvent perdre en précision numérique. Le test de cinq minutes ne mesure pas une session de plusieurs heures ni les FPS graphiques sur cette durée.
 - Les réglages extrêmes peuvent disperser le groupe ; les apparitions restent sûres et peuvent être retardées. Les comptes ennemis sont des cibles : la destruction et les délais de remplacement réduisent temporairement les effectifs.
 - Engine.time_scale et la fréquence physique sont globaux ; l'application est prévue pour une seule simulation active. Accélérer augmente le nombre de calculs physiques par seconde réelle. L'équilibrage n'a pas été étudié sur plusieurs graines.
+- Le cadrage cinématique privilégie le groupe bleu ; des ennemis éloignés peuvent sortir du champ. La correction caméra utilise les enveloppes des rochers et ne constitue pas un solveur de collision complet. Le micro-shake est désactivé ; le test de cadrage porte sur les centres échantillonnés.
 
 ## Hors de ce milestone et perspectives
 
 BlueShip, PatrolDrone et Interceptor sont les trois agents implémentés. Les astéroïdes restent indestructibles et ne sont pas des agents. **Agent 4, Bomber/MineLayer, mines, bombes BlueShip, missiles et vagues clavier ne sont pas implémentés.**
+
+Planning : **M8 — Cinématique / barrages / design spatial** réalisé ; **M9 — Agent 4 : Bomber / MineLayer** ; **M10 — Scénarios, bombes BlueShip, étude et finalisation**. Si M10 devient trop volumineux, un **M11 de finalisation** pourra être ajouté. M8 s'arrête à la présentation actuelle.
