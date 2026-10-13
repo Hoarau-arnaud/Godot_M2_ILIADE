@@ -42,9 +42,17 @@ var _phase_deaths: int = 0
 var _next_mega: float = 3
 var _mega_cursor: int = 0
 var _fast_meteors_shown: bool = false
+var _colossal_shown: bool = false
+var _next_colossal: float = 10
+var moving_gates: int = 0
+var rotating_gates: int = 0
+var gate_passages: int = 0
+var gate_bypasses: int = 0
 var _next_attack: float = 1
 var _attack_cursor: int = 0
 var _weapon_start: Dictionary = {}
+var _patrol_replacement_serial: int = 0
+var _interceptor_replacement_serial: int = 0
 var _ui_visibility: Vector2i
 var _camera_transform: Transform3D
 var _camera_fov: float
@@ -72,6 +80,8 @@ func spectacle() -> bool:
 
 
 func phase_duration(index: int) -> float:
+	if choreographed() and simulation.arcade_hazards_enabled and index == 4:
+		return 42.0
 	if spectacle():
 		return spectacle_capital_duration if index == 4 else spectacle_finale_duration if index == 5 else spectacle_phase_duration
 	return maxf(capital_phase_duration if index == 4 else finale_phase_duration if index == 5 else demo_phase_duration, 1)
@@ -326,6 +336,14 @@ func _begin_phase(index: int, center: Vector3) -> void:
 	_next_mega = 3
 	_mega_cursor = 0
 	_fast_meteors_shown = false
+	_colossal_shown = false
+	_patrol_replacement_serial = 0
+	_interceptor_replacement_serial = 0
+	_next_colossal = 10
+	moving_gates = 0
+	rotating_gates = 0
+	gate_passages = 0
+	gate_bypasses = 0
 	_next_attack = 1
 	_attack_cursor = 0
 	_weapon_start = simulation.weapon_metrics.duplicate(true)
@@ -383,13 +401,14 @@ func _safe_position(candidate: Vector3, clearance: float) -> Vector3:
 	return candidate
 
 
-func _spawn_patrol(center: Vector3, index: int, markers: bool) -> void:
+func _spawn_patrol(center: Vector3, index: int, markers: bool, replacement: bool = false) -> void:
 	var drone: PatrolDrone = SpaceSimulation.DRONE_SCENE.instantiate() as PatrolDrone
-	drone.individual_seed = demonstration_seed + phase_index * 1091 + index * 401
+	drone.individual_seed = demonstration_seed + phase_index * 1091 + index * 401 + _patrol_replacement_serial * 4001
 	drone.demonstration_route = markers
 	drone.patrol_fire_enabled = true
 	drone.dangerous_projectile_limit = 34 if choreographed() else (54 if phase_index == 5 else 90) if spectacle() else 50
 	drone.readable_threats = choreographed()
+	drone.fire_intensity = simulation.fire_intensity
 	drone.environment_perception_interval = (0.05 if simulation.legacy_flight_profile else 0.06) if spectacle() else 0
 	drone.patrol_anchor = Vector2(center.x + (index - 1.5) * 9, center.y)
 	drone.patrol_projectile_container = simulation.projectile_container
@@ -397,6 +416,8 @@ func _spawn_patrol(center: Vector3, index: int, markers: bool) -> void:
 	if phase_index == 5:
 		var starts: Array[Vector3] = [Vector3(-9.5, -9.5, -34), Vector3(0, 0, -34), Vector3(9.5, 9.5, -34), Vector3(-20, 8, -65), Vector3(20, -8, -80)]
 		offset = starts[index]
+		if replacement:
+			offset = Vector3((index - 1.5) * 40, -20 if index % 2 == 0 else 20, -100)
 	drone.position = simulation.drone_container.to_local(_safe_position(center + offset, 3))
 	drone.died.connect(simulation._on_drone_died)
 	drone.destroyed.connect(simulation._on_hostile_destroyed)
@@ -409,10 +430,25 @@ func _spawn_patrol(center: Vector3, index: int, markers: bool) -> void:
 		_add_route_markers(drone)
 
 
-func _spawn_interceptor(center: Vector3, index: int) -> void:
+func _maintain_arcade_patrols() -> void:
+	if simulation.drones.size() >= simulation.manual_drone_count_override:
+		return
+	_patrol_replacement_serial += 1
+	_spawn_patrol(simulation._fleet_center(), _patrol_replacement_serial % 4, false, true)
+
+
+func _maintain_arcade_interceptors() -> void:
+	if simulation.interceptors.size() >= simulation.manual_interceptor_count_override:
+		return
+	_interceptor_replacement_serial += 1
+	_spawn_interceptor(simulation._fleet_center(), _interceptor_replacement_serial % 4, true)
+
+
+func _spawn_interceptor(center: Vector3, index: int, replacement: bool = false) -> void:
 	var hostile: Interceptor = SpaceSimulation.INTERCEPTOR_SCENE.instantiate() as Interceptor
-	hostile.individual_seed = demonstration_seed + phase_index * 1091 + index * 409
+	hostile.individual_seed = demonstration_seed + phase_index * 1091 + index * 409 + _interceptor_replacement_serial * 4003
 	hostile.projectile_container = simulation.projectile_container
+	hostile.fire_intensity = simulation.fire_intensity
 	if spectacle():
 		hostile.dangerous_projectile_limit = 34 if choreographed() else 54 if phase_index == 5 else 90
 		hostile.readable_threats = choreographed()
@@ -420,7 +456,10 @@ func _spawn_interceptor(center: Vector3, index: int) -> void:
 		hostile.burst_size = 4 if choreographed() else 5
 		hostile.burst_interval = 0.22 if choreographed() else 0.16
 		hostile.burst_cooldown = 1.8 if choreographed() else 1.05
-	hostile.position = simulation.interceptor_container.to_local(_safe_position(center + Vector3((index - 1.5) * 12, -6 if index % 2 == 0 else 6, 42), 3))
+	var offset: Vector3 = Vector3((index - 1.5) * 12, -6 if index % 2 == 0 else 6, 42)
+	if replacement:
+		offset = Vector3((index - 1.5) * 32, -18 if index % 2 == 0 else 18, 35)
+	hostile.position = simulation.interceptor_container.to_local(_safe_position(center + offset, 3))
 	hostile.died.connect(simulation._on_interceptor_died)
 	hostile.destroyed.connect(simulation._on_hostile_destroyed)
 	hostile.fired.connect(simulation._on_enemy_fired)
@@ -437,6 +476,7 @@ func _spawn_capital(center: Vector3, teaching: bool, index: int = 0) -> void:
 	hostile.normal_distance = -positions[index].z if spectacle() else 230
 	hostile.spectacle_enabled = spectacle()
 	hostile.fleet_role = index if choreographed() or phase_index == 4 else [0, 1, 3, 4][index]
+	hostile.arcade_arsenal = choreographed() and simulation.arcade_hazards_enabled
 	hostile.readable_arsenal = choreographed()
 	hostile.choreographed = choreographed()
 	hostile.fleet_offset = Vector2(positions[index].x, positions[index].y)
@@ -516,6 +556,9 @@ func _process(delta: float) -> void:
 	elapsed_real += real_delta
 	if choreographed():
 		_update_choreography()
+		if simulation.arcade_hazards_enabled and phase_index == 5:
+			_maintain_arcade_patrols()
+			_maintain_arcade_interceptors()
 	if simulation.legacy_flight_profile and phase_index == 5 and phase_elapsed >= phase_duration(5) - finale_relief_duration:
 		# Une courte respiration laisse les tirs existants passer et la cohésion agir.
 		for drone: PatrolDrone in simulation.drones:
@@ -530,6 +573,14 @@ func _process(delta: float) -> void:
 		node.set_meta("sampled", true)
 		var zone: ArtilleryZone = node as ArtilleryZone
 		zone.damage_applied.connect(simulation._on_blue_ship_hit)
+		if zone is MovingLaserGate:
+			var gate: MovingLaserGate = zone as MovingLaserGate
+			if gate.variant == MovingLaserGate.Variant.ROTATING_LASER_GRID:
+				rotating_gates += 1
+			else:
+				moving_gates += 1
+			gate.ship_passed.connect(func(_blue: BlueShip) -> void: gate_passages += 1)
+			gate.ship_bypassed.connect(func(_blue: BlueShip) -> void: gate_bypasses += 1)
 		if choreographed():
 			var family: String = str(zone.get_meta("weapon_family", "Bomb"))
 			zone.damage_applied.connect(func(_blue: BlueShip, _amount: int) -> void: simulation._weapon_entry(family).impacts += 1)
@@ -573,6 +624,21 @@ func _sample_phase() -> void:
 		_phase_sample[key] = int(metrics[key]) - int(_phase_sample.metrics_start[key])
 	_phase_sample.nodes_max = maxi(_phase_sample.nodes_max, get_tree().get_node_count())
 	_phase_sample.projectiles_max = maxi(_phase_sample.projectiles_max, ArtilleryZone.dangerous_count(get_tree()))
+	_phase_sample.colossals = simulation.asteroid_container.colossal_generated
+	_phase_sample.moving_gates = moving_gates
+	_phase_sample.rotating_gates = rotating_gates
+	_phase_sample.gate_passages = gate_passages
+	_phase_sample.gate_bypasses = gate_bypasses
+	var gates_active: int = 0
+	for node: Node in get_tree().get_nodes_in_group("combat_hazards"):
+		if node is MovingLaserGate:
+			gates_active += 1
+	_phase_sample.large_gates_max = maxi(int(_phase_sample.get("large_gates_max", 0)), gates_active)
+	var colossals_active: int = 0
+	for node: Node in get_tree().get_nodes_in_group("asteroids"):
+		if (node as SpaceAsteroid).size_category == SpaceAsteroid.SizeCategory.COLOSSAL:
+			colossals_active += 1
+	_phase_sample.colossals_active_max = maxi(int(_phase_sample.get("colossals_active_max", 0)), colossals_active)
 	_phase_sample.bombs = bomb_explosions
 	_phase_sample.grids = grid_activations
 	_phase_sample.curtains = curtain_activations
@@ -683,10 +749,22 @@ func phase_title(index: int) -> String:
 
 
 func _update_choreography() -> void:
+	if simulation.arcade_hazards_enabled and phase_index in [0, 1, 5] and phase_elapsed >= _next_colossal and (not _colossal_shown or phase_index == 5):
+		var fleet_velocity: Vector3 = Vector3.ZERO
+		for blue: BlueShip in simulation.ships:
+			fleet_velocity += blue.velocity
+		fleet_velocity /= maxf(simulation.ships.size(), 1)
+		var rock: SpaceAsteroid = simulation.asteroid_container.spawn_colossal(simulation._fleet_center(), fleet_velocity, 96)
+		if rock != null:
+			_colossal_shown = true
+			_next_colossal = phase_elapsed + 26
+		else:
+			_next_colossal = phase_elapsed + 0.5
 	if phase_index == 0 and phase_elapsed >= 15.5 and not _fast_meteors_shown:
 		_fast_meteors_shown = true
 		simulation.asteroid_container.spawn_fast_crossing(simulation._fleet_center())
-	if phase_index in [0, 1, 5] and phase_elapsed >= _next_mega and (phase_index != 0 or _mega_cursor < 3):
+	var mega_limit: int = 1 if simulation.arcade_hazards_enabled and phase_index in [0, 1] else 3 if phase_index == 0 else 1000000
+	if phase_index in [0, 1, 5] and phase_elapsed >= _next_mega and _mega_cursor < mega_limit:
 		var fleet_velocity: Vector3 = Vector3.ZERO
 		for blue: BlueShip in simulation.ships:
 			fleet_velocity += blue.velocity
@@ -700,7 +778,10 @@ func _update_choreography() -> void:
 			_next_mega = phase_elapsed + 0.4
 	if phase_index in [4, 5] and phase_elapsed >= _next_attack and not simulation.capitals.is_empty():
 		# Départs espacés en temps réel ; chaque rôle conserve le même Agent 4.
-		var patterns: Array[int] = [0, 4, 6, 7, 9, 5]
+		var patterns: Array[int] = []
+		patterns.assign([0, 4, 7, 6, 8, 9, 2] if simulation.arcade_hazards_enabled else [0, 4, 6, 7, 9, 5])
+		if simulation.arcade_hazards_enabled and phase_index == 4 and _attack_cursor >= patterns.size():
+			return # Laisser arriver la dernière salve avant le changement de phase.
 		var pattern: int = patterns[_attack_cursor % patterns.size()]
 		if _attack_cursor > 0 and _attack_cursor % 12 == 9:
 			pattern = 8
@@ -710,4 +791,4 @@ func _update_choreography() -> void:
 			capital._transition(CapitalShip.State.PREPARE)
 			capital.selected_pattern = pattern as CapitalShip.ArtilleryPattern
 			_attack_cursor += 1
-		_next_attack += 4.5
+		_next_attack += 5.5 if simulation.arcade_hazards_enabled else 4.5

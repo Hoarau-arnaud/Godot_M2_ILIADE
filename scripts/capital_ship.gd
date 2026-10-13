@@ -20,6 +20,7 @@ const LAUNCHERS: Array[Vector3] = [Vector3(-23, 5.5, 18), Vector3(23, 5.5, 18)]
 @export var demonstration_cycle: bool = false
 @export var predictive_targeting: bool = true
 var _target_cursor: int = 0
+var arcade_arsenal: bool = false
 var readable_arsenal: bool = false
 var choreographed: bool = false
 var _category_cursor: int = 0
@@ -293,6 +294,7 @@ func build_salvo(pattern: int) -> Array[Dictionary]:
 
 func _launch(spec: Dictionary) -> void:
 	var projectile: ArtilleryProjectile = ArtilleryProjectile.new()
+	projectile.arcade_signature = arcade_arsenal
 	projectile.batch_visuals_enabled = predictive_targeting
 	var origin: Vector3 = global_position + Vector3(spec["local_origin"])
 	var aim: Vector3 = spec.aim
@@ -301,7 +303,7 @@ func _launch(spec: Dictionary) -> void:
 	projectile.threat_category = int(spec.get("category", ThreatPattern.Category.TARGETED if projectile.targeted else ThreatPattern.Category.SUPPRESSION))
 	projectile.target_seed = chosen.individual_seed if chosen != null else 0
 	if readable_arsenal:
-		projectile.set_meta("weapon_family", family_for_pattern(int(spec.pattern)))
+		projectile.set_meta("weapon_family", "Arc" if arcade_arsenal and int(spec.pattern) == ArtilleryPattern.ARC_SALVO else family_for_pattern(int(spec.pattern)))
 		projectile.threat_strength = 1.6 if int(spec.pattern) in [0, 4, 9] else 1.0
 	if chosen != null and chosen.alive and (projectile.targeted or projectile.threat_category == ThreatPattern.Category.NEAR_PASS):
 		projectile.initial_target_position = chosen.global_position
@@ -314,6 +316,8 @@ func _launch(spec: Dictionary) -> void:
 	projectile.flight_direction = (aim - origin).normalized()
 	projectile.damage = 2 if projectile.kind == ArtilleryProjectile.Kind.HEAVY_SHOT else 1
 	projectile.avoidance_radius = (16 if readable_arsenal else 10) if projectile.damage == 2 else 5 if projectile.kind == ArtilleryProjectile.Kind.SEEKER_SALVO else 4
+	if arcade_arsenal:
+		projectile.avoidance_radius = 16 if projectile.kind == ArtilleryProjectile.Kind.HEAVY_SHOT else 7 if projectile.kind in [ArtilleryProjectile.Kind.SEEKER_SALVO, ArtilleryProjectile.Kind.MISSILE_SWARM] else 8 if projectile.kind == ArtilleryProjectile.Kind.ARC_SALVO else 4
 	projectile.lifetime = 18 if predictive_targeting else 22 if spectacle_enabled else 14
 	projectile.turn_rate_degrees = 12 if predictive_targeting else 6
 	projectile.target = chosen if (projectile.targeted or not readable_arsenal) and projectile.kind in [ArtilleryProjectile.Kind.SEEKER_SALVO, ArtilleryProjectile.Kind.MISSILE_SWARM] else null
@@ -418,15 +422,18 @@ func _fire_spectacle() -> void:
 			if pattern_history.size() > 64:
 				pattern_history.pop_front()
 			salvo_started.emit(pattern)
-		var needed: int = 6 if pattern == ArtilleryPattern.LASER_GRID else 4 if pattern == ArtilleryPattern.LASER_CURTAIN else 1
+		var needed: int = MovingLaserGate.beam_count(1 if pattern == ArtilleryPattern.LASER_GRID else 0) if arcade_arsenal and pattern in [7, 8] else 6 if pattern == ArtilleryPattern.LASER_GRID else 4 if pattern == ArtilleryPattern.LASER_CURTAIN else 1
 		# Réserver six places aux beams en finale, même pendant les rafales locales.
 		var limit: int = artillery_limit - 6 if artillery_limit <= 60 and pattern not in [ArtilleryPattern.LASER_GRID, ArtilleryPattern.LASER_CURTAIN] else artillery_limit
 		if ArtilleryZone.dangerous_count(get_tree()) + needed > limit:
 			continue # Plafond global ; aucune file d'attente retardée sans limite.
 		if pattern in [ArtilleryPattern.LASER_CURTAIN, ArtilleryPattern.LASER_GRID]:
-			if readable_arsenal and pattern == ArtilleryPattern.LASER_GRID and _grid_exists():
+			if (arcade_arsenal and _large_gate_exists()) or (readable_arsenal and pattern == ArtilleryPattern.LASER_GRID and _grid_exists()):
 				continue
 			if get_tree().get_nodes_in_group("combat_hazards").size() >= 6:
+				continue
+			if arcade_arsenal:
+				_launch_gate(spec)
 				continue
 			var zone: ArtilleryZone = ArtilleryZone.new()
 			zone.kind = ArtilleryZone.Kind.GRID if pattern == ArtilleryPattern.LASER_GRID else ArtilleryZone.Kind.CURTAIN
@@ -539,3 +546,25 @@ func _dense_cluster(targets: Array[BlueShip]) -> Dictionary:
 		point += blue.global_position
 		speed += blue.velocity
 	return {"position": point / best.size() if not best.is_empty() else observed_center, "velocity": speed / best.size() if not best.is_empty() else observed_velocity}
+
+
+func _large_gate_exists() -> bool:
+	for node: Node in get_tree().get_nodes_in_group("combat_hazards"):
+		if node is MovingLaserGate and not node.is_queued_for_deletion():
+			return true
+	return false
+
+
+func _launch_gate(spec: Dictionary) -> void:
+	var gate: MovingLaserGate = MovingLaserGate.new()
+	gate.variant = MovingLaserGate.Variant.ROTATING_LASER_GRID if int(spec.pattern) == ArtilleryPattern.LASER_GRID else MovingLaserGate.Variant.LASER_GATE
+	gate.angular_speed_degrees = -25 if salvos_fired % 3 == 2 else 25 if gate.variant == MovingLaserGate.Variant.ROTATING_LASER_GRID else 15
+	gate.rotation_profile = MovingLaserGate.RotationProfile.REVERSE_ROTATION if gate.angular_speed_degrees < 0 else MovingLaserGate.RotationProfile.MEDIUM_ROTATION if gate.angular_speed_degrees == 25 else MovingLaserGate.RotationProfile.SLOW_ROTATION
+	gate.initial_tilt_degrees = [0, 20, 35, 45][salvos_fired % 4]
+	var origin: Vector3 = global_position + Vector3(spec.local_origin)
+	var aim: Vector3 = CombatPrediction.aim(origin, observed_center, observed_velocity, 45)
+	gate.velocity = (aim - origin).normalized() * 45
+	gate.active_time = origin.distance_to(aim) / 45 + 5
+	gate.position = projectile_container.to_local(origin)
+	projectile_container.add_child(gate)
+	_flash_time = 0.5

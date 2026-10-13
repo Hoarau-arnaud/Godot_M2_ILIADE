@@ -38,6 +38,7 @@ var storm_samples: Array[Dictionary] = []
 var storm_speed_min: float = INF
 var storm_speed_max: float = 0
 var storm_size_bins: Array[int] = [0, 0, 0, 0]
+var colossal_generated: int = 0
 var mega_generated: int = 0
 var mega_types: Dictionary[int, int] = {}
 var _storm_serial: int = 0
@@ -70,6 +71,7 @@ func initialize_field(seed_value: int, center: Vector3, front_z: float) -> void:
 	_pending_pattern = -1
 	_storm_serial = 0
 	mega_generated = 0
+	colossal_generated = 0
 	mega_types.clear()
 	_storm_container = null
 	_storm_visuals = null
@@ -447,7 +449,8 @@ func advance_storm(center: Vector3) -> void:
 		if rock.is_queued_for_deletion():
 			continue
 		var relative: Vector3 = rock.global_position - center
-		if relative.z > 80 or relative.z < -340 or absf(relative.x) > 110 or absf(relative.y) > 85:
+		var extra: float = rock.avoidance_radius if rock.diameter >= 60 else 0
+		if relative.z > 80 + extra or relative.z < -340 - extra or absf(relative.x) > 110 + extra or absf(relative.y) > 85 + extra:
 			rock.remove_from_group("asteroids")
 			rock.collision_layer = 0
 			active_asteroid_count -= 1
@@ -549,3 +552,33 @@ func spawn_fast_crossing(center: Vector3) -> void:
 		_storm_container.add_child(rock)
 		active_asteroid_count += 1
 		active_mobile_count += 1
+
+
+func spawn_colossal(center: Vector3, fleet_velocity: Vector3, diameter_value: float = 96) -> SpaceAsteroid:
+	if not is_instance_valid(_storm_container) or active_asteroid_count >= max_active_asteroids:
+		return null
+	for node: Node in _storm_container.get_children():
+		if node is SpaceAsteroid and (node as SpaceAsteroid).diameter >= 60 and not node.is_queued_for_deletion():
+			return null
+	var travel: Vector3 = Vector3(-3, -3, 4)
+	var crossing: Vector3 = center + fleet_velocity * 11 + Vector3(18, diameter_value * 0.35, 0)
+	var candidate: Vector3 = crossing - travel * 11
+	for node: Node in get_tree().get_nodes_in_group("blue_ships"):
+		if candidate.distance_to((node as Node3D).global_position) < diameter_value * 0.65 + 25:
+			return null
+	var rock: SpaceAsteroid = ASTEROID_SCENE.instantiate() as SpaceAsteroid
+	rock.name = "Colossal_%d" % colossal_generated
+	rock.diameter = diameter_value
+	rock.size_category = SpaceAsteroid.SizeCategory.COLOSSAL
+	rock.shape_seed = _seed + 15701 + colossal_generated * 997
+	rock.threat_strength = 1.6
+	rock.single_convex_envelope = true
+	rock.motion_type = SpaceAsteroid.MotionType.LINEAR
+	rock.motion_velocity = travel
+	rock.motion_duration = 80
+	rock.position = _storm_container.to_local(candidate) - rock.trajectory_offset(0)
+	_storm_container.add_child(rock)
+	active_asteroid_count += 1
+	active_mobile_count += 1
+	colossal_generated += 1
+	return rock

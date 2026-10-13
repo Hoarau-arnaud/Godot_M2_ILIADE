@@ -1,7 +1,7 @@
 class_name SpaceAsteroid
 extends AnimatableBody3D
 
-enum SizeCategory { SMALL, MEDIUM, LARGE, MEGA }
+enum SizeCategory { SMALL, MEDIUM, LARGE, MEGA, COLOSSAL }
 enum MegaTrajectory { MEGA_LINEAR, MEGA_DIAGONAL, MEGA_VERTICAL, MEGA_SLOW_CROSSING }
 var mega_trajectory: MegaTrajectory = MegaTrajectory.MEGA_LINEAR
 var threat_strength: float = 1.0
@@ -12,7 +12,7 @@ var single_convex_envelope: bool = false
 var _envelope_points: PackedVector3Array = PackedVector3Array()
 
 @export var size_category: SizeCategory = SizeCategory.MEDIUM
-@export_range(0.6, 60.0, 0.1) var diameter: float = 3.0
+@export_range(0.6, 160.0, 0.1) var diameter: float = 3.0
 @export var shape_seed: int = 1
 @export var rotation_speed: float = 0.1
 @export_category("Trajectoire environnementale")
@@ -53,7 +53,7 @@ func _ready() -> void:
 	material.roughness = 0.96
 	var core_scale: Vector3 = Vector3(random.randf_range(0.65, 0.94), random.randf_range(0.5, 0.86), random.randf_range(0.65, 0.94)) * radius
 	_add_lobe(Vector3.ZERO, core_scale, Vector3.ZERO, material, false)
-	var lobe_count: int = 1 + int(size_category)
+	var lobe_count: int = 7 if size_category == SizeCategory.COLOSSAL else 1 + int(size_category)
 	for index: int in range(lobe_count):
 		var angle: float = TAU * float(index) / float(lobe_count) + random.randf_range(-0.45, 0.45)
 		var offset: Vector3 = Vector3(cos(angle), random.randf_range(-0.65, 0.65), sin(angle)).normalized() * radius * 0.5
@@ -62,7 +62,7 @@ func _ready() -> void:
 		var lobe_material: StandardMaterial3D = material.duplicate() as StandardMaterial3D
 		lobe_material.albedo_color *= random.randf_range(0.85, 1.08)
 		lobe_material.albedo_color.a = 1.0
-		_add_lobe(offset, lobe_scale, lobe_rotation, lobe_material, size_category == SizeCategory.LARGE and index % 2 == 0)
+		_add_lobe(offset, lobe_scale, lobe_rotation, lobe_material, size_category in [SizeCategory.LARGE, SizeCategory.COLOSSAL] and index % 2 == 0)
 	if single_convex_envelope:
 		visuals.hide() # Le rendu exact des lobes est assuré par StormRockVisuals.
 		var envelope: ConvexPolygonShape3D = ConvexPolygonShape3D.new()

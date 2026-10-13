@@ -103,6 +103,15 @@ var evasive_boost_count: int = 0
 var critical_threat_count: int = 0
 var near_miss_count: int = 0
 var asteroid_near_miss_count: int = 0
+var arcade_visuals_enabled: bool = false
+var gate_opening_choices: int = 0
+var gate_opening_changes: int = 0
+var _gate_memory: Dictionary[MovingLaserGate, Dictionary] = {}
+var _aura_blend: float = 0
+var _aura: MeshInstance3D
+var _aura_material: StandardMaterial3D
+var _aura_ring_material: StandardMaterial3D
+var _boost_rings: Array[MeshInstance3D] = []
 var adaptive_threat_response: bool = false
 var reinforcement_glow_remaining: float = 0
 var _boost_strength: float = 1
@@ -436,7 +445,7 @@ func _find_threats() -> void:
 		var remembered: bool = _avoid_directions.has(obstacle)
 		var clearance: float = obstacle.avoidance_radius + SHIP_CLEARANCE + maxf(obstacle_clearance, 0.0)
 		if obstacle.motion_type != SpaceAsteroid.MotionType.STATIC:
-			var prediction: Vector2 = MobileAvoidance.approach(offset, obstacle.velocity - velocity, 7.0 if adaptive_threat_response and obstacle.diameter >= 20 else mobile_prediction_time)
+			var prediction: Vector2 = MobileAvoidance.approach(offset, obstacle.velocity - velocity, 12.0 if adaptive_threat_response and obstacle.diameter >= 60 else 7.0 if adaptive_threat_response and obstacle.diameter >= 20 else mobile_prediction_time)
 			if prediction.y < clearance + 1.0 or remembered:
 				_insert_threat(obstacle)
 			continue
@@ -486,7 +495,9 @@ func _obstacle_avoidance() -> Vector3:
 		if not _avoid_directions.has(obstacle):
 			_record_reaction(obstacle)
 			_avoid_directions[obstacle] = _choose_avoidance_direction(obstacle)
-			obstacle.tree_exiting.connect(_forget_obstacle.bind(obstacle), CONNECT_ONE_SHOT)
+			var callback: Callable = _forget_obstacle.bind(obstacle)
+			if not obstacle.tree_exiting.is_connected(callback):
+				obstacle.tree_exiting.connect(callback, CONNECT_ONE_SHOT)
 		var force: Vector3 = _avoidance_force(obstacle, _avoid_directions[obstacle])
 		if index == 0:
 			primary_force = force
@@ -593,6 +604,17 @@ func _projectile_avoidance() -> Vector3:
 		projectile_threat_count += 1
 	for node: Node in get_tree().get_nodes_in_group("combat_hazards"):
 		var zone: ArtilleryZone = node as ArtilleryZone
+		if zone is MovingLaserGate:
+			var gate: MovingLaserGate = zone as MovingLaserGate
+			var gate_force: Vector3 = _gate_passage_force(gate)
+			if not gate_force.is_zero_approx():
+				_record_reaction(gate)
+				result = gate_force
+				projectile_threat_count += 1
+				var until: float = gate.crossing_time(global_position, velocity)
+				if evasive_boost_enabled and until < 0.7 and gate.beam_clearance(global_position + velocity * until, until) < SHIP_CLEARANCE + 2:
+					_consider_zone_boost(gate, gate_force)
+			continue
 		var force: Vector3 = zone.avoidance_force(global_position, velocity)
 		if evasive_boost_enabled and not force.is_zero_approx() and zone.delay - zone.age <= 1.0:
 			_consider_zone_boost(zone, force)
@@ -641,7 +663,7 @@ func _avoidance_force(obstacle: SpaceAsteroid, direction: Vector3) -> Vector3:
 	var clearance: float = obstacle.avoidance_radius + SHIP_CLEARANCE + maxf(obstacle_clearance, 0.0)
 	if obstacle.motion_type != SpaceAsteroid.MotionType.STATIC:
 		var relative_velocity: Vector3 = obstacle.velocity - velocity
-		var prediction: Vector2 = MobileAvoidance.approach(offset, relative_velocity, 7.0 if adaptive_threat_response and obstacle.diameter >= 20 else mobile_prediction_time)
+		var prediction: Vector2 = MobileAvoidance.approach(offset, relative_velocity, 12.0 if adaptive_threat_response and obstacle.diameter >= 60 else 7.0 if adaptive_threat_response and obstacle.diameter >= 20 else mobile_prediction_time)
 		return MobileAvoidance.steering(offset, relative_velocity, prediction.x, clearance + (7 if adaptive_threat_response and obstacle.diameter >= 20 else 0.5), direction)
 	var lateral_offset: Vector3 = Vector3(-offset.x, -offset.y, 0.0)
 	var remaining: float = clearance + 0.5 - lateral_offset.dot(direction)
@@ -654,7 +676,7 @@ func _choose_avoidance_direction(obstacle: SpaceAsteroid) -> Vector3:
 	var offset: Vector3 = obstacle.global_position - global_position
 	var time_to_obstacle: float = maxf(-offset.z / maxf(-velocity.z, 0.1), 0.0)
 	if obstacle.motion_type != SpaceAsteroid.MotionType.STATIC:
-		time_to_obstacle = MobileAvoidance.approach(offset, obstacle.velocity - velocity, 7.0 if adaptive_threat_response and obstacle.diameter >= 20 else mobile_prediction_time).x
+		time_to_obstacle = MobileAvoidance.approach(offset, obstacle.velocity - velocity, 12.0 if adaptive_threat_response and obstacle.diameter >= 60 else 7.0 if adaptive_threat_response and obstacle.diameter >= 20 else mobile_prediction_time).x
 	var future_offset: Vector3 = global_position + velocity * time_to_obstacle - (obstacle.global_position + obstacle.velocity * time_to_obstacle)
 	future_offset.z = 0.0
 	var preferred: Vector3 = future_offset.normalized() if future_offset.length_squared() > 0.04 else _preferred_avoidance
@@ -699,8 +721,10 @@ func _update_orientation(delta: float) -> void:
 
 func _update_exhausts() -> void:
 	var visual_boost: float = maxf(_boost_blend, 0.65 if reinforcement_glow_remaining > 0 else 0)
-	var boost_scale: float = lerpf(1, 2.2, visual_boost)
-	_boost_material.emission_energy_multiplier = lerpf(1.5, 5.0, visual_boost)
+	var boost_scale: float = lerpf(1, 2.8 if arcade_visuals_enabled else 2.2, visual_boost)
+	_boost_material.emission_energy_multiplier = lerpf(1.5, 7.0 if arcade_visuals_enabled else 5.0, visual_boost)
+	if arcade_visuals_enabled:
+		_update_arcade_boost(visual_boost)
 	_boost_streak.visible = _boost_blend > 0.15
 	_boost_streak.scale.z = lerpf(0.5, 1.3, _boost_blend)
 	var thrust: float = 0.65 + clampf(velocity.length() / maxf(forward_speed, 0.1), 0.4, 1.8) * 0.5
@@ -726,6 +750,7 @@ func _stop_navigation() -> void:
 	_drone_directions.clear()
 	_projectile_directions.clear()
 	_projectile_memory_until.clear()
+	_gate_memory.clear()
 	_near_passes.clear()
 	_critical_ids.clear()
 	_reaction_ids.clear()
@@ -766,6 +791,8 @@ func _build_boost_visual() -> void:
 	_boost_streak.position = Vector3(0, 0, 6)
 	_boost_streak.hide()
 	_visuals.add_child(_boost_streak)
+	if arcade_visuals_enabled:
+		_build_arcade_boost()
 
 
 func _consider_boost(node: Node3D, offset: Vector3, relative: Vector3, clearance: float, horizon: float, weight: float, asteroid: bool) -> void:
@@ -878,6 +905,12 @@ func _track_near_pass(node: Node3D, offset: Vector3, relative: Vector3, radius_v
 
 
 func _cleanup_local_metrics() -> void:
+	for key: Variant in _gate_memory.keys():
+		if not is_instance_valid(key):
+			_gate_memory.erase(key)
+			continue
+		if (key as MovingLaserGate).is_queued_for_deletion():
+			_gate_memory.erase(key)
 	for id: int in _reaction_ids.keys():
 		var node: Node3D = _reaction_ids[id].get_ref() as Node3D
 		if not is_instance_valid(node) or node.global_position.distance_to(global_position) > 240:
@@ -894,6 +927,8 @@ func _cleanup_local_metrics() -> void:
 func effective_obstacle_detection(obstacle: SpaceAsteroid) -> float:
 	if not adaptive_threat_response or obstacle_detection_radius <= 0:
 		return maxf(obstacle_detection_radius, 0)
+	if obstacle.diameter >= 60:
+		return clampf(110 + obstacle.avoidance_radius * 2.4, 150, 250)
 	return clampf(obstacle_detection_radius + obstacle.avoidance_radius * 3.8, obstacle_detection_radius, 140)
 
 
@@ -903,3 +938,107 @@ func _record_reaction(node: Node3D) -> void:
 		return
 	_reaction_ids[id] = weakref(node)
 	threat_reaction.emit(str(node.get_meta("weapon_family", "Mega" if node is SpaceAsteroid and (node as SpaceAsteroid).diameter >= 20 else "Small")))
+
+
+func _gate_passage_force(gate: MovingLaserGate) -> Vector3:
+	var time: float = gate.crossing_time(global_position, velocity)
+	if time < 0 or time > 6 or global_position.distance_to(gate.global_position) > gate.detection_radius:
+		_gate_memory.erase(gate)
+		return Vector3.ZERO
+	var openings: Array[Vector3] = gate.safe_openings(time)
+	var selected: int = -1
+	if _gate_memory.has(gate):
+		selected = int(_gate_memory[gate].index)
+		var gap: Vector3 = openings[selected] - global_position
+		var reachable: bool = Vector2(gap.x, gap.y).length() / maxf(time, 0.4) <= max_side_speed * 1.3
+		if _time < float(_gate_memory[gate].until) or (reachable and _opening_clear(openings[selected], time)):
+			return Vector3(gap.x, gap.y, 0).limit_length(max_side_speed * maxf(time, 0.4)) / maxf(time, 0.4) / projectile_avoidance_weight
+	var best_score: float = INF
+	var previous: int = selected
+	for index: int in range(openings.size()):
+		var opening: Vector3 = openings[index]
+		var gap: Vector3 = opening - global_position
+		var score: float = Vector2(gap.x, gap.y).length()
+		score += Vector2(gap.x - velocity.x * time, gap.y - velocity.y * time).length() * 0.3
+		if not _opening_clear(opening, time):
+			score += 120
+		for node: Node in get_tree().get_nodes_in_group("blue_ships"):
+			var other: BlueShip = node as BlueShip
+			if other != self:
+				score += maxf(11 - opening.distance_to(other.global_position + other.velocity * time), 0) * 2
+		if score < best_score:
+			best_score = score
+			selected = index
+	if previous != selected:
+		gate_opening_choices += 1
+		gate.opening_choices += 1
+		if previous >= 0:
+			gate_opening_changes += 1
+			gate.opening_changes += 1
+	_gate_memory[gate] = {"index": selected, "until": _time + 1.0}
+	var toward: Vector3 = openings[selected] - global_position
+	return Vector3(toward.x, toward.y, 0).limit_length(max_side_speed * maxf(time, 0.4)) / maxf(time, 0.4) / projectile_avoidance_weight
+
+
+func _opening_clear(point: Vector3, time: float) -> bool:
+	for node: Node in get_tree().get_nodes_in_group("asteroids"):
+		var rock: SpaceAsteroid = node as SpaceAsteroid
+		if point.distance_to(rock.global_position + rock.velocity * time) < rock.avoidance_radius + SHIP_CLEARANCE + 3:
+			return false
+	return true
+
+
+func _build_arcade_boost() -> void:
+	_aura_material = StandardMaterial3D.new()
+	_aura_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_aura_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_aura_material.albedo_color = Color(1, 0.75, 0.12, 0)
+	_aura_material.emission_enabled = true
+	_aura_material.emission = Color(1, 0.48, 0.03)
+	_aura_material.emission_energy_multiplier = 4
+	_aura_ring_material = _aura_material.duplicate() as StandardMaterial3D
+	_aura = MeshInstance3D.new()
+	_aura.name = "GoldenBoostAura"
+	var shell: SphereMesh = SphereMesh.new()
+	shell.radius = 1
+	shell.height = 2
+	shell.radial_segments = 12
+	shell.rings = 6
+	_aura.mesh = shell
+	_aura.material_override = _aura_material
+	_aura.hide()
+	_visuals.add_child(_aura)
+	for index: int in range(2):
+		var display: MeshInstance3D = MeshInstance3D.new()
+		display.name = "ReusableBoostRing_%d" % index
+		var ring: TorusMesh = TorusMesh.new()
+		ring.inner_radius = 1.6
+		ring.outer_radius = 1.78
+		ring.rings = 16
+		ring.ring_segments = 5
+		display.mesh = ring
+		display.material_override = _aura_ring_material
+		display.rotation_degrees.x = 90
+		display.hide()
+		_visuals.add_child(display)
+		_boost_rings.append(display)
+
+
+func _update_arcade_boost(visual_boost: float) -> void:
+	var desired: float = visual_boost if evasive_boost_remaining > 0 or reinforcement_glow_remaining > 0 else 0
+	_aura_blend = move_toward(_aura_blend, desired, get_physics_process_delta_time() * (12 if desired > _aura_blend else 2.5))
+	_aura.visible = _aura_blend > 0.025
+	_aura_material.albedo_color.a = 0.22 * _aura_blend
+	_aura_ring_material.albedo_color.a = 0.8 * _aura_blend
+	_aura_ring_material.emission_energy_multiplier = 5
+	_aura_material.emission_energy_multiplier = 3 + _aura_blend * 3
+	_aura.scale = Vector3(1.8, 0.7, 2.4) * (0.92 + _aura_blend * 0.16 + sin(_time * 13) * _aura_blend * 0.025)
+	var width: float = 1 + _aura_blend * 0.18 + clampf(velocity.length() / forward_speed - 1, 0, 0.3)
+	_right_exhaust.scale.x = width
+	_left_exhaust.scale.x = width
+	for index: int in range(_boost_rings.size()):
+		var ring: MeshInstance3D = _boost_rings[index]
+		var phase: float = fposmod(_time * 2.2 + index * 0.5, 1)
+		ring.visible = _aura.visible
+		ring.position.z = 3 + phase * 6
+		ring.scale = Vector3.ONE * (0.65 + phase * 0.6) * _aura_blend

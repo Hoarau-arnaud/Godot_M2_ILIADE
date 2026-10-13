@@ -19,6 +19,7 @@ var readability_center: Vector3 = Vector3.ZERO
 var _debris: MultiMeshInstance3D
 var _debris_points: PackedVector3Array = PackedVector3Array()
 var _debris_bases: Array[Basis] = []
+var _arcade_layer: ArcadeBackdrop
 var _backdrop: Node3D
 var guided_speed_effect: float = 1
 var streak_length_multiplier: float = 1.0
@@ -309,3 +310,18 @@ func _create_near_debris() -> void:
 		_debris_points.append(point)
 		_debris_bases.append(orientation)
 		_debris.multimesh.set_instance_transform(index, Transform3D(orientation, point))
+
+
+func set_arcade_mode(enabled: bool) -> void:
+	if enabled and not is_instance_valid(_arcade_layer):
+		_arcade_layer = ArcadeBackdrop.new()
+		_arcade_layer.name = "OriginalArcadeBackdrop"
+		_backdrop.add_child(_arcade_layer)
+	if is_instance_valid(_arcade_layer):
+		_arcade_layer.visible = enabled
+		_arcade_layer.set_process(enabled)
+	for node: Node in _backdrop.get_children():
+		if node is MeshInstance3D and (node as MeshInstance3D).material_override is ShaderMaterial:
+			var surface: ShaderMaterial = (node as MeshInstance3D).material_override as ShaderMaterial
+			if surface.shader == preload("res://materials/planet_surface.gdshader"):
+				surface.set_shader_parameter("arcade_palette", enabled)
