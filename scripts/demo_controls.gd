@@ -31,20 +31,69 @@ var _counts: Dictionary[String, Label] = {}
 var minus_buttons: Dictionary[String, Button] = {}
 var plus_buttons: Dictionary[String, Button] = {}
 var _displayed_level: int = 0
+var pause_label: Label
+var phase_buttons: Array[Button] = []
 
 
 func _ready() -> void:
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	layer = 2
 	_build_stars()
 	_build_panel()
 	_build_help()
 	_build_phase_label()
 	_build_game_over()
+	_build_pause_label()
+	get_viewport().size_changed.connect(_fit_panel)
+	_fit_panel()
 	update_level(1)
 
 
 func _simulation() -> SpaceSimulation:
 	return get_parent() as SpaceSimulation
+
+
+func _fit_panel() -> void:
+	panel.offset_bottom = minf(760, get_viewport().get_visible_rect().size.y - 18)
+
+
+func _build_pause_label() -> void:
+	pause_label = _label("PAUSE")
+	pause_label.name = "PresentationPause"
+	pause_label.anchor_left = 0.5
+	pause_label.anchor_right = 0.5
+	pause_label.offset_left = -80
+	pause_label.offset_right = 80
+	pause_label.offset_top = 108
+	pause_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	pause_label.add_theme_font_size_override("font_size", 20)
+	pause_label.add_theme_color_override("font_color", Color(1, 0.8, 0.35))
+	pause_label.hide()
+	add_child(pause_label)
+
+
+func _input(event: InputEvent) -> void:
+	if not event is InputEventKey or not event.pressed or event.echo:
+		return
+	if event.alt_pressed or event.ctrl_pressed or event.meta_pressed:
+		return
+	var key: int = event.keycode if event.keycode != 0 else event.physical_keycode
+	var sim: SpaceSimulation = _simulation()
+	if key >= KEY_F1 and key <= KEY_F6:
+		sim.demonstration.jump_to_phase(key - KEY_F1)
+	elif key in [KEY_P, KEY_PAUSE]:
+		sim.set_presentation_paused(not get_tree().paused)
+	elif get_tree().paused and event.is_action_pressed("guided_demo_toggle"):
+		sim.demonstration.toggle()
+	elif get_tree().paused and event.is_action_pressed("demo_panel_toggle"):
+		toggle_panel()
+	elif get_tree().paused and event.is_action_pressed("camera_help_toggle"):
+		toggle_help()
+	elif get_tree().paused and event.is_action_pressed("presentation_fullscreen"):
+		sim.presentation_window.toggle_fullscreen()
+	else:
+		return
+	get_viewport().set_input_as_handled()
 
 
 func _build_stars() -> void:
@@ -87,7 +136,12 @@ func _build_panel() -> void:
 	var layout: VBoxContainer = VBoxContainer.new()
 	layout.name = "Layout"
 	layout.add_theme_constant_override("separation", 4)
-	panel.add_child(layout)
+	var scroll: ScrollContainer = ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	panel.add_child(scroll)
+	layout.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(layout)
 	var heading: Label = _label("Contrôles")
 	heading.add_theme_font_size_override("font_size", 20)
 	heading.add_theme_color_override("font_color", Color(0.45, 0.87, 1.0))
@@ -105,6 +159,16 @@ func _build_panel() -> void:
 	restart_demo_button = _button("Recommencer démo")
 	restart_demo_button.pressed.connect(func() -> void: _simulation().demonstration.restart())
 	layout.add_child(restart_demo_button)
+	layout.add_child(_label("Phases démo"))
+	var phases: HBoxContainer = HBoxContainer.new()
+	for index: int in range(6):
+		var phase: Button = _button("P%d" % (index + 1))
+		phase.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		phase.tooltip_text = "F%d — %s" % [index + 1, ["Obstacles", "Astéroïdes dynamiques", "PatrolDrone", "Interceptor", "Capital / artillerie", "Assaut final"][index]]
+		phase.pressed.connect(func() -> void: _simulation().demonstration.jump_to_phase(index))
+		phases.add_child(phase)
+		phase_buttons.append(phase)
+	layout.add_child(phases)
 	_speed_value = _slider_heading(layout, "Vitesse")
 	speed_slider = _slider(layout, "Speed", 0.5, 2.5, 1.5)
 	speed_slider.value_changed.connect(func(value: float) -> void: _simulation().set_simulation_speed(value))
@@ -159,7 +223,7 @@ func _build_help() -> void:
 	help_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	help_panel.add_theme_stylebox_override("panel", _box(Color(0.012, 0.025, 0.065, 0.75), 10))
 	add_child(help_panel)
-	var label: Label = _label("D : Démarrer / arrêter la démo guidée\nF : Suivi / Libre    C : Cinématique\nClic droit + souris : Orbite (Libre)\nMolette : Zoom (Libre)\nFlèches / W / Z / S / A / Q : Déplacer\nPageUp / E : Monter · PageDown : Descendre\nG / Home : Recentrer\nF11 / Alt+Entrée : Plein écran\nTAB : Réglages    H : Aide")
+	var label: Label = _label("D : Démarrer / arrêter la démo guidée\nF1–F6 : Phases    P / Pause : Pause\nF : Suivi / Libre    C : Cinématique\nClic droit + souris : Orbite (Libre)\nMolette : Zoom (Libre)\nFlèches / W / Z / S / A / Q : Déplacer\nPageUp / E : Monter · PageDown : Descendre\nG / Home : Recentrer\nF11 / Alt+Entrée : Plein écran\nTAB : Réglages    H : Aide")
 	label.add_theme_font_size_override("font_size", 13)
 	help_panel.add_child(label)
 

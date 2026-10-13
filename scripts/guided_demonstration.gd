@@ -88,6 +88,7 @@ func phase_duration(index: int) -> float:
 
 
 func start() -> void:
+	simulation.set_presentation_paused(false)
 	if is_guided():
 		restart()
 		return
@@ -101,6 +102,7 @@ func start() -> void:
 	simulation.distance_travelled = 0
 	simulation.elapsed_simulation_time = 0
 	simulation.death_count = 0
+	simulation.death_causes.clear()
 	simulation.reset_threat_metrics()
 	simulation.reinforcement_count = 0
 	simulation.reinforcement_waits.clear()
@@ -139,6 +141,7 @@ func restart() -> void:
 func stop() -> void:
 	if not is_guided():
 		return
+	simulation.set_presentation_paused(false)
 	game_over = false
 	simulation.demo_controls.show_game_over(false)
 	last_duration = elapsed_real
@@ -293,8 +296,24 @@ func choreographed() -> bool:
 	return spectacle() and simulation.threat_choreography_enabled
 
 
-func _begin_phase(index: int, center: Vector3) -> void:
-	_clear_stage(choreographed() and index > 0)
+func jump_to_phase(index: int) -> bool:
+	if index < 0 or index >= TITLES.size():
+		return false
+	var was_paused: bool = get_tree().paused
+	if not is_guided():
+		start()
+	game_over = false
+	simulation.demo_controls.show_game_over(false)
+	simulation.reinforcement_waits.clear()
+	simulation._reinforcement_stagger = 0
+	simulation.camera.initialize_view(Vector3.ZERO, demonstration_seed)
+	_begin_phase(index, Vector3.ZERO, false)
+	simulation.set_presentation_paused(was_paused)
+	return true
+
+
+func _begin_phase(index: int, center: Vector3, preserve_blues: bool = true) -> void:
+	_clear_stage(preserve_blues and choreographed() and index > 0)
 	phase_index = index
 	phase_elapsed = 0
 	_phase_deaths = simulation.death_count
@@ -310,7 +329,7 @@ func _begin_phase(index: int, center: Vector3) -> void:
 	simulation.manual_drone_count_override = (4 if choreographed() else 5) if index == 5 else 4 if index == 2 else 0
 	simulation.manual_interceptor_count_override = (4 if choreographed() else 5 if spectacle() else 4) if index in [3, 5] else 0
 	simulation.manual_capital_count_override = (3 if choreographed() else 5 if index == 4 else 4) if spectacle() and index in [4, 5] else 1 if index in [4, 5] else 0
-	for ship_index: int in range(15 - simulation.ships.size() if index == 0 or not choreographed() else 0):
+	for ship_index: int in range(15 - simulation.ships.size() if index == 0 or not choreographed() or not preserve_blues else 0):
 		var offset: Vector3 = Vector3((ship_index % 3 - 1) * 9.5, (ship_index / 3 % 3 - 1) * 9.5, (ship_index / 9) * 12 + (ship_index % 3) * 2)
 		if index == 5 and ship_index >= 13:
 			# Deux voisins restent dans la portée de récupération, sans consigne de vol.
