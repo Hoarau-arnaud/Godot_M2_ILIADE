@@ -84,6 +84,7 @@ func _build_panel() -> void:
 	_population_row(layout, "BlueShip")
 	_population_row(layout, "PatrolDrone")
 	_population_row(layout, "Interceptor")
+	_population_row(layout, "Capital Ship")
 	_movement_value = _slider_heading(layout, "Mouvement")
 	movement_slider = _slider(layout, "Movement", 0.5, 2.0, 1.0)
 	movement_slider.value_changed.connect(func(value: float) -> void: _simulation().set_movement_multiplier(value))
@@ -217,6 +218,7 @@ func _change_count(kind: String, amount: int) -> void:
 		"BlueShip": simulation.set_ship_count(simulation.target_ship_count + amount)
 		"PatrolDrone": simulation.set_drone_count_override(simulation.target_drone_count() + amount)
 		"Interceptor": simulation.set_interceptor_count_override(simulation.target_interceptor_count() + amount)
+		"Capital Ship": simulation.set_capital_count_override(simulation.target_capital_count() + amount)
 
 
 func _panel_input(event: InputEvent) -> void:
@@ -253,12 +255,13 @@ func refresh(simulation: SpaceSimulation) -> void:
 	_set_count("BlueShip", simulation.target_ship_count, 5, 20)
 	_set_count("PatrolDrone", simulation.target_drone_count(), 0, 8)
 	_set_count("Interceptor", simulation.target_interceptor_count(), 0, 8)
+	_set_count("Capital Ship", simulation.target_capital_count(), 0, 1)
 	cinematic_button.set_pressed_no_signal(simulation.camera.mode == SimulationCamera.Mode.CINEMATIC)
 	fullscreen_button.set_pressed_no_signal(simulation.presentation_window.is_fullscreen())
 
 
 func _set_count(kind: String, value: int, minimum: int, maximum: int) -> void:
-	_counts[kind].text = str(value)
+	_counts[kind].text = "%d/1" % value if kind == "Capital Ship" else str(value)
 	minus_buttons[kind].disabled = value <= minimum
 	plus_buttons[kind].disabled = value >= maximum
 

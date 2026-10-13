@@ -6,7 +6,7 @@ Le projet consiste à réaliser sous **Godot 4.7.2** une simulation 3D de systè
 
 L'objectif est d'observer comment plusieurs agents autonomes se déplacent, perçoivent leur environnement, évitent des dangers et réagissent à d'autres agents. Le projet est développé progressivement afin de conserver un modèle simple, compréhensible et facile à présenter.
 
-À terme, la simulation devra comporter au moins **4 types d'agents** et mettre en évidence au moins **un phénomène émergent**.
+La simulation comporte désormais **quatre types d’agents : BlueShip, PatrolDrone, Interceptor et Capital Artillery Ship**. Elle remplit explicitement le critère « au moins 4 types d’agents ». Le phénomène étudié reste l’organisation collective, la dispersion et le regroupement.
 
 ---
 
@@ -242,7 +242,7 @@ Le minimum graphique sur les fenêtres d'une seconde vaut **92,9 FPS**, au-dessu
 
 ### Agent 1 — Chasseur bleu
 
-Le chasseur bleu est **le premier des trois types d'agents** actuellement implémentés.
+Le chasseur bleu est **le premier des quatre types d'agents** actuellement implémentés.
 
 Il peut :
 
@@ -335,6 +335,41 @@ L'intercepteur possède **4 HP**. Il appartient à `hostile_agents`, donc les Bl
 
 Il tire seulement pendant la poursuite, devant son nez, à **52 m**, dans un demi-cône de **10°** et avec une ligne de vue libre. Les rafales comptent **trois tirs espacés de 0,2 s**, puis une pause de **1,6 s**. Le laser rouge/orange avance en ligne droite à **45 m/s**, vit au plus **3,5 s** et retire **1 HP**. Il ignore les ennemis verts et rouges. Les deux couleurs de laser sont absorbées par les astéroïdes sans les endommager.
 
+### Agent 4 — Capital Artillery Ship
+
+Un grand vaisseau low-poly à coque de 66 m, pont central, deux bras, batteries, lanceurs et quatre moteurs. Il observe le groupe bleu (centre approximatif, vitesse moyenne, dispersion, nombre vivant) et les obstacles proches. Ses actions sont observer, choisir une attaque, préparer, tirer, se repositionner et éviter. Les astéroïdes restent l’environnement ; les missiles ne sont pas des agents.
+
+Il accompagne le groupe vers −Z, généralement à 190 m devant (zone normale visée 120–250 m), avec une lente dérive. Il dispose de **24 HP**, chaque BlueLaser retire **1 HP**. Après trois salves, il peut se rapprocher vers **65 m** (zone visée 50–90 m) pendant 10 s. Son blindage arrière devient accessible au tir frontal bleu, sans changer la portée ni faire poursuivre les chasseurs.
+
+Les cinq patterns sont **HEAVY_SHOT** (27 m/s, 2 HP, rayon d’esquive 10 m), **SPREAD** (5 tirs en éventail), **ARC_SALVO** (4 trajectoires courbes), **CROSS_FIRE** (6 tirs issus de deux lanceurs) et **SEEKER_SALVO** (3 missiles à correction limitée à 6°/s). Les quatre dernières familles progressent à 30 m/s, retirent 1 HP et ont un rayon de 4 m, ou 5 m pour le Seeker. Les missiles sont des objets de combat, avec une durée de vie de 14 s et un plafond partagé de 50. Le choix est reproductible et fait une fois, au passage Observation → Préparation.
+
+La préparation lumineuse dure **0,8–1,8 s**, le cooldown **3–6 s**. À zéro HP, les moteurs s’éteignent, plusieurs explosions précèdent une explosion finale, puis le vaisseau disparaît après 3,4 s. Le score ennemi augmente une fois ; les tirs existants continuent. Un remplaçant sûr peut arriver après **25 s**. Population selon niveau : **0 / 0 / 1**. Le panneau permet 0–1 et Reset agents reprend le niveau. Le spectacle demande **15 BlueShip, 5 PatrolDrone, 4 Interceptor, 1 Capital**, vitesse 1,7×, mouvement 1,3 et caméra cinématique.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Entree
+    Entree --> Observation : arrivée
+    Observation --> Preparation : attaque choisie
+    Preparation --> Tir : charge terminée
+    Tir --> Cooldown : salve terminée
+    Cooldown --> Repositionnement : délai terminé
+    Repositionnement --> Observation : position atteinte
+    Entree --> Evitement : obstacle critique
+    Repositionnement --> Evitement : obstacle critique
+    Evitement --> Entree : zone sûre, état précédent = entrée
+    Evitement --> Repositionnement : zone sûre, état précédent = repositionnement
+    Entree --> Detruit : HP = 0
+    Observation --> Detruit : HP = 0
+    Preparation --> Detruit : HP = 0
+    Tir --> Detruit : HP = 0
+    Cooldown --> Detruit : HP = 0
+    Repositionnement --> Detruit : HP = 0
+    Evitement --> Detruit : HP = 0
+    Detruit --> [*]
+```
+
+L’évitement suspend les états mobiles et reprend leur état précédent. Les corrections douces restent actives durant tout le vol ; seul un obstacle imminent suspend le repositionnement. La caméra privilégie toujours le groupe bleu, avec une petite composition de fond lors d’une préparation Heavy et une intensité d’action modérée.
+
 ### Obstacles de l'environnement — Astéroïdes
 
 Les astéroïdes ne sont **pas considérés comme des agents** dans le modèle actuel.
@@ -343,7 +378,7 @@ Ils constituent des éléments de l'environnement que les chasseurs doivent perc
 
 Le champ prépare des configurations jusqu'à 320 m devant le premier chasseur, autour de la position X/Y mesurée du groupe. Une configuration est retirée seulement lorsqu'elle est à plus de 100 m derrière le dernier survivant. La caméra et les chasseurs ne reçoivent aucune consigne de déplacement de ce système.
 
-Le nettoyage protège aussi les drones et intercepteurs encore actifs et tient compte de l'enveloppe de déplacement des rochers. Les barrages restent des configurations de ces mêmes obstacles. L'Agent 4 est prévu pour M10.
+Le nettoyage protège aussi les drones et intercepteurs encore actifs et tient compte de l'enveloppe de déplacement des rochers. Les barrages restent des configurations de ces mêmes obstacles. L'Agent 4 est maintenant le Capital Artillery Ship ; les missiles restent des dangers de combat.
 
 ---
 
@@ -514,15 +549,40 @@ En M9, les croisements mobiles provoquent de nouveaux détours individuels. Les 
 
 ---
 
-## 9. Futurs types d'agents envisagés
+## 9. Quatre agents et validation M10
 
-Les astéroïdes resteront des obstacles de l'environnement. Le projet vise désormais quatre types d'agents simples à distinguer et à expliquer.
+**Agent 1 — BlueShip**, **Agent 2 — PatrolDrone**, **Agent 3 — Interceptor**, **Agent 4 — Capital Artillery Ship** sont implémentés. Les astéroïdes appartiennent à l’environnement ; les missiles sont des projectiles/dangers.
 
-### Agent 4 — Capital Artillery Ship, prévu pour M10
+M10 conserve le phénomène émergent : **salve d’artillerie → esquives locales différentes → dispersion du banc → danger dépassé → cohésion et récupération → regroupement**. Aucun leader, aucune trajectoire commune et aucune poursuite du Capital ne sont ajoutés. Le regroupement peut échouer si les voisins sortent du rayon local de 50 m.
 
-Le futur quatrième agent sera un **très grand vaisseau ennemi d'artillerie lointaine**, souvent visible à l'horizon. Il ne poursuivra pas physiquement le groupe comme l'Interceptor. Il enverra continuellement des menaces lentes qui mettent du temps à atteindre les BlueShip : missile lourd, salve, missile en arc, guidage léger éventuel et barrage de projectiles.
+Les tests ciblés vérifient la machine à états, les cinq attaques, guidage limité, collisions, suppression et références, priorité BlueShip, santé/destruction unique, respawn, populations et panneau. Les fixtures M1–M9 désactivent le Capital pour isoler les régressions. Les mesures runtime restent internes et ne surchargent pas le HUD.
 
-Ce rôle remplace le projet Bomber/MineLayer. Il s'agit uniquement du planning : aucun Capital Ship, missile ou nouvel agent n'est implémenté dans M9. Les diagrammes des trois agents existants restent conservés.
+Résultats **Godot 4.7.2, seed 20261012**, vitesse 1,7×. Difficile démarre directement en MANUEL 3 avec les valeurs par défaut ; spectacle ajoute progressivement les chasseurs manquants. Ordre des salves **H / S / A / C / K = Heavy / Spread / Arc / Cross / Seeker**. Les esquives comptent des épisodes de réaction à tous les projectiles hostiles, sans prouver qu'un impact aurait eu lieu.
+
+| Parcours | Blue vivants / morts | Capital actif / détruit | Salves H/S/A/C/K (total) | Impacts artillerie Blue / rocher | Esquives | Dispersion max → finale (m) |
+|---|---:|---:|---|---:|---:|---:|
+| Difficile 90 s, headless | 9 / 1 | 1 / 0 | 2/1/1/1/2 (7) | 0 / 2 | 72 | 35,84 → 19,21 |
+| Spectacle 60 s, headless | 14 / 1 | 1 / 0 | 1/1/1/1/1 (5) | 0 / 5 | 64 | 66,08 → 37,31 |
+| Difficile 180 s, headless | 9 / 1 | 1 / 0 | 3/3/3/2/3 (14) | 0 / 4 | 122 | 58,55 → 52,70 |
+| Spectacle 60 s réelles, rendu | 13 / 2 | 1 / 0 | 1/1/1/1/1 (5) | 1 / 2 | 44 | 64,17 → 41,07 |
+| Difficile 180 s réelles, rendu | 10 / 0 | 1 / 0 | 3/3/3/2/3 (14) | 1 / 3 | 116 | 42,02 → 21,83 |
+
+| Parcours | Projectiles total max / fin | Artillerie max (plafond 50) | Nœuds max / fin | Coût headless (ms/tick) | FPS moyen / minimum sur 1 s |
+|---|---:|---:|---:|---:|---:|
+| Difficile 90 s, headless | 19 / 1 | 9 | 1309 / 929 | 1,12 | — |
+| Spectacle 60 s, headless | 22 / 7 | 6 | 1493 / 1408 | 1,69 | — |
+| Difficile 180 s, headless | 19 / 7 | 9 | 1309 / 1134 | 1,13 | — |
+| Spectacle 60 s réelles, rendu | 21 / 8 | 6 | 1456 / 1366 | — | 98,52 / 81,22 |
+| Difficile 180 s réelles, rendu | 17 / 4 | 11 | 1424 / 1110 | — | 99,47 / 90,31 |
+
+Le spectacle avec rendu dure **60,08 s réelles**, avec **5 PatrolDrone, 4 Interceptor et 1 Capital** à la fin. Le parcours long dure **180,01 s réelles**, avec **3 drones, 1 intercepteur, 1 Capital**, et **306,09 s de simulation**. Rendu natif **1920×1080, Intel Arc Graphics, Compatibility OpenGL, MSAA 4×, VSync**, sans `--fixed-fps`. Les captures à 20/40/60 s sont incluses dans le coût du spectacle. L'objectif moyen >60 FPS est atteint.
+
+Les nœuds sont échantillonnés toutes les 0,5 s en headless et environ chaque seconde avec rendu ; les projectiles sont suivis à chaque tick. Le parcours long garde un budget stable et des projectiles supprimés, sans erreur, warning ou référence invalide dans les journaux finaux. Aucun Capital n'est détruit dans ces parcours naturels : le test contrôlé valide séparément destruction unique, explosions et respawn 25 s. Une destruction naturelle n'est pas promise.
+
+Le test de vulnérabilité atteint **66,42 m**, avec un pas maximal de **0,174 m**, puis un tir bleu naturel sans poursuite. Le contrôle Heavy prouve l'esquive avec perception et l'impact **−2 HP** sans perception. La dispersion diminue après les perturbations dans plusieurs parcours, mais le spectacle réel termine avec **1 chasseur isolé** et le long avec **0** : le regroupement local ne garantit pas que tous les survivants reviennent.
+
+Les six suites historiques et la suite M10 passent. Journaux finaux : `.godot/validate_*_m10_final.log`, `.godot/m10_native_final.log`, `.godot/m10_native_long_final.log`. Les FPS et les pertes peuvent varier entre rendu et headless ; les résultats ne couvrent pas plusieurs graines ni plusieurs heures.
+
 
 ---
 
@@ -536,15 +596,17 @@ La version actuelle comporte plusieurs simplifications :
 - budget borné pouvant retarder la génération si le groupe s'étire exceptionnellement en profondeur ;
 - hitboxes simplifiées ;
 - mélange d'obstacles sans translation et de trajectoires environnementales simples ;
-- trois types d'agents pour le moment ;
+- quatre types d'agents, avec une perception globale approximative pour le Capital ;
 - anticipation mobile supposant une vitesse constante sur quelques secondes ;
 - deux morts réelles observées sur le parcours M5 de cinq minutes ;
 - pas d'évitement entre drones et effectif temporairement réduit pendant un remplacement ;
-- tirs des deux factions sans guidage, visée approximative et poursuite locale limitée ;
+- lasers droits, artillerie avec arcs et guidage limité, visée approximative et poursuite locale limitée ;
 - approximation initiale de la trajectoire hostile, pouvant rater une manœuvre brusque ;
 - aucun impact rouge ni ennemi détruit dans les parcours MANUEL 3 M6 de cette graine : équilibrage à étudier ;
 - esquives comptées comme activations du comportement, sans preuve qu'un impact aurait eu lieu ;
-- aucun Agent 4, mine, missile, vague clavier ou bombe BlueShip à ce stade ;
+- aucune mine, vague clavier ou bombe BlueShip ; M11 reste au planning ;
+- artillerie absorbée par les astéroïdes, destruction du Capital non garantie dans un parcours naturel ;
+- évitement Capital simple et rapprochement temporaire pouvant être retardé par les obstacles ;
 - les réglages de démonstration peuvent disperser le groupe et ne garantissent pas la survie ;
 - vitesse et fréquence physique sont globales : une seule simulation active est prévue.
 
@@ -581,11 +643,11 @@ Chasseur spatial redessiné, six cadrages automatiques, barrages ouverts, plein 
 ### M9 — Vol dynamique / obstacles mobiles / responsive / décor ✅
 Viewport étendu, coque profilée, orientation visuelle limitée, étoiles rapides, décor lointain, trajectoires d'astéroïdes et anticipation locale, caméra plus réactive.
 
-### M10 — Agent 4 : Capital Artillery Ship
-Artillerie lointaine : grand vaisseau à l'horizon, plusieurs familles de missiles et salves, sans poursuite physique des BlueShip.
+### M10 — Agent 4 : Capital Artillery Ship ✅
+Grand vaisseau lointain, cinq attaques, télégraphie, vulnérabilité, destruction et remplacement, populations, panneau et tests de performance.
 
 ### M11 — Bombes BlueShip / scénarios finaux / étude / PowerPoint
-Bombes limitées, situations de démonstration, comparaison des paramètres et états initiaux, stabilisation, vidéo, rapport final et PowerPoint de 10 minutes. M10 et M11 ne sont pas commencés dans M9.
+Bombes limitées, situations de démonstration, comparaison des paramètres et états initiaux, stabilisation, vidéo, rapport final et PowerPoint de 10 minutes. M11 n’est pas commencé dans M10.
 
 ---
 

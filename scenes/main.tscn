@@ -51,6 +51,8 @@ script = ExtResource("2")
 
 [node name="Interceptors" type="Node3D" parent="."]
 
+[node name="CapitalShips" type="Node3D" parent="."]
+
 [node name="Projectiles" type="Node3D" parent="."]
 
 [node name="Asteroids" type="Node3D" parent="."]
