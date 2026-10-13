@@ -16,6 +16,7 @@ var threat_strength: float = 1.0
 var threat_category: int = ThreatPattern.Category.TARGETED
 var target_seed: int = 0
 var targeted: bool = false
+var arcade_signature: bool = false
 var batch_visuals_enabled: bool = true
 var initial_target_position: Vector3
 var initial_target_velocity: Vector3
@@ -28,7 +29,7 @@ var age: float = 0.0
 var spent: bool = false
 var bomb_zone: ArtilleryZone
 var _origin: Vector3
-var _shape: SphereShape3D
+var _shape: Shape3D
 
 
 func _ready() -> void:
@@ -42,10 +43,19 @@ func _ready() -> void:
 		flight_direction = Vector3.BACK
 	velocity = flight_direction * projectile_speed
 	_origin = global_position
-	_shape = SphereShape3D.new()
-	_shape.radius = 1.8 if kind == Kind.HEAVY_SHOT else 0.35
+	if arcade_signature and kind in [Kind.HEAVY_SHOT, Kind.SEEKER_SALVO, Kind.MISSILE_SWARM, Kind.ARC_SALVO]:
+		var capsule: CapsuleShape3D = CapsuleShape3D.new()
+		capsule.radius = 1.25 if kind == Kind.HEAVY_SHOT else 0.85 if kind == Kind.ARC_SALVO else 0.6
+		capsule.height = 8.5 if kind == Kind.HEAVY_SHOT else 4.4 if kind == Kind.ARC_SALVO else 4.8
+		_shape = capsule
+	else:
+		var sphere: SphereShape3D = SphereShape3D.new()
+		sphere.radius = 2.8 if arcade_signature and kind == Kind.BOMB_CLUSTER else 1.8 if kind == Kind.HEAVY_SHOT else 0.35
+		_shape = sphere
 	var collider: CollisionShape3D = CollisionShape3D.new()
 	collider.shape = _shape
+	if _shape is CapsuleShape3D:
+		collider.rotation_degrees.x = 90
 	add_child(collider)
 	_build_visual()
 
@@ -73,6 +83,11 @@ func _build_visual() -> void:
 	var visual: Node3D = Node3D.new()
 	visual.name = "Visual"
 	add_child(visual)
+	var signature_key: int = int(kind) + (20 if arcade_signature else 0)
+	if arcade_signature:
+		_build_arcade_signature(visual, signature_key)
+		_update_visual()
+		return
 	if batch_visuals_enabled and CombatMeshCache.has_signature(kind):
 		CombatMeshCache.merge_parts(visual, kind)
 		_update_visual()
@@ -173,7 +188,9 @@ func _physics_process(delta: float) -> void:
 	else:
 		velocity = flight_direction * projectile_speed
 		destination = global_position + velocity * step
-	# Le volume physique est balayé, y compris pour le noyau lourd de 3,6 m.
+	if arcade_signature and velocity.length_squared() > 0.001:
+		global_basis = Basis.looking_at(velocity.normalized(), Vector3.RIGHT if absf(velocity.normalized().y) > 0.98 else Vector3.UP)
+	# Le volume physique est balayé, y compris pour la capsule lourde.
 	var contact: KinematicCollision3D = move_and_collide(destination - global_position, false, 0.001, true)
 	age += step
 	if contact != null:
@@ -205,6 +222,16 @@ func trajectory_velocity(time: float) -> Vector3:
 func _update_visual() -> void:
 	if kind == Kind.BOMB_CLUSTER:
 		$Visual.scale = Vector3.ONE * (1 + sin(age * 8) * 0.12)
+	if arcade_signature:
+		if velocity.length_squared() > 0.001:
+			global_basis = Basis.looking_at(velocity.normalized(), Vector3.RIGHT if absf(velocity.normalized().y) > 0.98 else Vector3.UP)
+		$Visual.basis = Basis(Vector3.BACK, age * 0.6 if kind in [Kind.SEEKER_SALVO, Kind.MISSILE_SWARM] else 0)
+		for node: Node in $Visual.get_children():
+			if node is MeshInstance3D and node.name.begins_with("AnimatedEnergyRing"):
+				var ring: MeshInstance3D = node as MeshInstance3D
+				ring.rotation.z = age * (1.3 if ring.position.z < 0 else -1.3)
+				ring.rotation.x = deg_to_rad(80 + sin(age * 1.5 + ring.position.z) * 10)
+		return
 	if velocity.length_squared() > 0.001:
 		$Visual.basis = Basis.looking_at(velocity.normalized(), Vector3.RIGHT if absf(velocity.normalized().y) > 0.98 else Vector3.UP)
 
@@ -216,3 +243,66 @@ func _add_fins(width: float, z: float, color: Color) -> void:
 		var angle: float = index * PI / 2
 		var fin: MeshInstance3D = _mesh(shape, color, Vector3(cos(angle) * width * 0.7, sin(angle) * width * 0.7, z))
 		fin.rotation.z = angle
+
+
+func _arcade_capsule(height_value: float, radius_value: float, color: Color, offset: Vector3 = Vector3.ZERO) -> void:
+	var mesh: CapsuleMesh = CapsuleMesh.new()
+	mesh.height = height_value
+	mesh.radius = radius_value
+	mesh.radial_segments = 10
+	mesh.rings = 4
+	_mesh(mesh, color, offset).rotation_degrees.x = 90
+
+
+func _arcade_cone(height_value: float, radius_value: float, color: Color, offset: Vector3) -> void:
+	var mesh: CylinderMesh = CylinderMesh.new()
+	mesh.height = height_value
+	mesh.top_radius = 0
+	mesh.bottom_radius = radius_value
+	mesh.radial_segments = 10
+	_mesh(mesh, color, offset).rotation_degrees.x = -90
+
+
+func _energy_ring(radius_value: float, z: float, color: Color) -> MeshInstance3D:
+	var mesh: TorusMesh = TorusMesh.new()
+	mesh.inner_radius = radius_value * 0.84
+	mesh.outer_radius = radius_value
+	mesh.rings = 14
+	mesh.ring_segments = 5
+	var ring: MeshInstance3D = _mesh(mesh, color, Vector3(0, 0, z))
+	ring.rotation_degrees.x = 90
+	return ring
+
+
+func _build_arcade_signature(visual: Node3D, signature_key: int) -> void:
+	if CombatMeshCache.has_signature(signature_key):
+		CombatMeshCache.merge_parts(visual, signature_key)
+	else:
+		if kind == Kind.HEAVY_SHOT:
+			_arcade_capsule(7.4, 1.25, Color(0.32, 0.15, 0.55))
+			_arcade_cone(1.6, 1.15, Color(1, 0.6, 0.13), Vector3(0, 0, -4.2))
+			_add_fins(1.8, 2.4, Color(0.8, 0.3, 1))
+			_energy_ring(1.5, -1.7, Color(1, 0.75, 0.2))
+			_arcade_capsule(1.8, 0.9, Color(1, 0.32, 0.05), Vector3(0, 0, 3.4))
+			_arcade_capsule(8, 0.55, Color(0.9, 0.24, 0.06), Vector3(0, 0, 7.8))
+		elif kind in [Kind.SEEKER_SALVO, Kind.MISSILE_SWARM]:
+			_arcade_capsule(4.4, 0.6, Color(0.42, 0.08, 0.15))
+			_arcade_cone(1.1, 0.6, Color(1, 0.35, 0.1), Vector3(0, 0, -2.3))
+			_add_fins(0.9, 1.4, Color(0.8, 0.17, 0.22))
+			_arcade_capsule(1.2, 0.5, Color(1, 0.18, 0.05), Vector3(0, 0, 2.1))
+			_arcade_capsule(6, 0.3, Color(1, 0.1, 0.12), Vector3(0, 0, 5.2))
+		elif kind == Kind.ARC_SALVO:
+			_arcade_capsule(4.4, 0.85, Color(0.9, 0.05, 0.75))
+			_arcade_capsule(4, 0.35, Color(1, 0.4, 0.9), Vector3(0, 0, 3.5))
+		elif kind == Kind.BOMB_CLUSTER:
+			_arcade_capsule(5.6, 2.8, Color(1, 0.45, 0.07))
+			_energy_ring(3.2, 0, Color(1, 0.75, 0.1))
+		else:
+			_arcade_capsule(3.4, 0.35, Color(1, 0.85, 0.3))
+			_arcade_capsule(2.6, 0.5, Color(0.8, 0.19, 0.04))
+			_energy_ring(0.7, -0.6, Color(1, 0.65, 0.08))
+		CombatMeshCache.merge_parts(visual, signature_key)
+	if kind == Kind.ARC_SALVO:
+		for z: float in [-1.2, 1.2]:
+			var ring: MeshInstance3D = _energy_ring(1.3, z, Color(1, 0.55, 0.9))
+			ring.name = "AnimatedEnergyRing_%d" % (0 if z < 0 else 1)

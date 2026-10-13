@@ -6,9 +6,17 @@ var _action_shot: Shot = Shot.CHASE
 var _action_hold: float = 0
 
 func _observe_primary_action(fallback: Shot) -> Shot:
+	for node: Node in get_tree().get_nodes_in_group("combat_hazards"):
+		if node is MovingLaserGate:
+			var gate: MovingLaserGate = node as MovingLaserGate
+			var until: float = gate.crossing_time(_group_center, group_velocity)
+			if until >= 0 and until < 7:
+				return Shot.REAR_CLOSE if until < 2 else Shot.WIDE
 	for node: Node in get_tree().get_nodes_in_group("asteroids"):
 		var rock: SpaceAsteroid = node as SpaceAsteroid
 		var offset: Vector3 = rock.global_position - _group_center
+		if rock.diameter >= 60 and offset.length() < 280:
+			return Shot.UNDER_FLEET
 		if rock.diameter >= 20 and offset.length() < 170 and offset.dot(rock.velocity - group_velocity) < 0:
 			return Shot.TOP_DOWN if rock.mega_trajectory == SpaceAsteroid.MegaTrajectory.MEGA_VERTICAL else Shot.SIDE_FAST
 	for node: Node in get_tree().get_nodes_in_group("combat_hazards"):

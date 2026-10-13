@@ -11,13 +11,14 @@ static func has_signature(kind: int) -> bool:
 	return _meshes.has(kind)
 
 
-static func prepare_signatures() -> void:
+static func prepare_signatures(arcade: bool = false) -> void:
 	for kind: int in [0, 1, 2, 3, 4, 5, 6, 9]:
-		if has_signature(kind):
+		if has_signature(kind + (20 if arcade else 0)):
 			continue
 		# Construction avant le combat ; aucun body n'entre dans l'arbre ou ses groupes.
 		var sample: ArtilleryProjectile = ArtilleryProjectile.new()
 		sample.kind = kind as ArtilleryProjectile.Kind
+		sample.arcade_signature = arcade
 		sample._build_visual()
 		sample.free()
 
@@ -35,7 +36,16 @@ static func merge_parts(visual: Node3D, kind: int) -> void:
 			var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
 			var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
 			for index: int in range(indices.size() if not indices.is_empty() else vertices.size()):
-				builder.set_color(color)
+				var shaded: Color = color
+				if kind >= 20:
+					var face: int = index / 3 * 3
+					var first: Vector3 = part.transform * vertices[indices[face] if not indices.is_empty() else face]
+					var second: Vector3 = part.transform * vertices[indices[face + 1] if not indices.is_empty() else face + 1]
+					var third: Vector3 = part.transform * vertices[indices[face + 2] if not indices.is_empty() else face + 2]
+					var normal: Vector3 = (second - first).cross(third - first).normalized()
+					var light: float = 0.62 + 0.38 * maxf(normal.dot(Vector3(0.4, 0.7, -0.3).normalized()), 0)
+					shaded = Color(color.r * light, color.g * light, color.b * light, color.a)
+				builder.set_color(shaded)
 				builder.add_vertex(part.transform * vertices[indices[index] if not indices.is_empty() else index])
 		var mesh: ArrayMesh = builder.commit()
 		if _material == null:

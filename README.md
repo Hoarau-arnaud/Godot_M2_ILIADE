@@ -1,8 +1,107 @@
-# Simulation SMA spatiale — milestone 14
+# Simulation SMA spatiale — milestone 15
 
 Projet pédagogique **Godot 4.7.2 / GDScript**, avec exactement quatre types d'agents : **BlueShip, PatrolDrone, Interceptor et Capital Artillery Ship**. Les projectiles, missiles, bombes, faisceaux et rochers sont des éléments de combat/environnement.
 
-## M14 — Menaces lisibles et renforts
+## M15 — Dangers géométriques et espace arcade original
+
+Le parcours garde les plafonds M14 **64 / 48 / 64 rochers et 40 unités de combat**, les renforts et les pertes cumulées. Il ajoute des dangers plus imposants, des volumes de missiles et une animation dorée des boosts. Tous les maillages, matériaux et silhouettes sont procéduraux et originaux ; aucun modèle, niveau, texture ou asset de jeu commercial n’est repris. Il reste **exactement quatre types d’agents**. `MovingLaserGate`, `SpaceAsteroid`, missiles et `ArcadeBackdrop` sont des dangers/décors passifs.
+
+### Grilles réellement mobiles
+
+`MovingLaserGate` prolonge les zones de combat avec deux variantes : **LASER_GATE** (six barres, trois cellules larges) et **ROTATING_LASER_GRID** (huit barres, neuf cellules). Taille **110 × 80 m**, largeur des beams **1,6 m**, profondeur 3 m. Chaque barre possède un mesh, une Area3D et une BoxShape3D. Contact : **3 HP**, une fois par BlueShip et par grille. Un balayage relatif sur trois poses interpolées complète les colliders pour les translations/rotations entre deux ticks.
+
+Le Capital lance la grille depuis sa batterie distante, vers une interception du centre et de la vitesse moyenne observée. La vitesse **45 m/s simulés** et la direction sont fixées au départ : aucune poursuite du groupe. L’arrivée prend plusieurs secondes ; la grille entière est visible depuis son lancement. Rotation autour de l’axe de progression : **15°/s**, **25°/s**, ou **−25°/s** ; inclinaisons initiales 0/20/35/45°. Une seule grande grille est admise à la fois ; ses six/huit beams participent au budget partagé de 40.
+
+La grille expose **7 ou 13 points de passage**, comprenant les centres de cellules et quatre contournements extérieurs. Chaque BlueShip prédit le moment où le plan le croisera, projette les ouvertures avec la rotation future, puis choisit selon distance, vitesse actuelle, voisins et rochers. L’index choisi reste mémorisé au moins **1 s simulée**, puis conservé tant que le passage reste accessible et libre. L’agent corrige sa trajectoire vers le point tournant ; il ne reçoit aucune consigne collective. Un boost d’urgence exige une arrivée proche et une trajectoire prédite près d’une barre.
+
+Les métriques distinguent **passage dans le cadre par une ouverture** et **contournement extérieur** ; elles ne comptent pas une mort comme traversée. Phénomène : **menace commune mobile → choix locaux d’ouvertures → sous-groupes temporaires → passage → récupération locale**.
+
+L’arrivée d’un renfort est vérifiée contre les barres dans leur pose actuelle et à leur croisement prédit dans la seconde simulée suivante. La taille de la grille ne se réduit donc pas au rayon de l’ancienne zone statique ; une ouverture vraiment libre reste utilisable.
+
+### Astéroïdes COLOSSAL
+
+La plage de diamètre nominal atteint **160 m**. MEGA reste une catégorie distincte ; COLOSSAL couvre les volumes **60–120 m**, avec les tailles exceptionnelles 120–160 m configurables. Guided utilise **96 m** : un événement en phase 1, un en phase 2, puis un au plus simultanément en finale. Les événements sont espacés de 26 s réelles dans la finale. Les phases 1/2 présentent aussi un méga ; les autres trajectoires du champ restent actives.
+
+Le Colossal coupe un corridor prédit **11 s simulées** à l’avance, décalé au-dessus et à droite pour laisser un détour. Sa translation reste fixée au départ. Huit lobes/volumes low-poly composent la silhouette, dont des fragments anguleux ; une seule enveloppe convexe assure la collision. Perception locale **150–250 m** (`clamp(110 + radius*2.4, 150, 250)`), horizon 12 s simulées, priorité au contournement progressif. La caméra privilégie un angle large/latéral ou sous le groupe pour montrer l’échelle.
+
+### Boosts et missiles volumétriques
+
+Les moteurs cyan réagissent à la vitesse réelle et au blend de boost : longueur de base **×2,8**, émission 1,5→7, largeur légèrement accrue. Une coque dorée transparente et deux anneaux réutilisés deviennent visibles pendant l’esquive ou l’arrivée d’un renfort, puis disparaissent progressivement. Aucun collider ni force de navigation n’est ajouté par ces animations ; leur nombre de nodes reste fixe. Trois boosts simultanés renforcent légèrement les streaks et le FOV M14 reste plafonné à +3°.
+
+| Arme | Volume principal et détails | Collision / évitement |
+|---|---|---|
+| Heavy | Corps capsule 7,4 m, diamètre 2,5 m, nez conique, quatre ailettes, anneau, moteur et large traînée ; volume solide total ≈8,9 m | Capsule 8,5 m / rayon 1,25 m ; évitement 16 m |
+| Seeker/Swarm | Corps 4,4 m, diamètre 1,2 m, nez conique, quatre ailettes, moteur et traînée cylindrique ; corps+nez ≈5,05 m ; léger roll visuel | Capsule 4,8 m / rayon 0,6 m ; évitement 7 m |
+| Arc | Capsule magenta 4,4 m / diamètre 1,7 m, deux anneaux de 2,6 m animés | Capsule 4,4 m / rayon 0,85 m ; évitement 8 m |
+| Bomb | Volume sphérique 5,6 m, anneau et pulsation | Sphère rayon 2,8 m ; vol sans dégâts de contact, zone explosive 13 m |
+| Rapid | Noyau lumineux, enveloppe capsule et anneau, dimensions principales 3,4 m | Sphère balayée rayon 0,35 m ; évitement 4 m |
+
+Les capsules physiques suivent la direction réelle du vol ; le roll Seeker et les anneaux Arc restent visuels. La géométrie fixe est fusionnée/cachée par signature, avec une variation de couleur par facette donnant du relief sous plusieurs angles. Deux anneaux Arc restent animables hors du mesh fusionné. Les traînées sont visuelles et ne définissent pas la longueur du collider. Les profils historiques conservent leurs anciennes signatures et hitboxes.
+
+### Décor et parcours
+
+La planète reçoit une palette bleu/cyan/turquoise, un relief de couleur procédural et une ombre de terminator ; son halo est conservé. Un large anneau translucide rejoint la bande existante de 360 fragments. Sept silhouettes de guerre très lointaines et quatorze flashes animés en MultiMesh donnent de la profondeur, sans collision, IA ni projectile dangereux. Étoiles, nébuleuses et masquage du décor dans l’axe BlueShip sont conservés.
+
+Phases 1–4 : **18 s réelles** chacune. Phase 5 : **42 s**, avec trois Capitaux alternant Heavy → Seeker → Moving Gate → Bomb → Rotating Grid → Swarm → Arc sur un seul cycle, départs principaux espacés de **5,5 s réelles**. La fin de phase laisse arriver la dernière salve Arc avant le nettoyage. La finale conserve **15 BlueShip / 4 Patrol / 4 Interceptor / 3 Capital**, les renforts après 1,0–1,6 s réelles, les pertes cumulées et le Game Over normal désactivé. La caméra observe l’approche de la grille en Wide puis la traversée derrière le groupe.
+
+En finale M15, les Patrol et Interceptor détruits sont remplacés avec une nouvelle seed, au plus une instance de chaque type par frame et sans dépasser la cible de quatre. Ils conservent leurs règles autonomes, signatures et budgets de tirs ; ils ne sont pas protégés des collisions. Ce maintien reste limité à ce profil Guided.
+
+### Validation M15
+
+`tests/validate_arcade_hazards.gd` vérifie translation, rotations dans les deux sens, ouvertures tournantes, mémoire stable, manœuvres individuelles, survie et récupération collective, collision barre/ouverture, Colossal 96 m, aura/moteurs/renfort, volumes et capsules, esquives Heavy/Seeker, sécurité des arrivées près d’une grille et remplacement des petits hostiles. Le rendu natif mesure les cinq phases puis **60 s réelles de finale**, vérifie les populations finales et le maximum simultané d’une grille/Colossal.
+
+```powershell
+$godotExe = 'C:\Users\Sora\Desktop\Godot_v4.7.2-stable_win64.exe'
+Start-Process -FilePath $godotExe -ArgumentList '--headless','--path','.','--fixed-fps','60','--script','res://tests/validate_arcade_hazards.gd','--log-file','.godot/m15_validation.log','--','--unit-only' -WindowStyle Hidden -Wait
+```
+
+Pour le benchmark 1920×1080 : retirer `--headless`/`--fixed-fps`, remplacer `--unit-only` par `--native`. `--native --capture` est un essai graphique séparé, exclu des FPS d’acceptation. Les onze suites M1–M14 choisissent explicitement leurs profils historiques : `FlightTuning.m13_fixture`/`m14_fixture` désactivent `arcade_hazards_enabled`. Logs, JSON et captures restent dans `.godot/`, ignoré.
+
+Limites : interception et passage supposent une vitesse instantanée sur un horizon court ; des menaces concurrentes ou une ouverture devenue occupée peuvent provoquer des pertes. Le balayage des grilles et la collision des rochers restent des approximations géométriques. Le regroupement repose sur les voisins locaux et n’est pas garanti pour des sous-groupes très éloignés. Aucune mortalité précise n’est imposée.
+
+### Résultats d’acceptation M15
+
+Godot **4.7.2**, seed **20261012**, Intel Arc Graphics, OpenGL Compatibility/MSAA 4×, rendu interne **1920×1080**, vitesse **2,0× / 120 Hz**. Les onze suites historiques M1–M14 et les fixtures M15 passent sans erreur/warning dans leurs journaux d’acceptation. Le benchmark natif final, sans écriture PNG, couvre les cinq phases puis **60,00 s réelles de finale** : **89,90 FPS moyens**, minimum sur une fenêtre d’une seconde **84,79 FPS**. Les captures sont produites dans un essai graphique distinct et exclues de ces FPS.
+
+| Phase | Rochers max / Mega / Colossal émis | Gate / Grid émises | Passages intérieurs / contournements | Boosts | Pertes / renforts / Blue actifs | Dispersion max → finale |
+|---|---:|---:|---:|---:|---:|---:|
+| 1 — 18,00 s | 63 / 1 / 1 | 0 / 0 | 0 / 0 | 3 | 0 / 0 / 15 | 113,67 → 95,26 m |
+| 2 — 18,00 s | 47 / 1 / 1 | 0 / 0 | 0 / 0 | 2 | 0 / 0 / 15 | 96,33 → 69,29 m |
+| 3 — 18,01 s | 3 / 0 / 0 | 0 / 0 | 0 / 0 | 17 | 0 / 0 / 15 | 67,85 → 33,04 m |
+| 4 — 18,00 s | 3 / 0 / 0 | 0 / 0 | 0 / 0 | 13 | 1 / 1 / 15 | 70,55 → 20,60 m |
+| 5 — 42,01 s | 0 / 0 / 0 | 1 / 1 | 25 / 5 | 17 | 0 / 0 / 15 | 88,51 → 76,23 m |
+| 6 — 60,00 s | 63 / 5 / 2 | 1 / 2 | 17 / 26 | 87 | 6 / 6 / 15 | 125,75 → 121,97 m |
+
+Mega, Colossal et grilles sont des **émissions cumulées par phase** ; deux Colossal émis en finale ne signifient pas deux simultanés. Maximum observé : **une grille et un Colossal actifs**. Population finale : **15 Blue / 4 Patrol / 4 Interceptor / 3 Capital**. Le run compte 7 pertes bleues et 7 renforts cumulés, 139 boosts au total. La finale émet 10 missiles Swarm, 12 Seeker, 6 Heavy et 4 Arc. Un passage compte une paire Blue/grille ; le même agent peut traverser plusieurs grilles.
+
+| Phase | Nœuds max | Unités dangereuses max, beams inclus | Projectiles physiques max |
+|---|---:|---:|---:|
+| 1 | 1 301 | 0 | 0 |
+| 2 | 1 545 | 0 | 0 |
+| 3 | 1 312 | 4 | 4 |
+| 4 | 1 114 | 16 | 16 |
+| 5 | 1 184 | 18 | 14 |
+| 6 | 1 797 | 25 | 24 |
+
+Phase 2 conserve les mouvements diagonal/vertical/circular/arc. La phase 5 émet 3 Heavy, 6 Seeker, 2 Bomb, 2 grilles, 10 Swarm et 4 Arc ; chaque famille provoque au moins une réaction Blue/danger. Les attaques restent espacées et les Capitals lointains.
+
+Arc suit une courbe balistique fixée au départ : une salve peut passer à distance si les BlueShip ont changé de route entre-temps. La présence de cette signature est vérifiée dans Guided ; la fixture Arc ciblée vérifie directement la réaction locale, avec **31 ticks d’évitement**, un boost, **23,61 m** d’excursion et aucune perte.
+
+| Fixture contrôlée, 15 Blue | Translation / rotation | Points sûrs / indices choisis | Manœuvres X/Y >5 m | Passages / contournements / survivants | Changements d’ouverture | Dispersion max → après récupération |
+|---|---:|---:|---:|---:|---:|---:|
+| Gate +15°/s | 246,75 m / 82,25° | 7 / 5 | 15 | 11 / 4 / 15 | 0 | 52,83 → 43,11 m |
+| Grid +25°/s | 247,50 m / 137,50° | 13 / 7 | 14 | 15 / 0 / 15 | 0 | 45,20 → 40,97 m |
+| Grid −25°/s | 247,50 m / −137,50° | 13 / 7 | 14 | 15 / 0 / 15 | 0 | 45,20 → 40,92 m |
+
+Les grilles commencent à 220 m. Les ouvertures tournent ; chaque Blue fait un choix mémorisé et les trois fixtures finissent sans perte. La récupération est mesurée neuf secondes simulées après la traversée, sans repositionnement. Une fixture immobile dans une barre subit un événement de 3 HP et une mort ; dans l’ouverture centrale, zéro dégât/mort. Les arrivées dans une barre extérieure ou devant une barre imminente sont refusées, tandis qu’une ouverture libre est acceptée. Les remplacements Patrol/Interceptor passent le test de destruction et nouvelle identité.
+
+Le Colossal **96 m** possède huit lobes et une enveloppe convexe unique, de rayon effectif **53,64 m**. Les quinze agents le détectent ; la portée configurée vaut **238,75 m**. La médiane de première réaction est proche de 238 m ; un agent qui n’était pas initialement menacé réagit plus tard, vers 104 m. Le centre du groupe parcourt **26,79 m en X/Y**, sans mort, avec dispersion **42,21 → 27,95 m** après 20 s simulées.
+
+Le boost augmente l’échelle longitudinale mesurée du moteur à **4,28**, avec émission **7** ; le multiplicateur M15 est ×2,8 avant la modulation par la vitesse. Aura absente en vol normal, visible pendant boost et arrivée, puis disparition progressive ; **aucun collider ajouté**, deux anneaux réutilisés. Heavy et Seeker ciblées déclenchent chacune un boost sur 63 ticks à 60 Hz, sans mort, avec excursions respectives **56,72 et 54,27 m**. Les bornes de rendu incluent les traînées ; les longueurs solides et colliders sont données dans le tableau des armes.
+
+Les captures 1080p vérifient le Colossal, les deux grilles, les moteurs/anneaux dorés, les volumes de missiles sous plusieurs angles et le décor. Les BlueShip restent identifiables et la planète occupe une large partie du fond sur les plans adaptés. La caméra peut laisser quelques agents très dispersés hors champ ; elle ne modifie pas leurs trajectoires. Le regroupement observé reste partiel et local.
+
+## Référence historique M14 — Menaces lisibles et renforts
 
 F5 lance toujours Guided automatiquement. Le sujet du plan reste l’escadron bleu : **menace importante → perception individuelle → contournement ou boost → dispersion → renfort éventuel → récupération locale**. Les quatre types d’agents sont inchangés. Les méga astéroïdes sont des `SpaceAsteroid`, les projectiles et zones restent des dangers passifs.
 
@@ -179,7 +278,7 @@ Autostart, Game Over **dans chacune des six phases**, arrêt des tirs/streaming/
 Limites : une seule machine et une graine de référence ; cadence de rendu et intégration peuvent changer les pertes/trajectoires. Les near misses sont des paires approximatives, pas une preuve causale de chaque impact évité. La prédiction suppose la vitesse instantanée, particulièrement imparfaite face aux arcs/guidages ; les rochers absorbent les tirs. Le regroupement reste local et certains survivants demeurent isolés. La finale est continue mais l’essai natif couvre 60 s ; aucune garantie d’équilibrage/performance sur plusieurs heures. Les captures PNG sont séparées du benchmark car leur lecture GPU/compression perturbe les FPS.
 
 
-Les références suivantes décrivent les jalons précédents et leurs fixtures ; le comportement normal courant est celui de M14 ci-dessus.
+Les références suivantes décrivent les jalons précédents et leurs fixtures ; le comportement normal courant est celui de M15 ci-dessus.
 
 ## Référence historique M12 — Traversée d'une zone de guerre spatiale
 
@@ -1011,4 +1110,4 @@ Références API : [PrismMesh](https://docs.godotengine.org/en/stable/classes/cl
 
 ## Hors de ce milestone et perspectives
 
-M1–M14 sont implémentés. La démo guidée prépare la présentation orale autour des quatre agents et du phénomène émergent. Le PowerPoint, une étude de plusieurs graines et les bombes BlueShip restent hors de ce travail.
+M1–M15 sont implémentés. La démo guidée prépare la présentation orale autour des quatre agents et du phénomène émergent. Le PowerPoint, une étude de plusieurs graines et les bombes BlueShip restent hors de ce travail.

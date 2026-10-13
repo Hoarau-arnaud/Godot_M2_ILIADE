@@ -238,7 +238,25 @@ Validation finale, Godot 4.7.2, graine `20261012`, collisions actives :
 
 Le minimum graphique sur les fenêtres d'une seconde vaut **92,9 FPS**, au-dessus de l'objectif 60 FPS sur cette machine. Le test de montée conserve 18,75 m de déplacement vertical en quatre secondes avec un pitch inférieur à 8°. Chaque trajectoire passe trente secondes de contrôle physique ; le croisement anticipé survit, tandis que le stress sans perception provoque une mort réelle. Les fenêtres redimensionnées, la maximisation et le plein écran passent avec rendu. Les suites historiques sont conservées en obstacles sans translation. Les données headless et graphiques sont distinguées dans le README ; ces essais ne garantissent ni le regroupement complet ni la survie sur toutes les graines.
 
-## Milestone 14 — Chorégraphie des menaces et renforts
+## Milestone 15 — Dangers arcade et animations originales
+
+M15 conserve les quantités réduites de M14 et ajoute des éléments plus imposants. Les grilles laser de 110 × 80 m sont lancées à 45 m/s depuis les batteries lointaines et tournent à 15/25/−25° par seconde simulée. Elles exposent de grandes ouvertures réelles ; chaque BlueShip en choisit une localement, mémorise ce choix et actualise sa trajectoire avec la rotation. Les passages intérieurs et contournements extérieurs sont mesurés séparément.
+
+Le phénomène à présenter est : **menace commune mobile → choix individuels d’ouvertures → sous-groupes temporaires → traversée → récupération locale**. Il n’y a ni chef ni ordre commun. Les Colossal de 96 m sont rares, détectés jusqu’à 250 m et composés de lobes low-poly sous une unique enveloppe de collision. Ils déclenchent un grand détour anticipé.
+
+L’aura dorée et les moteurs cyan reflètent les boosts réels ou l’arrivée d’un renfort, sans collider ni nouvelle décision SMA. Les missiles deviennent volumétriques, avec capsules physiques cohérentes, ailettes, nez et anneaux énergétiques. La planète turquoise, son anneau et les silhouettes/flashes lointains composent un décor arcade original, sans asset commercial repris. **Il reste exactement quatre types d’agents** : BlueShip, PatrolDrone, Interceptor et Capital Ship ; grilles, rochers, projectiles et décor ne sont pas des agents.
+
+Les renforts et le compteur cumulatif de pertes de M14 sont conservés. La phase Capital dure 42 s pour espacer les attaques et laisser arriver la salve Arc finale ; la finale reste continue avec une seule grande grille et un seul Colossal proche à la fois. Les détails, validations et limites sont documentés dans le README.
+
+Les points d’arrivée des BlueShip sont vérifiés contre les barres actuelles et imminentes, en autorisant les ouvertures libres. Les Patrol et Interceptor perdus sont remplacés en finale M15 pour maintenir leurs cibles de quatre, sous les mêmes limites de tirs. Ces remplacements ne modifient ni les quatre types d’agents ni les règles de navigation locales.
+
+Validation M15 : onze suites historiques et fixtures dédiées réussies. Les trois fixtures de grille donnent **15 survivants**, avec **11 passages intérieurs / 4 contournements** pour la Gate et **15 passages intérieurs** pour chaque Grid à ±25°/s. Aucun changement d’ouverture intempestif ; la dispersion diminue après le passage, sans regroupement complet imposé. Le contact immobile dans une barre est létal, l’ouverture centrale reste sûre. Le Colossal 96 m déclenche un détour collectif **26,79 m**, sans perte, avec récupération **42,21 → 27,95 m**. Aura, disparition, renforts, capsules et esquives de missiles passent leurs contrôles.
+
+La fixture Arc ciblée mesure 31 ticks d’évitement et 23,61 m d’excursion, sans perte. Cette arme reste balistique : après le lancement, le groupe peut sortir de sa courbe et ne plus avoir besoin de réagir.
+
+Le parcours natif 1920×1080, Godot 4.7.2 / Intel Arc / OpenGL, sans captures PNG pendant la mesure, obtient **89,90 FPS moyens / 84,79 minimum sur une seconde**. Après **60,00 s réelles de finale** : **15 Blue / 4 Patrol / 4 Interceptor / 3 Capital**, **7 pertes bleues cumulées**, **7 renforts cumulés**, **87 boosts en finale**, **17 passages intérieurs / 26 contournements**. Cinq Mega, deux Colossal, une Gate et deux Grid sont émis successivement ; maximum simultané d’une grille et d’un Colossal. Maximum **1 797 nœuds / 25 unités dangereuses / 24 projectiles physiques**. Les mesures détaillées par phase, les captures séparées et les limites de récupération locale figurent dans le README.
+
+## Référence historique M14 — Chorégraphie des menaces et renforts
 Moins de dangers simultanés (plafonds 64/48/64 rochers, 40 unités de combat), mais des méga astéroïdes de 28–40 m coupent un corridor prédit et déclenchent un contournement anticipé. Ils restent des obstacles, sans poursuite et sans ordre global aux chasseurs. Trois instances du même Capital alternent des attaques reconnaissables ; les attaques simples visent environ 80 % de cibles individuelles, avec 15 % de near-pass et 5 % de suppression.
 
 **Menace importante → détection individuelle → esquives → dispersion → arrivée éventuelle de renfort → cohésion → regroupement** constitue le phénomène observé. Chaque BlueShip conserve séparation, alignement, cohésion, recovery, combat et boost. La caméra observe ce mouvement sans le commander. Il reste exactement quatre types d’agents.
@@ -719,6 +737,9 @@ Visée prédictive, perception des trajectoires convergentes et esquive locale v
 
 ### M14 — Chorégraphie des menaces et renforts ✅
 Dangers plus espacés, méga astéroïdes, attaques significatives, renforts et compteur cumulatif de pertes.
+
+### M15 — Dangers arcade et animations ✅
+Grilles mobiles/tournantes, Colossal, missiles volumétriques, aura de boost et décor original.
 
 ## 12. Questions auxquelles le rapport final devra répondre
 

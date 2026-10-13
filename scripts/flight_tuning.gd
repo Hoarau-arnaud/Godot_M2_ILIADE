@@ -40,6 +40,12 @@ static func legacy_actor(actor: Node) -> void:
 static func m13_fixture(actor: Node) -> void:
 	if actor is SpaceSimulation:
 		var sim: SpaceSimulation = actor as SpaceSimulation
+		sim.arcade_hazards_enabled = false
 		sim.threat_choreography_enabled = false
 		sim.guided_reinforcements_enabled = false
 		sim.stop_on_squadron_extinction = true
+
+
+static func m14_fixture(actor: Node) -> void:
+	if actor is SpaceSimulation:
+		(actor as SpaceSimulation).arcade_hazards_enabled = false

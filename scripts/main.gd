@@ -23,6 +23,7 @@ const DIFFICULTY_NAMES: Array[String] = ["Facile", "Intermédiaire", "Difficile"
 
 @export var auto_start_guided_demo: bool = true
 @export var guided_simulation_speed: float = 2.0
+@export var arcade_hazards_enabled: bool = true
 @export var threat_choreography_enabled: bool = true
 @export var guided_reinforcements_enabled: bool = true
 @export var stop_on_squadron_extinction: bool = false
@@ -170,7 +171,8 @@ func _ready() -> void:
 	camera.follow_speed = camera_follow_speed
 	camera.initialize_view(_last_center, simulation_seed)
 	if not legacy_flight_profile:
-		CombatMeshCache.prepare_signatures()
+		CombatMeshCache.prepare_signatures(arcade_hazards_enabled)
+	space_decor.set_arcade_mode(arcade_hazards_enabled and not legacy_flight_profile)
 	_measure_group(_last_center)
 	_update_hud()
 	if auto_start_guided_demo:
@@ -581,6 +583,7 @@ func _add_ship(local_position: Vector3) -> void:
 	var ship: BlueShip = SHIP_SCENE.instantiate() as BlueShip
 	ship.name = "BlueShip_%02d" % (ship_spawn_count + 1)
 	ship.individual_seed = simulation_seed + (ship_spawn_count + 1) * 997
+	ship.arcade_visuals_enabled = arcade_hazards_enabled and not legacy_flight_profile
 	ship.combat_enabled = combat_enabled
 	ship.projectile_container = projectile_container
 	ship.demo_movement_multiplier = movement_multiplier
@@ -698,6 +701,18 @@ func _runtime_ship_position_is_clear(candidate: Vector3) -> bool:
 			return false
 	for node: Node in get_tree().get_nodes_in_group("combat_hazards"):
 		var zone: ArtilleryZone = node as ArtilleryZone
+		if zone is MovingLaserGate:
+			var gate: MovingLaserGate = zone as MovingLaserGate
+			var local: Vector3 = gate.global_transform.affine_inverse() * candidate
+			var clearance: float = BlueShip.SHIP_CLEARANCE + 3
+			if absf(local.z) < clearance + 1.5 and gate.beam_clearance(candidate, 0) < clearance:
+				return false
+			# Écarter aussi une barre qui arrive avant que le renfort puisse manœuvrer.
+			var initial_velocity: Vector3 = Vector3.FORWARD * 16
+			var crossing: float = gate.crossing_time(candidate, initial_velocity)
+			if crossing >= 0 and crossing < 1 and gate.beam_clearance(candidate + initial_velocity * crossing, crossing) < clearance:
+				return false
+			continue
 		if candidate.distance_to(zone.global_position) < zone.radius + 8:
 			return false
 	return true
@@ -883,6 +898,7 @@ func _update_camera(center: Vector3, delta: float) -> void:
 		if is_instance_valid(ship) and ship.alive and ship.evasive_boost_remaining > 0:
 			boosting += 1
 	camera.boost_fov_extra = minf(boosting / 3.0, 1) * 3 if demonstration.is_guided() else 0
+	space_decor.streak_length_multiplier = lerpf(space_decor.streak_length_multiplier, 1.35 if arcade_hazards_enabled and boosting >= 3 else 1.0, 1 - exp(-3 * delta / maxf(Engine.time_scale, 0.01)))
 	space_decor.readability_center = center
 	space_decor.guided_readability = demonstration.is_guided() and threat_choreography_enabled
 	space_decor.guided_speed_effect = 1.25 if demonstration.is_guided() and not legacy_flight_profile else 1
