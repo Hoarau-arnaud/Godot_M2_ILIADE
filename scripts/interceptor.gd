@@ -175,6 +175,7 @@ func _update_fire(delta: float) -> void:
 	if direction.dot(forward) < cos(deg_to_rad(firing_cone_angle)):
 		return
 	var projectile: EnemyLaser = ENEMY_LASER_SCENE.instantiate() as EnemyLaser
+	projectile.visual_variant = [EnemyLaser.VisualVariant.BOLT, EnemyLaser.VisualVariant.PULSE, EnemyLaser.VisualVariant.SPEAR][shots_fired % 3]
 	projectile.flight_direction = direction
 	var container: Node3D = projectile_container if is_instance_valid(projectile_container) else get_parent() as Node3D
 	container.add_child(projectile)

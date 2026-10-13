@@ -2,14 +2,38 @@ class_name SimulationCamera
 extends Camera3D
 
 signal mode_changed(free_camera: bool)
+signal camera_mode_changed(new_mode: int)
 
-enum Mode { FOLLOW, FREE }
+enum Mode { FOLLOW, FREE, CINEMATIC }
+enum Shot { CHASE, SIDE_LEFT, SIDE_RIGHT, HIGH, LOW_CLOSE, WIDE }
 
 @export var follow_speed: float = 3.0
 @export var pan_speed: float = 24.0
 @export var orbit_sensitivity: float = 0.006
 @export var minimum_zoom_distance: float = 6.0
 @export var maximum_zoom_distance: float = 220.0
+@export_category("Cinématique")
+@export var cinematic_transition_time: float = 2.0
+@export var cinematic_obstacle_avoidance: bool = true
+@export var cinematic_shake_enabled: bool = false
+@export var cinematic_shake_amplitude: float = 0.06
+
+var cinematic_shot: Shot = Shot.CHASE
+var shot_changes: int = 0
+var shot_history: Array[int] = []
+var _cine_random: RandomNumberGenerator = RandomNumberGenerator.new()
+var _cine_time: float = 0.0
+var _shot_time: float = 0.0
+var _shot_duration: float = 8.0
+var _sequence_index: int = 0
+var _cine_offset: Vector3 = Vector3(10, 18, 52)
+var _agent_positions: Array[Vector3] = []
+var _action_intensity: float = 0.0
+var _normal_fov: float = 58.0
+var _current_shot_offset: Vector3 = Vector3(14, 18, 52)
+var _previous_shot_offset: Vector3 = Vector3(14, 18, 52)
+var _last_effective_shot: int = -1
+var _transition_elapsed: float = 0.0
 
 var mode: Mode = Mode.FOLLOW
 var _group_center: Vector3 = Vector3.ZERO
@@ -21,38 +45,71 @@ var _pitch: float = 0.3
 var _dragging: bool = false
 
 
-func initialize_view(center: Vector3) -> void:
+func initialize_view(center: Vector3, seed_value: int = 1) -> void:
 	_group_center = center
+	_normal_fov = fov
+	_cine_random.seed = seed_value + 124091
+	_shot_duration = _cine_random.randf_range(6.0, 12.0)
 	global_position = center + Vector3(10.0, 16.0, 42.0)
 	look_at(center + Vector3.FORWARD * 8.0, Vector3.UP)
 
 
-func observe_group(center: Vector3, spread: float, delta: float) -> void:
+func observe_group(center: Vector3, spread: float, delta: float, positions: Array[Vector3] = [], intensity: float = 0.0) -> void:
 	_group_center = center
 	_group_spread = spread
+	_agent_positions = positions
+	_action_intensity = clampf(intensity, 0.0, 1.0)
 	if mode == Mode.FOLLOW:
+		fov = lerpf(fov, _normal_fov, 1.0 - exp(-3.0 * delta))
 		var distance: float = 42.0 + maxf(spread - 14.0, 0.0) * 1.3
 		var desired_position: Vector3 = center + Vector3(10.0, 16.0 + distance * 0.04, distance)
 		global_position = global_position.lerp(desired_position, 1.0 - exp(-maxf(follow_speed, 0.0) * delta))
 		look_at(center + Vector3.FORWARD * 8.0, Vector3.UP)
-	else:
+	elif mode == Mode.FREE:
 		_pan(delta / maxf(Engine.time_scale, 0.01))
 		_apply_orbit()
+	else:
+		_update_cinematic(delta / maxf(Engine.time_scale, 0.01))
 
 
 func toggle_mode() -> void:
+	set_mode(Mode.FOLLOW if mode == Mode.FREE else Mode.FREE)
+
+
+func set_mode(new_mode: Mode) -> void:
+	if new_mode == mode:
+		return
 	_dragging = false
-	if mode == Mode.FOLLOW:
-		mode = Mode.FREE
+	var previous_mode: Mode = mode
+	mode = new_mode
+	if mode == Mode.FREE:
 		_orbit_center = _group_center + Vector3.FORWARD * 8.0
 		_read_orbit_from_current_view()
+	elif mode == Mode.CINEMATIC:
+		_cine_offset = global_position - _group_center
+		_current_shot_offset = global_position - (_group_center + Vector3.FORWARD * 8.0)
+		_last_effective_shot = -1
+		_shot_time = 0.0
+		shot_history.append(cinematic_shot)
 	else:
-		mode = Mode.FOLLOW
-		recenter()
+		if previous_mode != Mode.CINEMATIC:
+			fov = _normal_fov
+			recenter()
 	mode_changed.emit(mode == Mode.FREE)
+	camera_mode_changed.emit(mode)
+
+
+func toggle_cinematic() -> void:
+	set_mode(Mode.FOLLOW if mode == Mode.CINEMATIC else Mode.CINEMATIC)
 
 
 func recenter() -> void:
+	if mode == Mode.CINEMATIC:
+		# Reprendre un plan derrière le groupe par la transition, sans saut de caméra.
+		cinematic_shot = Shot.CHASE
+		_sequence_index = 0
+		_shot_time = 0.0
+		return
 	var distance: float = 42.0 + maxf(_group_spread - 14.0, 0.0) * 1.3
 	global_position = _group_center + Vector3(10.0, 16.0 + distance * 0.04, distance)
 	look_at(_group_center + Vector3.FORWARD * 8.0, Vector3.UP)
@@ -65,6 +122,82 @@ func _read_orbit_from_current_view() -> void:
 	_orbit_distance = maxf(offset.length(), 0.1)
 	_yaw = atan2(offset.x, offset.z)
 	_pitch = asin(clampf(offset.y / _orbit_distance, -1.0, 1.0))
+
+
+func _update_cinematic(delta: float) -> void:
+	_cine_time += delta
+	_shot_time += delta
+	if _shot_time >= _shot_duration:
+		var sequence: Array[int] = [Shot.CHASE, Shot.SIDE_LEFT, Shot.HIGH, Shot.SIDE_RIGHT, Shot.LOW_CLOSE, Shot.WIDE]
+		_sequence_index = (_sequence_index + 1) % sequence.size()
+		cinematic_shot = sequence[_sequence_index] as Shot
+		_shot_time = 0.0
+		_shot_duration = _cine_random.randf_range(6.0, 12.0)
+		shot_changes += 1
+		shot_history.append(cinematic_shot)
+	var effective_shot: Shot = Shot.WIDE if _group_spread > 45.0 else cinematic_shot
+	var offsets: Array[Vector3] = [Vector3(14, 18, 52), Vector3(-55, 16, 28), Vector3(55, 14, 28), Vector3(8, 52, 38), Vector3(-18, -6, 37), Vector3(10, 34, 78)]
+	if effective_shot != _last_effective_shot:
+		_previous_shot_offset = _current_shot_offset
+		_transition_elapsed = 0.0
+		_last_effective_shot = effective_shot
+	_transition_elapsed += delta
+	var progress: float = clampf(_transition_elapsed / maxf(cinematic_transition_time, 0.5), 0.0, 1.0)
+	var eased: float = progress * progress * (3.0 - 2.0 * progress)
+	_current_shot_offset = _previous_shot_offset.lerp(offsets[effective_shot], eased)
+	var fields: Array[float] = [57.0, 60.0, 60.0, 58.0, 61.0, 65.0]
+	var desired_fov: float = fields[effective_shot] + _action_intensity * 3.0 + sin(_cine_time * 0.13) * 0.7
+	var blending: float = 1.0 - exp(-3.0 * delta / maxf(cinematic_transition_time, 0.5))
+	fov = lerpf(fov, desired_fov, blending)
+	var offset: Vector3 = _current_shot_offset * (1.0 - _action_intensity * 0.04)
+	offset += Vector3(sin(_cine_time * 0.23) * 3.0, sin(_cine_time * 0.19) * 1.8, cos(_cine_time * 0.17) * 2.5)
+	var target: Vector3 = _group_center + Vector3.FORWARD * 8.0
+	var direction: Vector3 = offset.normalized()
+	var desired_position: Vector3 = target + direction * maxf(offset.length(), _framing_distance(target, direction))
+	if cinematic_obstacle_avoidance:
+		desired_position = _clear_camera_position(desired_position)
+	_cine_offset = _cine_offset.lerp(desired_position - _group_center, blending)
+	var position_candidate: Vector3 = _group_center + _cine_offset
+	if cinematic_obstacle_avoidance:
+		var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(global_position, position_candidate, 2)
+		var hit: Dictionary = get_world_3d().direct_space_state.intersect_ray(query)
+		if not hit.is_empty():
+			position_candidate = hit["position"] + hit["normal"] * 0.8
+		position_candidate = _clear_camera_position(position_candidate, 0.8)
+		_cine_offset = position_candidate - _group_center
+	global_position = position_candidate
+	var desired_basis: Basis = Basis.looking_at((target - global_position).normalized(), Vector3.UP)
+	var roll: float = sin(_cine_time * 0.11) * 0.018
+	desired_basis = desired_basis.rotated(-desired_basis.z, roll)
+	# Garder le barycentre dans l'axe pendant la translation déjà interpolée.
+	quaternion = quaternion.slerp(desired_basis.get_rotation_quaternion(), 1.0 - exp(-5.0 * delta))
+	if cinematic_shake_enabled:
+		global_position += global_basis.x * sin(_cine_time * 29.0) * cinematic_shake_amplitude * _action_intensity
+
+
+func _framing_distance(target: Vector3, direction: Vector3) -> float:
+	var view: Basis = Basis.looking_at(-direction, Vector3.UP)
+	var viewport_size: Vector2 = get_viewport().get_visible_rect().size
+	var tangent_y: float = tan(deg_to_rad(fov * 0.5)) * 0.75
+	var tangent_x: float = tangent_y * viewport_size.x / maxf(viewport_size.y, 1.0)
+	var distance: float = 30.0
+	for point: Vector3 in _agent_positions:
+		var relative: Vector3 = point - target
+		var depth: float = relative.dot(direction)
+		distance = maxf(distance, depth + (absf(relative.dot(view.x)) + 5.0) / maxf(tangent_x, 0.1))
+		distance = maxf(distance, depth + (absf(relative.dot(view.y)) + 3.0) / maxf(tangent_y, 0.1))
+	return distance
+
+
+func _clear_camera_position(point: Vector3, margin: float = 4.0) -> Vector3:
+	var result: Vector3 = point
+	for node: Node in get_tree().get_nodes_in_group("asteroids"):
+		var asteroid: SpaceAsteroid = node as SpaceAsteroid
+		var away: Vector3 = result - asteroid.global_position
+		var clearance: float = asteroid.avoidance_radius + margin
+		if away.length() < clearance:
+			result = asteroid.global_position + (away.normalized() if away.length_squared() > 0.001 else Vector3.BACK) * clearance
+	return result
 
 
 func _apply_orbit() -> void:
@@ -104,6 +237,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("camera_recenter"):
 		recenter()
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("camera_cinematic"):
+		toggle_cinematic()
 		get_viewport().set_input_as_handled()
 	elif mode == Mode.FREE:
 		_handle_free_input(event)

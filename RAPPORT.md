@@ -188,6 +188,31 @@ Ces durées sont des secondes de démonstration équivalentes ; les tests headle
 
 Les tests vérifient les étoiles, TAB, les vitesses, les populations, le retrait sans mort et le reset sans réinitialisation. Mouvement 2,0 augmente nettement la mobilité latérale par rapport à 0,5, sans pertes sur les deux essais de 30 s. Les commandes de caméra et les contrôles ont été vérifiés avec rendu ; les tests historiques restent reproductibles à vitesse 1,0. La survie n'est pas garantie sur d'autres graines ou avec tous les réglages extrêmes.
 
+### Milestone 8 — Cinématique, barrages et design spatial
+
+Le BlueShip devient un **chasseur spatial original** : fuselage allongé, nez pointu, cockpit surélevé, grosses nacelles bleues, ailes balayées, pylônes et moteurs cyan. Le roulis visuel est renforcé et les flammes varient avec la vitesse. Les collisions restent simples. Les lasers bleus sont plus longs et fins ; les rouges alternent trois formes lumineuses sans modifier leurs dégâts, leur vitesse ou leur cadence.
+
+La caméra **Cinématique** alterne six plans doux, toutes les **6–12 secondes**, avec des transitions d'environ **2 secondes**. Elle accompagne le groupe sans dicter sa trajectoire. Le champ élargi ajoute six barrages avec des passages ouverts : porte, porte décalée, diagonale, double rideau, plongée et canyon. **Ces barrages sont des éléments de l'environnement, pas des agents. La caméra et le panneau ne sont pas des agents non plus.** Les machines à états des trois agents sont conservées.
+
+**F11 / Alt+Entrée** basculent le plein écran et restaurent la fenêtre. **C** commande Cinématique, **H** masque l'aide et **TAB** masque les réglages. Les trois formats 1280×720, **1920×1080** et 800×450 sont vérifiés avec rendu. La vitesse normale devient **1,7×**, avec Mouvement **1,2**, après comparaison visuelle à 1,8×. **Mode spectacle** applique le niveau 3, Mouvement 1,3, cinq verts, quatre rouges et Cinématique. **Normal** rétablit les réglages et populations normaux sans effacer les morts.
+
+Validation M8, Godot 4.7.2, graine `20261012`, collisions actives :
+
+| Mesure | Cinématique, 90 s de démonstration | Mode spectacle, 60 s |
+|---|---:|---:|
+| Temps simulé à 1,7× | 153 s | 102 s |
+| BlueShip vivants / morts | 10 / 0 | 10 / 0 |
+| Verts / rouges actifs | 3 / 2 | 5 / 4 |
+| Tirs bleus / rouges | 21 / 127 | 17 / 102 |
+| Esquives activées | 43 | 35 |
+| Projectiles maximum | 12 | 18 |
+| Astéroïdes maximum | 77 | 75 |
+| Nœuds maximum échantillonnés | 1 207 | 1 232 |
+| Dispersion maximale / finale | 39,16 / 37,01 m | 39,65 / 34,53 m |
+| Changements de plan | 10 | 6 |
+
+Les six barrages et la plongée inversée sont testés séparément sur 30 s : passages ouverts, détours dans plusieurs directions et aucun survivant isolé à la fin. La plongée normale cause **une perte** sur cet essai ; les autres gardent dix survivants. Les suites historiques M1–M7 passent avec leur décor et leurs réglages de référence, tandis que la suite M8 exerce le nouveau champ. Les coûts et limites de cadrage sont détaillés dans le README ; ces essais ne garantissent pas la survie sur toutes les graines.
+
 ## 3. Agents et environnement actuels
 
 ### Agent 1 — Chasseur bleu
@@ -293,7 +318,7 @@ Ils constituent des éléments de l'environnement que les chasseurs doivent perc
 
 Le champ prépare des configurations jusqu'à 320 m devant le premier chasseur, autour de la position X/Y mesurée du groupe. Une configuration est retirée seulement lorsqu'elle est à plus de 100 m derrière le dernier survivant. La caméra et les chasseurs ne reçoivent aucune consigne de déplacement de ce système.
 
-Le nettoyage protège aussi les drones encore actifs. Les futurs intercepteurs et poseurs de mines restent prévus pour les milestones suivants.
+Le nettoyage protège aussi les drones et intercepteurs encore actifs. Les barrages M8 restent des configurations de ces mêmes obstacles. L'Agent 4 est prévu pour M9.
 
 ---
 
@@ -400,13 +425,13 @@ Le rapport final ne cherchera pas à détailler tout le code. Les paramètres pr
 - seuil de récupération : moins de **2 voisins proches**, poids **0,8** ;
 - espacement des configurations : **56 / 44 / 34 m** selon la difficulté ;
 - seuils de progression : **500 / 1 100 m** ;
-- horizon de génération : **320 m**, nettoyage : **100 m** derrière tous les survivants, plafond : **72 astéroïdes**.
+- horizon de génération : **320 m**, nettoyage : **100 m** derrière tous les survivants, plafond M8 : **96 astéroïdes**.
 
 La séparation douce commence à **11 m** et devient forte sous **7 m**. Ces valeurs validées en M2 sont conservées. La distance mesurée vient de la progression en Z du centre des survivants. L'espacement est la moyenne de leurs distances au voisin vivant le plus proche ; la dispersion est la plus grande distance au centre du groupe.
 
 Pour le drone, les paramètres principaux sont la distance entre waypoints (**55 m**), leur portée d'arrivée (**7 m**), les écarts X/Y (**38 / 24 m**), la portée des astéroïdes (**44 m**) et la distance de sécurité envers les chasseurs (**10 m**). L'évitement léger du drone a un poids de **1,2** ; l'évitement mobile du BlueShip a un poids de **7** avec une anticipation de **3 secondes**.
 
-Les spreads du champ valent maintenant **38 / 26 m**. Avec les configurations d'obstacles, la zone utile habituelle atteint environ **±35–45 m horizontalement et ±20–30 m verticalement**, sans enfermer les agents. Le zoom libre peut atteindre **220 m**. Le score et la cadence pourront être étudiés avec les autres paramètres.
+Les spreads du champ valent maintenant **56 / 36 m**. Le centre des patterns utilise une fraction de ces valeurs, puis les offsets des rochers s'ajoutent ; ce ne sont pas des frontières qui enferment les agents. Les grands barrages sont absents en facile, la porte est rare en intermédiaire et les six barrages occupent un tiers des tirages difficiles. Le zoom libre peut atteindre **220 m**. Le score et la cadence pourront être étudiés avec les autres paramètres.
 
 Leur influence sera étudiée avec quelques configurations simples.
 
@@ -414,19 +439,20 @@ Leur influence sera étudiée avec quelques configurations simples.
 
 ## 7. Caméra et observation
 
-Deux modes de caméra sont disponibles :
+Trois modes de caméra sont disponibles :
 
 - **Suivi** : la caméra suit automatiquement le groupe ;
 - **Libre** : la caméra peut être déplacée autour de la simulation.
+- **Cinématique** : six cadrages automatiques accompagnent le groupe avec des transitions douces.
 
 Commandes principales :
 
 - **F** : alterner Suivi / Libre ;
-- clic droit + souris : orbite ;
-- molette : zoom ;
-- flèches ou touches de déplacement : translation ;
-- PageUp / PageDown : déplacement vertical ;
-- **G** ou **Home** : recentrer la caméra sur le groupe.
+- **C** : Cinématique, puis retour au Suivi ;
+- en Libre, clic droit + souris : orbite ; molette : zoom ;
+- en Libre, flèches / ZQSD / WASD : translation ; PageUp / E : monter ; PageDown : descendre ;
+- **G** ou **Home** : recentrer la caméra sur le groupe ;
+- **F11 / Alt+Entrée** : plein écran ; **TAB** : réglages ; **H** : aide.
 
 La caméra sert uniquement à observer la simulation et n'influence pas les agents.
 
@@ -482,7 +508,7 @@ stateDiagram-v2
     Sortie --> Entree : nouveau passage
 ```
 
-L'intercepteur apporte déjà la poursuite active et les tirs ennemis. Le futur Agent 4 ajoutera un rôle de contrôle de zone ; il n'est pas implémenté dans M6.
+L'intercepteur apporte déjà la poursuite active et les tirs ennemis. Le futur Agent 4 ajoutera un rôle de contrôle de zone ; il n'est pas implémenté dans M8.
 
 ---
 
@@ -535,14 +561,14 @@ Agent 3 rouge, poursuite temporaire, rafales et désengagement ; santé BlueShip
 ### M7 — Contrôles de démonstration ✅
 Rythme global accéléré, trois étoiles, panneau TAB, réglages runtime, populations sûres et tests de démonstration.
 
-### M8 — Agent 4 : Bomber / MineLayer
+### M8 — Cinématique / barrages / design spatial ✅
+Chasseur spatial redessiné, six cadrages automatiques, barrages ouverts, plein écran, aide et presets de démonstration. Aucun nouvel agent.
+
+### M9 — Agent 4 : Bomber / MineLayer
 Ajouter l'Agent 4 plus lent, avec un rôle de contrôle de zone par projectile lourd ou mines.
 
-### M9 — Scénarios/vagues et bombes BlueShip
-Préparer les scénarios et vagues de démonstration, puis les bombes limitées avec une zone d'effet.
-
-### M10 — Étude et finalisation
-Comparer les paramètres, états initiaux, difficultés et mesures. Stabilisation, vidéo, rapport final, diagrammes et PowerPoint de 10 minutes.
+### M10 — Scénarios, bombes BlueShip, étude et finalisation
+Préparer les scénarios de démonstration et les bombes limitées, comparer paramètres, états initiaux, difficultés et mesures, puis stabiliser la vidéo, le rapport, les diagrammes et le PowerPoint de 10 minutes. Si ce périmètre devient trop grand, un **M11 de finalisation** pourra être ajouté. M9–M11 ne sont pas implémentés dans M8.
 
 ---
 

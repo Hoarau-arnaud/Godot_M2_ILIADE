@@ -568,14 +568,15 @@ func _update_orientation(delta: float) -> void:
 		return
 	var direction: Vector3 = velocity.normalized()
 	var target_basis: Basis = Basis.looking_at(direction, Vector3.UP)
-	var bank: float = clampf(-velocity.x * 0.035, -0.28, 0.28)
+	var bank: float = clampf(velocity.x * 0.065, -0.46, 0.46)
 	target_basis = target_basis.rotated(direction, bank)
 	_visuals.quaternion = _visuals.quaternion.slerp(target_basis.get_rotation_quaternion(), 1.0 - exp(-maxf(turn_speed, 0.0) * delta))
 
 
 func _update_exhausts() -> void:
-	_right_exhaust.scale.y = 1.0 + 0.14 * sin(_time * 6.1 + _phases.x)
-	_left_exhaust.scale.y = 1.0 + 0.14 * sin(_time * 5.7 + _phases.y)
+	var thrust: float = 0.65 + clampf(velocity.length() / maxf(forward_speed, 0.1), 0.4, 1.8) * 0.5
+	_right_exhaust.scale.y = thrust * (1.0 + 0.14 * sin(_time * 6.1 + _phases.x))
+	_left_exhaust.scale.y = thrust * (1.0 + 0.14 * sin(_time * 5.7 + _phases.y))
 
 
 func retire() -> void:

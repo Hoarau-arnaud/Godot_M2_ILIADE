@@ -4,6 +4,8 @@ extends Node3D
 const SHIP_SCENE: PackedScene = preload("res://scenes/blue_ship.tscn")
 const DRONE_SCENE: PackedScene = preload("res://scenes/patrol_drone.tscn")
 const INTERCEPTOR_SCENE: PackedScene = preload("res://scenes/interceptor.tscn")
+const DEFAULT_DEMO_SPEED: float = 1.7
+const DEFAULT_MOVEMENT: float = 1.2
 const DIFFICULTY_NAMES: Array[String] = ["Facile", "Intermédiaire", "Difficile"]
 
 @export_range(1, 30, 1) var ship_count: int = 10
@@ -16,8 +18,8 @@ const DIFFICULTY_NAMES: Array[String] = ["Facile", "Intermédiaire", "Difficile"
 @export var combat_enabled: bool = true
 
 @export_category("Démonstration")
-@export_range(0.5, 2.5, 0.1) var simulation_speed_multiplier: float = 1.5
-@export_range(0.5, 2.0, 0.1) var movement_multiplier: float = 1.0
+@export_range(0.5, 2.5, 0.1) var simulation_speed_multiplier: float = DEFAULT_DEMO_SPEED
+@export_range(0.5, 2.0, 0.1) var movement_multiplier: float = DEFAULT_MOVEMENT
 @export_range(0.8, 1.4, 0.1) var spacing_multiplier: float = 1.0
 @export_range(-1, 8, 1) var manual_drone_count_override: int = -1
 @export_range(-1, 8, 1) var manual_interceptor_count_override: int = -1
@@ -71,6 +73,7 @@ var enemies_destroyed: int = 0
 var blue_shots_fired: int = 0
 var hostile_hits: int = 0
 var maximum_active_projectiles: int = 0
+var action_intensity: float = 0.0
 var _drone_random: RandomNumberGenerator = RandomNumberGenerator.new()
 var _replacement_timer: float = 0.0
 var _interceptor_random: RandomNumberGenerator = RandomNumberGenerator.new()
@@ -93,6 +96,7 @@ var _engine_settings_owned: bool = false
 @onready var camera: SimulationCamera = $Camera3D
 @onready var space_decor: SpaceEnvironment = $SpaceDecor
 @onready var statistics: Label = $HUD/Panel/Statistics
+@onready var presentation_window: PresentationWindow = $PresentationWindow
 @onready var demo_controls: DemoControls = $DemoControls
 
 
@@ -100,6 +104,8 @@ func _ready() -> void:
 	_previous_time_scale = Engine.time_scale
 	_previous_physics_rate = Engine.physics_ticks_per_second
 	_engine_settings_owned = true
+	camera.camera_mode_changed.connect(func(_mode: int) -> void: demo_controls.refresh(self))
+	presentation_window.fullscreen_changed.connect(func(_enabled: bool) -> void: demo_controls.refresh(self))
 	set_simulation_speed(simulation_speed_multiplier)
 	_random.seed = simulation_seed
 	_ship_spawn_random.seed = simulation_seed + 83003
@@ -116,7 +122,7 @@ func _ready() -> void:
 	_maintain_drones(_last_center, 0.0)
 	_maintain_interceptors(_last_center, 0.0)
 	camera.follow_speed = camera_follow_speed
-	camera.initialize_view(_last_center)
+	camera.initialize_view(_last_center, simulation_seed)
 	_measure_group(_last_center)
 	_update_hud()
 
@@ -135,6 +141,7 @@ func _physics_process(delta: float) -> void:
 		if ship.projectile_avoidance_active:
 			projectile_dodge_ticks += 1
 	maximum_active_projectiles = maxi(maximum_active_projectiles, projectile_container.get_child_count())
+	_update_action_intensity(center, delta)
 	if streaming_enabled:
 		var z_bounds: Vector2 = _fleet_z_bounds()
 		var cleanup_rear: float = z_bounds.y
@@ -157,6 +164,14 @@ func _input(event: InputEvent) -> void:
 	if event.is_action_pressed("demo_panel_toggle"):
 		demo_controls.toggle_panel()
 		camera.cancel_orbit()
+		get_viewport().set_input_as_handled()
+		return
+	if event.is_action_pressed("camera_help_toggle"):
+		demo_controls.toggle_help()
+		get_viewport().set_input_as_handled()
+		return
+	if event.is_action_pressed("presentation_fullscreen"):
+		presentation_window.toggle_fullscreen()
 		get_viewport().set_input_as_handled()
 		return
 	var actions: Array[String] = ["difficulty_auto", "difficulty_easy", "difficulty_medium", "difficulty_hard"]
@@ -498,6 +513,39 @@ func reset_population_overrides() -> void:
 	demo_controls.refresh(self)
 
 
+func apply_action_preset() -> void:
+	set_difficulty_mode(3)
+	set_simulation_speed(DEFAULT_DEMO_SPEED)
+	set_movement_multiplier(1.3)
+	set_spacing_multiplier(1.0)
+	set_drone_count_override(5)
+	set_interceptor_count_override(4)
+	camera.set_mode(SimulationCamera.Mode.CINEMATIC)
+	demo_controls.refresh(self)
+
+
+func apply_normal_preset() -> void:
+	set_simulation_speed(DEFAULT_DEMO_SPEED)
+	set_movement_multiplier(DEFAULT_MOVEMENT)
+	set_spacing_multiplier(1.0)
+	reset_population_overrides()
+	camera.set_mode(SimulationCamera.Mode.FOLLOW)
+	demo_controls.refresh(self)
+
+
+func _update_action_intensity(center: Vector3, delta: float) -> void:
+	var activity: float = float(projectile_container.get_child_count()) * 0.035
+	for ship: BlueShip in ships:
+		if ship.behavior_state == BlueShip.BehaviorState.AVOIDANCE:
+			activity += 0.045
+	for node: Node in get_tree().get_nodes_in_group("hostile_agents"):
+		var hostile: Node3D = node as Node3D
+		if hostile.global_position.distance_to(center) < 70.0:
+			activity += 0.06
+	activity += get_tree().get_nodes_in_group("explosions").size() * 0.12
+	action_intensity = lerpf(action_intensity, clampf(activity, 0.0, 1.0), 1.0 - exp(-3.0 * delta))
+
+
 func _exit_tree() -> void:
 	if _engine_settings_owned:
 		Engine.time_scale = _previous_time_scale
@@ -588,7 +636,9 @@ func _fleet_center() -> Vector3:
 
 func _update_camera(center: Vector3, delta: float) -> void:
 	var spread: float = 0.0
+	var positions: Array[Vector3] = []
 	for ship: BlueShip in ships:
 		if is_instance_valid(ship) and ship.alive:
 			spread = maxf(spread, center.distance_to(ship.global_position))
-	camera.observe_group(center, spread, delta)
+			positions.append(ship.global_position)
+	camera.observe_group(center, spread, delta, positions, action_intensity)

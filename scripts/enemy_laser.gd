@@ -4,10 +4,12 @@ extends Node3D
 signal hit_blue_ship(target: BlueShip, amount: int)
 
 const HIT_MASK: int = 3 # BlueShip (1) et astéroïdes (2), jamais les hostiles (4).
+enum VisualVariant { BOLT, SPEAR, PULSE }
 
 @export var projectile_speed: float = 45.0
 @export var lifetime: float = 3.5
 @export var damage: int = 1
+@export var visual_variant: VisualVariant = VisualVariant.BOLT
 
 var flight_direction: Vector3 = Vector3.FORWARD
 var velocity: Vector3:
@@ -15,6 +17,13 @@ var velocity: Vector3:
 		return flight_direction.normalized() * maxf(projectile_speed, 0.0)
 var _age: float = 0.0
 var _spent: bool = false
+
+
+func _ready() -> void:
+	$Bolt.visible = visual_variant == VisualVariant.BOLT
+	$Spear.visible = visual_variant == VisualVariant.SPEAR
+	$Pulse.visible = visual_variant == VisualVariant.PULSE
+	$PulseTrail.visible = visual_variant == VisualVariant.PULSE
 
 
 func _physics_process(delta: float) -> void:
