@@ -5,7 +5,7 @@ signal mode_changed(free_camera: bool)
 signal camera_mode_changed(new_mode: int)
 
 enum Mode { FOLLOW, FREE, CINEMATIC }
-enum Shot { CHASE, SIDE_LEFT, SIDE_RIGHT, HIGH, LOW_CLOSE, WIDE }
+enum Shot { CHASE, SIDE_LEFT, SIDE_RIGHT, HIGH, LOW_CLOSE, WIDE, FRONT_FLYBY, REAR_CLOSE, TOP_DOWN, UNDER_FLEET, WIDE_ARTILLERY, SIDE_FAST }
 
 @export var follow_speed: float = 3.0
 @export var pan_speed: float = 24.0
@@ -24,6 +24,7 @@ var shot_history: Array[int] = []
 var group_velocity: Vector3 = Vector3.ZERO
 var capital_preparing: bool = false
 var capital_focus: Vector3 = Vector3.ZERO
+var guided_spectacle: bool = false
 var guided_lock: bool = false
 var guided_shots: Array[int] = []
 var _capital_composition: Vector3 = Vector3.ZERO
@@ -56,7 +57,7 @@ func initialize_view(center: Vector3, seed_value: int = 1) -> void:
 	_group_center = center
 	_normal_fov = fov
 	_cine_random.seed = seed_value + 124091
-	_shot_duration = _cine_random.randf_range(6.0, 12.0)
+	_shot_duration = _cine_random.randf_range(3.5, 6.0) if guided_spectacle else _cine_random.randf_range(6.0, 12.0)
 	global_position = center + Vector3(10.0, 16.0, 42.0)
 	look_at(center + Vector3.FORWARD * 8.0, Vector3.UP)
 
@@ -143,11 +144,11 @@ func _update_cinematic(delta: float) -> void:
 		_sequence_index = (_sequence_index + 1) % sequence.size()
 		cinematic_shot = sequence[_sequence_index] as Shot
 		_shot_time = 0.0
-		_shot_duration = _cine_random.randf_range(6.0, 12.0)
+		_shot_duration = _cine_random.randf_range(3.5, 6.0) if guided_spectacle else _cine_random.randf_range(6.0, 12.0)
 		shot_changes += 1
 		shot_history.append(cinematic_shot)
-	var effective_shot: Shot = Shot.WIDE if _group_spread > 45.0 else cinematic_shot
-	var offsets: Array[Vector3] = [Vector3(14, 18, 52), Vector3(-55, 16, 28), Vector3(55, 14, 28), Vector3(8, 52, 38), Vector3(-18, -6, 37), Vector3(10, 34, 78)]
+	var effective_shot: Shot = Shot.WIDE if _group_spread > 45.0 and not guided_spectacle else cinematic_shot
+	var offsets: Array[Vector3] = [Vector3(14, 18, 52), Vector3(-55, 16, 28), Vector3(55, 14, 28), Vector3(8, 52, 38), Vector3(-18, -6, 37), Vector3(10, 34, 78), Vector3(-8, 12, -62), Vector3(5, 8, 35), Vector3(12, 80, 48), Vector3(-10, -50, 48), Vector3(10, 25, 95), Vector3(-65, 12, 22)]
 	if effective_shot != _last_effective_shot:
 		_previous_shot_offset = _current_shot_offset
 		_transition_elapsed = 0.0
@@ -156,7 +157,7 @@ func _update_cinematic(delta: float) -> void:
 	var progress: float = clampf(_transition_elapsed / maxf(cinematic_transition_time, 0.5), 0.0, 1.0)
 	var eased: float = progress * progress * (3.0 - 2.0 * progress)
 	_current_shot_offset = _previous_shot_offset.lerp(offsets[effective_shot], eased)
-	var fields: Array[float] = [57.0, 60.0, 60.0, 58.0, 61.0, 65.0]
+	var fields: Array[float] = [57.0, 60.0, 60.0, 58.0, 61.0, 65.0, 64.0, 62.0, 64.0, 62.0, 65.0, 63.0]
 	var side_speed: float = Vector2(group_velocity.x, group_velocity.y).length()
 	var desired_fov: float = clampf(fields[effective_shot] + _action_intensity * 3.0 + maxf(_demo_pace - 1.0, 0.0) * 1.7 + side_speed * 0.2 + sin(_cine_time * 0.13) * 0.7, 54, 68)
 	var blending: float = 1.0 - exp(-3.0 * delta / maxf(cinematic_transition_time, 0.5))

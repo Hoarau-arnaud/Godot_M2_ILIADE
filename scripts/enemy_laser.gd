@@ -32,8 +32,40 @@ func _ready() -> void:
 		green.emission_energy_multiplier = 2.5
 		$Pulse.material_override = green
 		$PulseTrail.material_override = green
-		$Pulse.scale = Vector3.ONE * 1.6
-		$PulseTrail.scale = Vector3(2, 2, 2.5)
+		$Pulse.scale = Vector3.ONE * 2.25
+		var trail: CylinderMesh = CylinderMesh.new()
+		trail.top_radius = 0.28
+		trail.bottom_radius = 0.16
+		trail.height = 4.5
+		trail.radial_segments = 8
+		$PulseTrail.mesh = trail
+		$PulseTrail.rotation_degrees.x = 90
+		$PulseTrail.position.z = 2.4
+		var halo: MeshInstance3D = MeshInstance3D.new()
+		halo.name = "PulseHalo"
+		var ring: TorusMesh = TorusMesh.new()
+		ring.inner_radius = 0.78
+		ring.outer_radius = 1
+		ring.rings = 16
+		ring.ring_segments = 6
+		halo.mesh = ring
+		halo.material_override = green
+		halo.rotation_degrees.x = 90
+		add_child(halo)
+	if visual_variant != VisualVariant.PULSE:
+		var core: MeshInstance3D = MeshInstance3D.new()
+		var streak: BoxMesh = BoxMesh.new()
+		streak.size = Vector3(0.18, 0.18, 6 if visual_variant == VisualVariant.BOLT else 8)
+		core.mesh = streak
+		var white: StandardMaterial3D = StandardMaterial3D.new()
+		white.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		white.albedo_color = Color(1, 0.85, 0.6)
+		white.emission_enabled = true
+		white.emission = Color(1, 0.8, 0.5)
+		white.emission_energy_multiplier = 3
+		core.material_override = white
+		core.position.z = 1.1 if visual_variant == VisualVariant.BOLT else 2
+		add_child(core)
 	$Bolt.visible = visual_variant == VisualVariant.BOLT
 	$Spear.visible = visual_variant == VisualVariant.SPEAR
 	$Pulse.visible = visual_variant == VisualVariant.PULSE

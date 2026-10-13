@@ -3,13 +3,13 @@ extends Node3D
 
 const ASTEROID_SCENE: PackedScene = preload("res://scenes/asteroid.tscn")
 
-enum Pattern { SINGLE, OFFSET_PAIR, HORIZONTAL_PAIR, VERTICAL_PAIR, STAGGERED_CLUSTER, LARGE_WITH_COMPANIONS, ASTEROID_GATE, OFFSET_GATE, DIAGONAL_BARRAGE, DOUBLE_CURTAIN, DIVE, ASTEROID_CANYON, DEMO_SLALOM_TUNNEL }
+enum Pattern { SINGLE, OFFSET_PAIR, HORIZONTAL_PAIR, VERTICAL_PAIR, STAGGERED_CLUSTER, LARGE_WITH_COMPANIONS, ASTEROID_GATE, OFFSET_GATE, DIAGONAL_BARRAGE, DOUBLE_CURTAIN, DIVE, ASTEROID_CANYON, DEMO_SLALOM_TUNNEL, DEMO_METEOR_STORM }
 
 @export_category("Streaming")
 @export var spawn_ahead_distance: float = 320.0
 @export var start_distance: float = 55.0
 @export var cleanup_distance: float = 100.0
-@export_range(16, 180, 1) var max_active_asteroids: int = 96
+@export_range(16, 220, 1) var max_active_asteroids: int = 96
 @export var horizontal_spread: float = 56.0
 @export var vertical_spread: float = 36.0
 @export var cinematic_patterns_enabled: bool = true
@@ -29,6 +29,18 @@ enum Pattern { SINGLE, OFFSET_PAIR, HORIZONTAL_PAIR, VERTICAL_PAIR, STAGGERED_CL
 @export var intermediate_gap: float = 18.0
 @export var hard_gap: float = 14.0
 
+var density_multiplier: float = 1.0
+var irregular_barrages: bool = true
+var storm_enabled: bool = false
+var storm_complex: bool = false
+var storm_target: int = 180
+var storm_samples: Array[Dictionary] = []
+var storm_speed_min: float = INF
+var storm_speed_max: float = 0
+var storm_size_bins: Array[int] = [0, 0, 0, 0]
+var _storm_serial: int = 0
+var _storm_container: Node3D
+var _storm_visuals: StormRockVisuals
 var configurations: Array[Node3D] = []
 var active_asteroid_count: int = 0
 var maximum_active_observed: int = 0
@@ -54,6 +66,13 @@ func initialize_field(seed_value: int, center: Vector3, front_z: float) -> void:
 	_origin_z = center.z
 	_next_z = front_z - maxf(start_distance, 50.0)
 	_pending_pattern = -1
+	_storm_serial = 0
+	_storm_container = null
+	_storm_visuals = null
+	storm_samples.clear()
+	storm_speed_min = INF
+	storm_speed_max = 0
+	storm_size_bins.assign([0, 0, 0, 0])
 	_motion_totals_by_level.clear()
 
 
@@ -104,6 +123,9 @@ func _choose_pattern(level: int) -> int:
 
 
 func advance(center: Vector3, front_z: float, rear_z: float) -> void:
+	if storm_enabled:
+		advance_storm(center)
+		return
 	_cleanup_passed(rear_z)
 	var safety_limit: int = 0
 	while _next_z >= front_z - maxf(spawn_ahead_distance, 80.0):
@@ -126,7 +148,7 @@ func advance(center: Vector3, front_z: float, rear_z: float) -> void:
 		var depth: float = 0.0
 		for point: Vector3 in offsets:
 			depth = maxf(depth, -point.z)
-		_next_z -= spacing_for_level(level) + (depth if pattern >= Pattern.ASTEROID_GATE else 0.0)
+		_next_z -= spacing_for_level(level) / maxf(density_multiplier, 0.5) + (depth if pattern >= Pattern.ASTEROID_GATE else 0.0)
 		safety_limit += 1
 		if safety_limit >= 12:
 			break
@@ -164,6 +186,9 @@ func _spawn_configuration(pattern: int, level: int, center: Vector3, z_position:
 		asteroid.size_category = _size_category(asteroid.diameter)
 		asteroid.shape_seed = _seed + generated_configuration_count * 193 + index * 53
 		asteroid.position = offsets[index] + Vector3(_random.randf_range(-0.25, 0.25), _random.randf_range(-0.25, 0.25), 0.0)
+		if irregular_barrages and pattern >= Pattern.ASTEROID_GATE:
+			# Jitter XYZ important, conservateur près des passages existants.
+			asteroid.position += Vector3(_random.randf_range(-3, 3), _random.randf_range(-3, 3), _random.randf_range(-9, 9))
 		if inverted:
 			asteroid.position.y *= -1.0
 		asteroid.rotation = Vector3(_random.randf_range(-PI, PI), _random.randf_range(-PI, PI), _random.randf_range(-PI, PI))
@@ -403,3 +428,65 @@ func _cleanup_passed(rear_z: float) -> void:
 		configurations.remove_at(index)
 		configuration.queue_free()
 		removed_configuration_count += 1
+
+
+func advance_storm(center: Vector3) -> void:
+	if not is_instance_valid(_storm_container):
+		_storm_container = Node3D.new()
+		_storm_container.name = "RandomMeteorStorm"
+		add_child(_storm_container)
+		_storm_visuals = StormRockVisuals.new()
+		_storm_visuals.name = "PhysicalMeteorMultiMesh"
+		add_child(_storm_visuals)
+	for node: Node in _storm_container.get_children():
+		var rock: SpaceAsteroid = node as SpaceAsteroid
+		if rock.is_queued_for_deletion():
+			continue
+		var relative: Vector3 = rock.global_position - center
+		if relative.z > 80 or relative.z < -340 or absf(relative.x) > 110 or absf(relative.y) > 85:
+			rock.remove_from_group("asteroids")
+			rock.collision_layer = 0
+			active_asteroid_count -= 1
+			active_mobile_count -= 1
+			rock.queue_free()
+	var rocks: Array[Node] = get_tree().get_nodes_in_group("asteroids")
+	var ships: Array[Node] = get_tree().get_nodes_in_group("blue_ships")
+	var target_count: int = mini(storm_target, max_active_asteroids)
+	var added: int = 0
+	for _attempt: int in range(1200):
+		if active_asteroid_count >= target_count or added >= 180:
+			break
+		var spec: Dictionary = MeteorStorm.sample(_random, center, storm_complex)
+		if not MeteorStorm.clear(spec, center, rocks, ships):
+			continue
+		var rock: SpaceAsteroid = ASTEROID_SCENE.instantiate() as SpaceAsteroid
+		rock.name = "Meteor_%d" % _storm_serial
+		rock.diameter = spec.diameter
+		rock.size_category = _size_category(rock.diameter)
+		rock.shape_seed = spec.seed
+		rock.single_convex_envelope = true
+		rock.motion_type = int(spec.motion) as SpaceAsteroid.MotionType
+		rock.motion_velocity = spec.velocity
+		rock.motion_duration = 80
+		rock.orbit_axis_u = spec.axis_u
+		rock.orbit_axis_v = spec.axis_v
+		rock.motion_amplitude = spec.amplitude
+		rock.motion_phase = spec.phase
+		rock.motion_period = spec.period
+		rock.rotation = spec.rotation
+		rock.position = _storm_container.to_local(spec.position) - rock.trajectory_offset(0)
+		_storm_container.add_child(rock)
+		rocks.append(rock)
+		active_asteroid_count += 1
+		active_mobile_count += 1
+		added += 1
+		_storm_serial += 1
+		motions_generated[rock.motion_type] = motions_generated.get(rock.motion_type, 0) + 1
+		storm_speed_min = minf(storm_speed_min, rock.motion_velocity.length())
+		storm_speed_max = maxf(storm_speed_max, rock.motion_velocity.length())
+		storm_size_bins[0 if rock.diameter < 2 else 1 if rock.diameter < 5 else 2 if rock.diameter < 10 else 3] += 1
+		if storm_samples.size() < 512:
+			storm_samples.append(spec)
+	maximum_active_observed = maxi(maximum_active_observed, active_asteroid_count)
+	maximum_mobile_observed = maxi(maximum_mobile_observed, active_mobile_count)
+	patterns_generated[Pattern.DEMO_METEOR_STORM] = _storm_serial

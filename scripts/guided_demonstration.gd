@@ -6,13 +6,16 @@ signal phase_changed(index: int)
 signal completed
 
 enum DemoMode { FREE, GUIDED }
-const TITLES: Array[String] = ["CHAMP D'ASTÉROÏDES", "ASTÉROÏDES DYNAMIQUES", "DRONES DE PATROUILLE", "INTERCEPTEURS", "ARTILLERIE CAPITALE", "CONFRONTATION FINALE"]
-const GAME_GROUPS: Array[String] = ["blue_ships", "asteroids", "patrol_drones", "interceptors", "capital_ships", "hostile_agents", "blue_lasers", "hostile_projectiles", "artillery_projectiles", "explosions", "capital_explosions"]
+const TITLES: Array[String] = ["TEMPÊTE DE MÉTÉORES", "ASTÉROÏDES ORBITAUX", "DRONES DE PATROUILLE", "INTERCEPTEURS", "FLOTTE D'ARTILLERIE", "ASSAUT FINAL"]
+const GAME_GROUPS: Array[String] = ["blue_ships", "asteroids", "patrol_drones", "interceptors", "capital_ships", "hostile_agents", "blue_lasers", "hostile_projectiles", "artillery_projectiles", "explosions", "capital_explosions", "combat_hazards"]
 
 @export var demo_phase_duration: float = 15.0
 @export var capital_phase_duration: float = 20.0
 @export var finale_phase_duration: float = 20.0
 @export var finale_relief_duration: float = 5.0
+@export var spectacle_phase_duration: float = 18.0
+@export var spectacle_capital_duration: float = 28.0
+@export var spectacle_finale_duration: float = 30.0
 @export var demonstration_seed: int = 20261012
 var mode: DemoMode = DemoMode.FREE
 var phase_index: int = -1
@@ -28,6 +31,12 @@ var _markers: Node3D
 var _phase_sample: Dictionary = {}
 var _marker_drones: Array[PatrolDrone] = []
 var _marker_nodes: Array[MeshInstance3D] = []
+var tracers: BattleTracers
+var bomb_explosions: int = 0
+var grid_activations: int = 0
+var curtain_activations: int = 0
+var missile_count: int = 0
+var _arrived_ids: Dictionary[int, bool] = {}
 var _phase_deaths: int = 0
 var _ui_visibility: Vector2i
 var _camera_transform: Transform3D
@@ -51,7 +60,13 @@ func toggle() -> void:
 		start()
 
 
+func spectacle() -> bool:
+	return not simulation.demonstration_legacy_fixture
+
+
 func phase_duration(index: int) -> float:
+	if spectacle():
+		return spectacle_capital_duration if index == 4 else spectacle_finale_duration if index == 5 else spectacle_phase_duration
 	return maxf(capital_phase_duration if index == 4 else finale_phase_duration if index == 5 else demo_phase_duration, 1)
 
 
@@ -73,7 +88,7 @@ func start() -> void:
 	simulation.enemy_shots_fired = 0
 	simulation.projectile_dodge_count = 0
 	simulation.moving_asteroid_dodge_count = 0
-	simulation.capital_salvos.assign([0, 0, 0, 0, 0])
+	simulation.capital_salvos.assign([0, 0, 0, 0, 0, 0, 0, 0, 0, 0] if spectacle() else [0, 0, 0, 0, 0])
 	simulation.maximum_active_projectiles = 0
 	simulation.maximum_artillery_projectiles = 0
 	simulation.capitals_destroyed = 0
@@ -248,31 +263,42 @@ func _begin_phase(index: int, center: Vector3) -> void:
 	phase_elapsed = 0
 	_phase_deaths = simulation.death_count
 	simulation.manual_difficulty = 3
-	simulation.streaming_enabled = index == 5
+	simulation.streaming_enabled = index in [0, 1, 5] if spectacle() else index == 5
 	simulation.drones_enabled = true
 	simulation.interceptors_enabled = true
 	simulation.capital_ships_enabled = true
 	simulation.combat_enabled = index >= 3
-	simulation.set_simulation_speed(1.7)
-	simulation.set_movement_multiplier(1.3 if index == 5 else 1.2)
+	simulation.set_simulation_speed(1.9 if spectacle() else 1.7)
+	simulation.set_movement_multiplier((1.6 if index == 5 else 1.35 if index in [2, 3] else 1.5) if spectacle() else 1.3 if index == 5 else 1.2)
 	simulation.set_spacing_multiplier(1.05 if index == 5 else 1.0)
 	simulation.manual_drone_count_override = 5 if index == 5 else 4 if index == 2 else 0
-	simulation.manual_interceptor_count_override = 4 if index in [3, 5] else 0
-	simulation.manual_capital_count_override = 1 if index in [4, 5] else 0
+	simulation.manual_interceptor_count_override = (5 if spectacle() else 4) if index in [3, 5] else 0
+	simulation.manual_capital_count_override = (5 if index == 4 else 4) if spectacle() and index in [4, 5] else 1 if index in [4, 5] else 0
 	for ship_index: int in range(15):
 		var offset: Vector3 = Vector3((ship_index % 3 - 1) * 9.5, (ship_index / 3 % 3 - 1) * 9.5, (ship_index / 9) * 12 + (ship_index % 3) * 2)
 		if index == 5 and ship_index >= 13:
 			# Deux voisins restent dans la portée de récupération, sans consigne de vol.
 			offset = Vector3(45, 15, 10) if ship_index == 13 else Vector3(-45, -15, 10)
 		simulation._add_ship(simulation.ship_container.to_local(center + offset))
+		if spectacle():
+			simulation.ships.back().environment_perception_interval = 0.05
 	simulation.target_ship_count = 15
 	simulation.living_agent_count = 15
 	simulation._last_center = simulation._fleet_center()
 	var field: ObstacleField = simulation.asteroid_container
-	field.max_active_asteroids = 160 if index == 0 else 96
+	field.max_active_asteroids = 180 if spectacle() else 160 if index == 0 else 96
+	field.storm_enabled = spectacle() and index in [0, 1, 5]
+	field.storm_complex = index == 1
+	field.storm_target = 84 if index == 1 else 150 if index == 5 else 180
+	bomb_explosions = 0
+	grid_activations = 0
+	curtain_activations = 0
+	missile_count = 0
+	_arrived_ids.clear()
+	tracers = null
 	field.initialize_field(demonstration_seed + index * 1091, center, simulation._fleet_z_bounds().x)
 	field.difficulty_override = 3
-	if index == 5:
+	if field.storm_enabled or index == 5:
 		field.advance(center, simulation._fleet_z_bounds().x, simulation._fleet_z_bounds().y)
 	elif index != 4:
 		field.create_demonstration_field(index, center, demonstration_seed + index * 1091)
@@ -281,7 +307,12 @@ func _begin_phase(index: int, center: Vector3) -> void:
 	for count: int in range(simulation.manual_interceptor_count_override):
 		_spawn_interceptor(center, count)
 	if index in [4, 5]:
-		_spawn_capital(center, index == 4)
+		for capital_index: int in range(simulation.manual_capital_count_override):
+			_spawn_capital(center, index == 4, capital_index)
+		if spectacle():
+			tracers = BattleTracers.new()
+			tracers.name = "DecorativeBattleTracers"
+			simulation.projectile_container.add_child(tracers)
 	_set_camera_phase(index)
 	simulation._measure_group(simulation._fleet_center())
 	simulation._update_hud()
@@ -312,6 +343,8 @@ func _spawn_patrol(center: Vector3, index: int, markers: bool) -> void:
 	drone.individual_seed = demonstration_seed + phase_index * 1091 + index * 401
 	drone.demonstration_route = markers
 	drone.patrol_fire_enabled = true
+	drone.dangerous_projectile_limit = (54 if phase_index == 5 else 90) if spectacle() else 50
+	drone.environment_perception_interval = 0.05 if spectacle() else 0
 	drone.patrol_anchor = Vector2(center.x + (index - 1.5) * 9, center.y)
 	drone.patrol_projectile_container = simulation.projectile_container
 	var offset: Vector3 = Vector3((index - 1.5) * 12, -8 if index % 2 == 0 else 8, -42 - index * 12)
@@ -332,6 +365,12 @@ func _spawn_interceptor(center: Vector3, index: int) -> void:
 	var hostile: Interceptor = SpaceSimulation.INTERCEPTOR_SCENE.instantiate() as Interceptor
 	hostile.individual_seed = demonstration_seed + phase_index * 1091 + index * 409
 	hostile.projectile_container = simulation.projectile_container
+	if spectacle():
+		hostile.dangerous_projectile_limit = 54 if phase_index == 5 else 90
+		hostile.environment_perception_interval = 0.05
+		hostile.burst_size = 5
+		hostile.burst_interval = 0.16
+		hostile.burst_cooldown = 1.05
 	hostile.position = simulation.interceptor_container.to_local(_safe_position(center + Vector3((index - 1.5) * 12, -6 if index % 2 == 0 else 6, 42), 3))
 	hostile.died.connect(simulation._on_interceptor_died)
 	hostile.destroyed.connect(simulation._on_hostile_destroyed)
@@ -340,24 +379,37 @@ func _spawn_interceptor(center: Vector3, index: int) -> void:
 	simulation.interceptors.append(hostile)
 
 
-func _spawn_capital(center: Vector3, teaching: bool) -> void:
+func _spawn_capital(center: Vector3, teaching: bool, index: int = 0) -> void:
 	var hostile: CapitalShip = SpaceSimulation.CAPITAL_SCENE.instantiate() as CapitalShip
-	hostile.individual_seed = demonstration_seed + phase_index * 1091
-	hostile.normal_distance = 230
-	hostile.demonstration_cycle = teaching
+	hostile.individual_seed = demonstration_seed + phase_index * 1091 + index * 431
+	var positions: Array[Vector3] = [Vector3(-120, 35, -390), Vector3(-40, -58, -460), Vector3(58, 66, -515), Vector3(145, -12, -580), Vector3(12, 8, -630)]
+	hostile.normal_distance = -positions[index].z if spectacle() else 230
+	hostile.spectacle_enabled = spectacle()
+	hostile.fleet_role = index if phase_index == 4 else [0, 1, 3, 4][index]
+	hostile.fleet_offset = Vector2(positions[index].x, positions[index].y)
+	hostile.artillery_limit = (60 if phase_index == 5 else 90) if spectacle() else 50
+	hostile.demonstration_cycle = teaching and not spectacle()
 	if teaching:
 		hostile.demonstration_attack_order.assign([0, 1, 2, 3, 4])
 	hostile.projectile_container = simulation.projectile_container
-	hostile.position = simulation.capital_container.to_local(_safe_position(center + Vector3(0, 5, -230), CapitalShip.BODY_CLEARANCE))
+	hostile.position = simulation.capital_container.to_local(_safe_position(center + (positions[index] if spectacle() else Vector3(0, 5, -230)), CapitalShip.BODY_CLEARANCE))
 	hostile.destroyed.connect(simulation._on_capital_destroyed)
 	hostile.salvo_started.connect(func(pattern: int) -> void: simulation.capital_salvos[pattern] += 1)
 	hostile.fired.connect(simulation._on_artillery_fired)
+	hostile.fired.connect(func(projectile: ArtilleryProjectile) -> void:
+		if projectile.kind == ArtilleryProjectile.Kind.MISSILE_SWARM:
+			missile_count += 1
+	)
 	simulation.capital_container.add_child(hostile)
 	simulation.capitals.append(hostile)
 
 
 func _set_camera_phase(index: int) -> void:
 	var sequences: Array[Array] = [[SimulationCamera.Shot.CHASE, SimulationCamera.Shot.HIGH], [SimulationCamera.Shot.SIDE_LEFT, SimulationCamera.Shot.WIDE], [SimulationCamera.Shot.SIDE_RIGHT, SimulationCamera.Shot.CHASE], [SimulationCamera.Shot.CHASE], [SimulationCamera.Shot.WIDE], []]
+	if spectacle():
+		sequences = [[6, 7, 11, 3], [8, 11, 9, 5], [2, 7, 11, 0], [7, 11, 6, 2], [10, 8, 7, 10, 9], [10, 8, 11, 7, 9, 6]]
+		simulation.camera.guided_spectacle = true
+		simulation.camera._shot_duration = 4.5
 	simulation.camera.guided_shots.assign(sequences[index])
 	simulation.camera.guided_lock = true
 	simulation.camera.cinematic_transition_time = 0.8
@@ -412,8 +464,20 @@ func _process(delta: float) -> void:
 			hostile.combat_enabled = false
 		for hostile: CapitalShip in simulation.capitals:
 			hostile.combat_enabled = false
+	for node: Node in get_tree().get_nodes_in_group("combat_hazards"):
+		if node.has_meta("sampled"):
+			continue
+		node.set_meta("sampled", true)
+		var zone: ArtilleryZone = node as ArtilleryZone
+		zone.activated.connect(func() -> void:
+			if zone.kind == ArtilleryZone.Kind.GRID:
+				grid_activations += 1
+			elif zone.kind == ArtilleryZone.Kind.CURTAIN:
+				curtain_activations += 1
+		)
+		zone.detonated.connect(func() -> void: bomb_explosions += 1)
 	_sample_phase()
-	if phase_index in [0, 1, 2, 3]:
+	if phase_index in [0, 1, 2, 3] and not simulation.asteroid_container.storm_enabled:
 		simulation.asteroid_container._cleanup_passed(simulation._fleet_z_bounds().y)
 	_update_markers()
 	if phase_elapsed >= phase_duration(phase_index):
@@ -438,7 +502,23 @@ func _update_markers() -> void:
 
 func _sample_phase() -> void:
 	_phase_sample.nodes_max = maxi(_phase_sample.nodes_max, get_tree().get_node_count())
-	_phase_sample.projectiles_max = maxi(_phase_sample.projectiles_max, simulation.projectile_container.get_child_count())
+	_phase_sample.projectiles_max = maxi(_phase_sample.projectiles_max, ArtilleryZone.dangerous_count(get_tree()))
+	_phase_sample.bombs = bomb_explosions
+	_phase_sample.grids = grid_activations
+	_phase_sample.curtains = curtain_activations
+	_phase_sample.missiles = missile_count
+	_phase_sample.mobile_max = simulation.asteroid_container.maximum_mobile_observed
+	_phase_sample.speed_min = simulation.asteroid_container.storm_speed_min if simulation.asteroid_container.storm_enabled else 0
+	_phase_sample.speed_max = simulation.asteroid_container.storm_speed_max
+	_phase_sample.size_bins = simulation.asteroid_container.storm_size_bins.duplicate()
+	_phase_sample.tracers_max = tracers.maximum_active if is_instance_valid(tracers) else 0
+	_phase_sample.tracers_emitted = tracers.emitted if is_instance_valid(tracers) else 0
+	_phase_sample.physical_projectiles_max = maxi(int(_phase_sample.get("physical_projectiles_max", 0)), get_tree().get_nodes_in_group("hostile_projectiles").size())
+	var current_center: Vector3 = simulation._fleet_center()
+	for node: Node in get_tree().get_nodes_in_group("artillery_projectiles"):
+		if (node as Node3D).global_position.distance_to(current_center) < 65:
+			_arrived_ids[node.get_instance_id()] = true
+	_phase_sample.artillery_arrivals = _arrived_ids.size()
 	_phase_sample.asteroids_max = maxi(_phase_sample.asteroids_max, simulation.asteroid_container.active_asteroid_count)
 	_phase_sample.dispersion_max = maxf(_phase_sample.dispersion_max, simulation.dispersion)
 	for ship: BlueShip in simulation.ships:
@@ -483,7 +563,7 @@ func _finish_phase() -> void:
 	_phase_sample.blue_shots = simulation.blue_shots_fired - int(_phase_sample.blue_shots_start)
 	_phase_sample.enemy_shots = simulation.enemy_shots_fired - int(_phase_sample.enemy_shots_start)
 	var salvos: Array[int] = []
-	for index: int in range(5):
+	for index: int in range(simulation.capital_salvos.size()):
 		salvos.append(simulation.capital_salvos[index] - int(_phase_sample.salvos_start[index]))
 	_phase_sample.salvos = salvos
 	_phase_sample.motion_types = simulation.asteroid_container.motions_generated.duplicate()

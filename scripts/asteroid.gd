@@ -3,9 +3,13 @@ extends AnimatableBody3D
 
 enum SizeCategory { SMALL, MEDIUM, LARGE }
 enum MotionType { STATIC, LINEAR, DIAGONAL, VERTICAL_SWEEP, CIRCULAR, ARC }
+static var _primitive_cache: Dictionary[int, PrimitiveMesh] = {}
+static var _convex_points_cache: Dictionary[int, PackedVector3Array] = {}
+var single_convex_envelope: bool = false
+var _envelope_points: PackedVector3Array = PackedVector3Array()
 
 @export var size_category: SizeCategory = SizeCategory.MEDIUM
-@export_range(1.0, 7.0, 0.1) var diameter: float = 3.0
+@export_range(0.6, 16.0, 0.1) var diameter: float = 3.0
 @export var shape_seed: int = 1
 @export var rotation_speed: float = 0.1
 @export_category("Trajectoire environnementale")
@@ -56,6 +60,14 @@ func _ready() -> void:
 		lobe_material.albedo_color *= random.randf_range(0.85, 1.08)
 		lobe_material.albedo_color.a = 1.0
 		_add_lobe(offset, lobe_scale, lobe_rotation, lobe_material, size_category == SizeCategory.LARGE and index % 2 == 0)
+	if single_convex_envelope:
+		visuals.hide() # Le rendu exact des lobes est assuré par StormRockVisuals.
+		var envelope: ConvexPolygonShape3D = ConvexPolygonShape3D.new()
+		envelope.points = _envelope_points
+		var collider: CollisionShape3D = CollisionShape3D.new()
+		collider.shape = envelope
+		add_child(collider)
+		_envelope_points.clear()
 	if motion_type != MotionType.STATIC:
 		position = motion_center + trajectory_offset(0.0)
 		velocity = trajectory_velocity(0.0)
@@ -121,7 +133,10 @@ func motion_depth_margin() -> float:
 
 func _add_lobe(offset: Vector3, lobe_scale: Vector3, lobe_rotation: Vector3, material: StandardMaterial3D, blocky: bool) -> void:
 	var primitive: PrimitiveMesh
-	if blocky:
+	var primitive_key: int = 10 if blocky else int(size_category)
+	if _primitive_cache.has(primitive_key):
+		primitive = _primitive_cache[primitive_key]
+	elif blocky:
 		var block: BoxMesh = BoxMesh.new()
 		block.size = Vector3(1.6, 1.8, 1.6)
 		primitive = block
@@ -132,21 +147,30 @@ func _add_lobe(offset: Vector3, lobe_scale: Vector3, lobe_rotation: Vector3, mat
 		sphere.radial_segments = 7 + int(size_category)
 		sphere.rings = 4
 		primitive = sphere
+	if not _primitive_cache.has(primitive_key):
+		_primitive_cache[primitive_key] = primitive
+		_convex_points_cache[primitive_key] = primitive.create_convex_shape().points
 	var mesh_instance: MeshInstance3D = MeshInstance3D.new()
 	mesh_instance.mesh = primitive
 	mesh_instance.material_override = material
+	mesh_instance.set_meta("primitive_key", primitive_key)
 	mesh_instance.position = offset
 	mesh_instance.rotation = lobe_rotation
 	mesh_instance.scale = lobe_scale
 	visuals.add_child(mesh_instance)
 	# Les points de collision suivent la même déformation que la primitive visible.
-	var convex: ConvexPolygonShape3D = primitive.create_convex_shape()
-	var points: PackedVector3Array = convex.points
+	var convex: ConvexPolygonShape3D = ConvexPolygonShape3D.new()
+	# PackedVector3Array est partagé par référence : déformer uniquement une copie.
+	var points: PackedVector3Array = _convex_points_cache[primitive_key].duplicate()
 	var lobe_basis: Basis = Basis.from_euler(lobe_rotation)
 	for index: int in range(points.size()):
 		points[index] = lobe_basis * (points[index] * lobe_scale)
 		avoidance_radius = maxf(avoidance_radius, (offset + points[index]).length())
 	convex.points = points
+	if single_convex_envelope:
+		for point: Vector3 in points:
+			_envelope_points.append(point + offset)
+		return
 	var collision: CollisionShape3D = CollisionShape3D.new()
 	collision.shape = convex
 	collision.position = offset

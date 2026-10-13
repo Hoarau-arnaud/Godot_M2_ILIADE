@@ -56,6 +56,7 @@ func _empty(count: int = 1) -> SpaceSimulation:
 	sim.streaming_enabled = false
 	sim.drones_enabled = false
 	sim.interceptors_enabled = false
+	(sim.get_node("Asteroids") as ObstacleField).irregular_barrages = false
 	root.add_child(sim)
 	return sim
 
@@ -355,6 +356,7 @@ func _test_run(seconds: int, cinematic: bool, spectacle: bool = false) -> void:
 	sim.capital_ships_enabled = false
 	if not spectacle:
 		sim.manual_difficulty = 3
+	(sim.get_node("Asteroids") as ObstacleField).irregular_barrages = false
 	root.add_child(sim)
 	if spectacle:
 		sim.apply_action_preset()
@@ -415,6 +417,7 @@ func _test_native() -> void:
 	_check(DisplayServer.get_name() != "headless", "Validation viewport sans rendu natif.")
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
 	sim.capital_ships_enabled = false
+	(sim.get_node("Asteroids") as ObstacleField).irregular_barrages = false
 	root.add_child(sim)
 	sim.apply_action_preset()
 	for size: Vector2i in [Vector2i(800,450), Vector2i(1280,720), Vector2i(1600,900), Vector2i(1920,1080), Vector2i(1600,1000), Vector2i(900,900), Vector2i(1920,800)]:
@@ -472,6 +475,7 @@ func _test_render_spectacle() -> void:
 	DisplayServer.window_set_size(Vector2i(1920,1080))
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
 	sim.capital_ships_enabled = false
+	(sim.get_node("Asteroids") as ObstacleField).irregular_barrages = false
 	root.add_child(sim)
 	sim.apply_action_preset()
 	sim.demo_controls.toggle_help()

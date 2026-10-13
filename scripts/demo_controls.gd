@@ -6,6 +6,10 @@ var stars: HBoxContainer
 var speed_slider: HSlider
 var movement_slider: HSlider
 var spacing_slider: HSlider
+var density_slider: HSlider
+var intensity_slider: HSlider
+var _density_value: Label
+var _intensity_value: Label
 var reset_button: Button
 var help_panel: PanelContainer
 var fullscreen_button: Button
@@ -79,7 +83,7 @@ func _build_panel() -> void:
 	add_child(panel)
 	var layout: VBoxContainer = VBoxContainer.new()
 	layout.name = "Layout"
-	layout.add_theme_constant_override("separation", 8)
+	layout.add_theme_constant_override("separation", 4)
 	panel.add_child(layout)
 	var heading: Label = _label("Contrôles")
 	heading.add_theme_font_size_override("font_size", 20)
@@ -111,6 +115,12 @@ func _build_panel() -> void:
 	_spacing_value = _slider_heading(layout, "Espacement")
 	spacing_slider = _slider(layout, "Spacing", 0.8, 1.4, 1.0)
 	spacing_slider.value_changed.connect(func(value: float) -> void: _simulation().set_spacing_multiplier(value))
+	_density_value = _slider_heading(layout, "Densité rochers")
+	density_slider = _slider(layout, "Density", 0.5, 2.5, 1.0)
+	density_slider.value_changed.connect(func(value: float) -> void: _simulation().set_rock_density(value))
+	_intensity_value = _slider_heading(layout, "Intensité tirs")
+	intensity_slider = _slider(layout, "Intensity", 0.5, 3.0, 1.0)
+	intensity_slider.value_changed.connect(func(value: float) -> void: _simulation().set_fire_intensity(value))
 	reset_button = _button("Reset agents")
 	reset_button.name = "ResetAgents"
 	reset_button.pressed.connect(func() -> void: _simulation().reset_population_overrides())
@@ -299,6 +309,10 @@ func refresh(simulation: SpaceSimulation) -> void:
 	speed_slider.set_value_no_signal(simulation.simulation_speed_multiplier)
 	movement_slider.set_value_no_signal(simulation.movement_multiplier)
 	spacing_slider.set_value_no_signal(simulation.spacing_multiplier)
+	density_slider.set_value_no_signal(simulation.rock_density)
+	intensity_slider.set_value_no_signal(simulation.fire_intensity)
+	_density_value.text = "%.1f" % simulation.rock_density
+	_intensity_value.text = "%.1f" % simulation.fire_intensity
 	_speed_value.text = "%.1fx" % simulation.simulation_speed_multiplier
 	_movement_value.text = "%.1f" % simulation.movement_multiplier
 	_spacing_value.text = "%.1f" % simulation.spacing_multiplier
@@ -315,6 +329,8 @@ func refresh(simulation: SpaceSimulation) -> void:
 	speed_slider.editable = not guided
 	movement_slider.editable = not guided
 	spacing_slider.editable = not guided
+	density_slider.editable = not guided
+	intensity_slider.editable = not guided
 	reset_button.disabled = guided
 	action_button.disabled = guided
 	normal_button.disabled = guided
@@ -327,7 +343,7 @@ func refresh(simulation: SpaceSimulation) -> void:
 
 
 func _set_count(kind: String, value: int, minimum: int, maximum: int) -> void:
-	_counts[kind].text = "%d/1" % value if kind == "Capital Ship" else str(value)
+	_counts[kind].text = "%d/1" % value if kind == "Capital Ship" and not _simulation().demonstration.is_guided() else str(value)
 	minus_buttons[kind].disabled = value <= minimum
 	plus_buttons[kind].disabled = value >= maximum
 

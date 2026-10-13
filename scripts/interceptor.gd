@@ -174,15 +174,17 @@ func _update_fire(delta: float) -> void:
 	var direction: Vector3 = (offset.normalized() + _muzzle.global_basis.x * spread.x + _muzzle.global_basis.y * spread.y).normalized()
 	if direction.dot(forward) < cos(deg_to_rad(firing_cone_angle)):
 		return
+	if ArtilleryZone.dangerous_count(get_tree()) >= dangerous_projectile_limit:
+		return
 	var projectile: EnemyLaser = ENEMY_LASER_SCENE.instantiate() as EnemyLaser
-	projectile.visual_variant = [EnemyLaser.VisualVariant.BOLT, EnemyLaser.VisualVariant.PULSE, EnemyLaser.VisualVariant.SPEAR][shots_fired % 3]
+	projectile.visual_variant = [EnemyLaser.VisualVariant.BOLT, EnemyLaser.VisualVariant.BOLT if burst_size >= 4 else EnemyLaser.VisualVariant.PULSE, EnemyLaser.VisualVariant.SPEAR][shots_fired % 3]
 	projectile.flight_direction = direction
 	var container: Node3D = projectile_container if is_instance_valid(projectile_container) else get_parent() as Node3D
 	container.add_child(projectile)
 	projectile.global_transform = Transform3D(Basis.looking_at(direction, _muzzle.global_basis.y.normalized()), _muzzle.global_position)
 	shots_fired += 1
 	_burst_remaining -= 1
-	_shot_timer = maxf(burst_interval, 0.05) if _burst_remaining > 0 else maxf(burst_cooldown, 0.1)
+	_shot_timer = (maxf(burst_interval, 0.05) if _burst_remaining > 0 else maxf(burst_cooldown, 0.1)) / fire_intensity
 	fired.emit(projectile)
 
 

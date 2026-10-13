@@ -65,7 +65,10 @@ var interceptors: Array[Interceptor] = []
 var capitals: Array[CapitalShip] = []
 var capitals_destroyed: int = 0
 var capital_spawn_count: int = 0
-var capital_salvos: Array[int] = [0, 0, 0, 0, 0]
+var capital_salvos: Array[int] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+var demonstration_legacy_fixture: bool = false
+var rock_density: float = 1.0
+var fire_intensity: float = 1.0
 var artillery_hits: int = 0
 var artillery_obstacle_hits: int = 0
 var maximum_artillery_projectiles: int = 0
@@ -298,6 +301,7 @@ func _spawn_drone(center: Vector3, front_z: float) -> bool:
 	drone.died.connect(_on_drone_died)
 	drone.destroyed.connect(_on_hostile_destroyed)
 	drone.patrol_projectile_container = projectile_container
+	drone.fire_intensity = fire_intensity
 	drone.patrol_fired.connect(_on_enemy_fired)
 	drone_container.add_child(drone)
 	drones.append(drone)
@@ -381,6 +385,7 @@ func _spawn_interceptor(center: Vector3, front_z: float) -> bool:
 	interceptor.individual_seed = simulation_seed + 71003 + interceptor_spawn_count * 409
 	interceptor.combat_enabled = combat_enabled
 	interceptor.projectile_container = projectile_container
+	interceptor.fire_intensity = fire_intensity
 	interceptor.position = interceptor_container.to_local(candidate)
 	interceptor.died.connect(_on_interceptor_died)
 	interceptor.destroyed.connect(_on_hostile_destroyed)
@@ -410,6 +415,8 @@ func target_capital_count() -> int:
 	if not capital_ships_enabled:
 		return 0
 	if manual_capital_count_override >= 0:
+		if demonstration.is_guided():
+			return manual_capital_count_override
 		return clampi(manual_capital_count_override, 0, 1)
 	return 1 if difficulty_level == 3 else 0
 
@@ -444,6 +451,7 @@ func _maintain_capitals(center: Vector3, delta: float) -> void:
 		capital.individual_seed = simulation_seed + 151003 + capital_spawn_count * 419
 		capital.combat_enabled = combat_enabled
 		capital.projectile_container = projectile_container
+		capital.fire_intensity = fire_intensity
 		capital.position = capital_container.to_local(candidate)
 		capital.destroyed.connect(_on_capital_destroyed)
 		capital.salvo_started.connect(func(pattern: int) -> void: capital_salvos[pattern] += 1)
@@ -543,6 +551,23 @@ func set_simulation_speed(value: float) -> void:
 	Engine.time_scale = simulation_speed_multiplier
 	if is_instance_valid(demo_controls):
 		demo_controls.refresh(self)
+
+
+func set_rock_density(value: float) -> void:
+	rock_density = clampf(value, 0.5, 2.5)
+	asteroid_container.density_multiplier = rock_density
+	demo_controls.refresh(self)
+
+
+func set_fire_intensity(value: float) -> void:
+	fire_intensity = clampf(value, 0.5, 3.0)
+	for drone: PatrolDrone in drones:
+		drone.fire_intensity = fire_intensity
+	for hostile: Interceptor in interceptors:
+		hostile.fire_intensity = fire_intensity
+	for capital: CapitalShip in capitals:
+		capital.fire_intensity = fire_intensity
+	demo_controls.refresh(self)
 
 
 func set_movement_multiplier(value: float) -> void:

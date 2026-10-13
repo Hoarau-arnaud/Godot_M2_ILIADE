@@ -26,6 +26,11 @@ var patrol_projectile_container: Node3D
 var route_waypoints: Array[Vector3] = []
 var route_index: int = 0
 var routes_completed: int = 0
+var fire_intensity: float = 1.0
+var dangerous_projectile_limit: int = 50
+var environment_perception_interval: float = 0
+var _obstacle_sample_at: float = -INF
+var _cached_obstacle_avoidance: Vector3 = Vector3.ZERO
 var patrol_shots_fired: int = 0
 var _patrol_fire_timer: float = 1.0
 
@@ -144,6 +149,8 @@ func _update_patrol_fire(delta: float) -> void:
 			distance = global_position.distance_to(ship.global_position)
 	if chosen == null:
 		return
+	if ArtilleryZone.dangerous_count(get_tree()) >= dangerous_projectile_limit:
+		return
 	var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(global_position, chosen.global_position, 2)
 	if not get_world_3d().direct_space_state.intersect_ray(query).is_empty():
 		return
@@ -158,11 +165,14 @@ func _update_patrol_fire(delta: float) -> void:
 	var up: Vector3 = Vector3.RIGHT if absf(projectile.flight_direction.y) > 0.98 else Vector3.UP
 	projectile.global_transform = Transform3D(Basis.looking_at(projectile.flight_direction, up), global_position + projectile.flight_direction * 3)
 	patrol_shots_fired += 1
-	_patrol_fire_timer = 2.2
+	_patrol_fire_timer = 2.2 / fire_intensity
 	patrol_fired.emit(projectile)
 
 
 func _obstacle_avoidance() -> Vector3:
+	if _time - _obstacle_sample_at < environment_perception_interval:
+		return _cached_obstacle_avoidance
+	_obstacle_sample_at = _time
 	perceived_obstacle_count = 0
 	for key: Variant in _obstacle_directions.keys():
 		if not is_instance_valid(key):
@@ -205,7 +215,8 @@ func _obstacle_avoidance() -> Vector3:
 				obstacle.tree_exiting.connect(callback, CONNECT_ONE_SHOT)
 		result += MobileAvoidance.steering(offset, obstacle.velocity - velocity, prediction.x, clearance, _obstacle_directions[obstacle]) / (1.0 + float(perceived_obstacle_count) * 0.7)
 		perceived_obstacle_count += 1
-	return result.limit_length(3.0)
+	_cached_obstacle_avoidance = result.limit_length(3.0)
+	return _cached_obstacle_avoidance
 
 
 func _forget_obstacle(obstacle: SpaceAsteroid) -> void:
