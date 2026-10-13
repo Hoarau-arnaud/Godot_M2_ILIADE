@@ -72,7 +72,7 @@ func _build_visual() -> void:
 	core.rings = 6
 	_mesh(core, colors[kind], Vector3.ZERO)
 	var trail: BoxMesh = BoxMesh.new()
-	trail.size = Vector3(0.2, 0.2, 12) if kind == Kind.HEAVY_SHOT else Vector3(0.12, 0.12, 7 if kind == Kind.CROSS_FIRE else 3)
+	trail.size = Vector3(0.4, 0.4, 12) if kind == Kind.HEAVY_SHOT else Vector3(0.24, 0.24, 7 if kind == Kind.CROSS_FIRE else 3)
 	_mesh(trail, colors[kind] * Color(0.65, 0.65, 0.65), Vector3(0, 0, trail.size.z / 2))
 	if kind == Kind.HEAVY_SHOT:
 		var inner: SphereMesh = SphereMesh.new()

@@ -11,6 +11,7 @@ enum VisualVariant { BOLT, SPEAR, PULSE }
 @export var damage: int = 1
 @export var avoidance_radius: float = 4.0
 @export var visual_variant: VisualVariant = VisualVariant.BOLT
+@export var patrol_pulse: bool = false
 
 var flight_direction: Vector3 = Vector3.FORWARD
 var velocity: Vector3:
@@ -21,6 +22,18 @@ var _spent: bool = false
 
 
 func _ready() -> void:
+	if patrol_pulse:
+		visual_variant = VisualVariant.PULSE
+		var green: StandardMaterial3D = StandardMaterial3D.new()
+		green.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		green.albedo_color = Color(0.3, 1, 0.42)
+		green.emission_enabled = true
+		green.emission = Color(0.12, 1, 0.28)
+		green.emission_energy_multiplier = 2.5
+		$Pulse.material_override = green
+		$PulseTrail.material_override = green
+		$Pulse.scale = Vector3.ONE * 1.6
+		$PulseTrail.scale = Vector3(2, 2, 2.5)
 	$Bolt.visible = visual_variant == VisualVariant.BOLT
 	$Spear.visible = visual_variant == VisualVariant.SPEAR
 	$Pulse.visible = visual_variant == VisualVariant.PULSE

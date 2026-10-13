@@ -17,6 +17,8 @@ const LAUNCHERS: Array[Vector3] = [Vector3(-23, 5.5, 18), Vector3(23, 5.5, 18)]
 @export var vulnerable_distance: float = 65.0
 @export var artillery_limit: int = 50
 @export var combat_enabled: bool = true
+@export var demonstration_cycle: bool = false
+var demonstration_attack_order: Array[int] = []
 var projectile_container: Node3D
 var health: int = 24
 var alive: bool = true
@@ -90,18 +92,20 @@ func _transition(next: State) -> void:
 		state_history.pop_front()
 	if next == State.PREPARE:
 		selected_pattern = _choose_pattern()
-		prepare_duration = _random.randf_range(0.8, 1.8)
+		prepare_duration = 0.9 if demonstration_cycle else _random.randf_range(0.8, 1.8)
 	elif next == State.FIRE:
 		_pending = build_salvo(selected_pattern)
 	elif next == State.COOLDOWN:
-		cooldown_duration = _random.randf_range(3, 6)
+		cooldown_duration = 0.7 if demonstration_cycle else _random.randf_range(3, 6)
 	elif next == State.REPOSITION:
-		vulnerable = salvos_fired > 0 and salvos_fired % 3 == 0
+		vulnerable = not demonstration_cycle and salvos_fired > 0 and salvos_fired % 3 == 0
 		_vulnerability_time = 0
 		_drift = Vector2.ZERO if vulnerable else Vector2(_random.randf_range(-30, 30), _random.randf_range(-14, 18))
 
 
 func _choose_pattern() -> ArtilleryPattern:
+	if demonstration_cycle and not demonstration_attack_order.is_empty():
+		return demonstration_attack_order.pop_front() as ArtilleryPattern
 	if _patterns.is_empty():
 		_patterns.assign([0, 1, 2, 3, 4])
 		# Fisher–Yates avec le RNG personnel, sans RNG global ni reroll par tick.
@@ -155,7 +159,9 @@ func _update_state(delta: float) -> void:
 			if _state_time >= 2:
 				_transition(State.OBSERVE)
 		State.OBSERVE:
-			if _state_time >= 1.0 and observed_count > 0 and combat_enabled:
+			if demonstration_cycle and demonstration_attack_order.is_empty():
+				return
+			if _state_time >= (0.4 if demonstration_cycle else 1.0) and observed_count > 0 and combat_enabled:
 				_transition(State.PREPARE)
 		State.PREPARE:
 			if _state_time >= prepare_duration:
@@ -186,7 +192,7 @@ func _update_state(delta: float) -> void:
 				if _vulnerability_time >= 10 or _state_time > 38:
 					vulnerable = false
 					_transition(State.OBSERVE)
-			elif _state_time >= 3 and absf(observed_center.z - global_position.z - normal_distance) < 18:
+			elif _state_time >= (0.5 if demonstration_cycle else 3.0) and absf(observed_center.z - global_position.z - normal_distance) < 18:
 				_transition(State.OBSERVE)
 
 

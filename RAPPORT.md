@@ -238,6 +238,47 @@ Validation finale, Godot 4.7.2, graine `20261012`, collisions actives :
 
 Le minimum graphique sur les fenêtres d'une seconde vaut **92,9 FPS**, au-dessus de l'objectif 60 FPS sur cette machine. Le test de montée conserve 18,75 m de déplacement vertical en quatre secondes avec un pitch inférieur à 8°. Chaque trajectoire passe trente secondes de contrôle physique ; le croisement anticipé survit, tandis que le stress sans perception provoque une mort réelle. Les fenêtres redimensionnées, la maximisation et le plein écran passent avec rendu. Les suites historiques sont conservées en obstacles sans translation. Les données headless et graphiques sont distinguées dans le README ; ces essais ne garantissent ni le regroupement complet ni la survie sur toutes les graines.
 
+## Démonstration guidée — Milestone 11
+
+La simulation libre reste disponible avec ses réglages, populations, difficulté, caméra et Mode spectacle. **D** ou le bouton **Démo guidée** lance un scénario d'environ **100 secondes réelles**. Simulation libre ou un second D l'arrête ; Recommencer démo reprend la phase 1. Les entités libres sont mises en pause, puis reprises avec leurs réglages et leur état. Pendant la démo, les BlueShip sont réinitialisés entre phases sans compter ce reset comme une mort ; les collisions et dégâts restent réels.
+
+| Phase | Durée | Ce qu'elle montre à l'oral |
+|---|---:|---|
+| 1 — Champ d'astéroïdes | 15 s | Agent 1 : perception et évitement pur, passages alternés dans un tunnel dense et croisements rectilignes |
+| 2 — Astéroïdes dynamiques | 15 s | Environnement : diagonales, mouvements verticaux, orbites inclinées et arcs |
+| 3 — Drones de patrouille | 15 s | Agent 2 : A → B → C → D → nouvelle route, marqueurs verts et pulses lents |
+| 4 — Intercepteurs | 15 s | Agent 3 : détection rapide, poursuite, rafales, désengagement et retour en patrouille |
+| 5 — Artillerie capitale | 20 s | Agent 4 : préparation et cinq salves dans l'ordre Heavy, Spread, Arc, Cross, Seeker |
+| 6 — Confrontation finale | 20 s | Interaction globale : quatre agents, obstacles mobiles, tirs, dispersion et récupération locale |
+
+Un titre de phase discret accompagne les étoiles et le compteur de pertes. La caméra cinématique adapte ses plans ; les transitions sont courtes et sans écran noir prolongé. La finale commence avec 15 BlueShip, 5 PatrolDrone, 4 Interceptor et 1 Capital. Deux chasseurs sont initialement écartés mais restent à portée de récupération : leur regroupement vient des règles locales, sans leader ni chemin imposé. Une courte respiration en fin de finale laisse passer les tirs existants et la cohésion agir.
+
+L'environnement représente le voisinage d'une **grande planète dans un champ d'astéroïdes orbital**. Planète, halo atmosphérique, débris lointains et fond bleu/violet/cyan sont décoratifs et stylisés ; ce n'est pas une reproduction astrophysique exacte. Les projectiles sont visuellement plus épais pour rester lisibles en vidéo, avec leurs collisions historiques conservées. Les missiles restent des dangers de combat ; aucun cinquième agent n'est ajouté.
+
+Validation finale **Godot 4.7.2, seed 20261012, Intel Arc Graphics, Compatibility OpenGL et MSAA 4×** : huit suites M1–M11 passent, sans erreur ni warning dans les journaux finaux. Le parcours headless suit **100,01 s de scénario** avec un coût moyen de **1,06 ms/tick** (simulation et instrumentation, pas des FPS). Les nœuds reviennent de **412 à 412** après restitution du mode libre ; les mêmes agents, leurs cibles, timers, réglages, caméra, RNG et compteurs sont conservés.
+
+Le rendu complet prend **101,05 s réelles**, pour **100,04 s de phases**, à **98,10 FPS moyens**, minimum sur une fenêtre d'une seconde **76,04 FPS**. Le test est réellement en plein écran sur une surface **4096×2304**, avec un rendu interne vérifié de **1920×1080**. Ce choix appartient au test vidéo ; le projet conserve son viewport natif responsive. Six captures PNG 1080p sont incluses dans la mesure, sans redimensionnement après capture. L'objectif >60 FPS est atteint sur cette machine.
+
+| Phase, rendu réel | Blue vivants / morts | Ennemis verts / rouges / Capital | Astéroïdes max | Projectiles max | Esquives de projectiles | Regroupements locaux |
+|---|---:|---:|---:|---:|---:|---:|
+| 1 — CHAMP D'ASTÉROÏDES | 15 / 0 | 0 / 0 / 0 | 135 | 0 | 0 | 18 |
+| 2 — ASTÉROÏDES DYNAMIQUES | 15 / 0 | 0 / 0 / 0 | 16 | 0 | 0 | 0 |
+| 3 — DRONES DE PATROUILLE | 15 / 0 | 4 / 0 / 0 | 3 | 12 | 43 | 0 |
+| 4 — INTERCEPTEURS | 15 / 0 | 0 / 4 / 0 | 3 | 24 | 45 | 0 |
+| 5 — ARTILLERIE CAPITALE | 15 / 0 | 0 / 0 / 1 | 0 | 19 | 20 | 0 |
+| 6 — CONFRONTATION FINALE | 14 / 1 | 4 / 4 / 1 | 72 | 43 | 84 | 2 |
+
+Phase 1 : **130 statiques + cinq LINEAR**, cinq angles et passages physiquement ouverts, translations latérales individuelles jusqu'à **51,33 m**, **15/15 survivants**. Phase 2 : **quatre représentants de chacune des familles DIAGONAL, VERTICAL_SWEEP, CIRCULAR et ARC**, sans ennemi. Phase 3 : **4 routes A/B/C/D terminées**, **32 waypoints sélectionnés**, **45 pulses verts**, avec réaction bleue. Phase 4 : **12 poursuites**, **8 désengagements**, **92 tirs rouges**. Phase 5 : ordre réel vérifié **Heavy → Spread → Arc → Cross → Seeker**, une salve de chaque famille et **20 épisodes d'esquive**.
+
+Finale réelle : **14 survivants, 1 mort(s)**, **10 tirs bleus / 155 tirs hostiles**, **2 activations du regroupement**, dispersion maximale **49,95 m**, finale **36,34 m**. Les nœuds culminent à **2704**, en comptant les entités libres suspendues et le chevauchement bref des suppressions différées. Les projectiles culminent à **43**, les astéroïdes actifs à **135** ; les **360 débris décoratifs** utilisent une seule MultiMesh sans collision.
+
+Le headless termine la finale avec **14 survivants / 1 mort(s)**, tandis que le rendu réel donne les valeurs ci-dessus. Les resets de phase ne sont pas des morts ; ces chiffres ne désignent pas la survie d'un même banc pendant cent secondes continues. Les activations de regroupement et d'esquive décrivent les états des agents, sans prouver un impact certainement évité ni un regroupement complet.
+
+Les six titres et transitions automatiques, l'ordre Capital, D, les boutons, le restart, la reprise d'une poursuite libre en cours et la fermeture directe en GUIDED sont vérifiés. Logs et captures : `.godot/validate_*_m11_final.log`, `.godot/m11_video_final.log`, `.godot/validation/m11_phase_*_video.png` ; ces fichiers restent ignorés par Git. Une seule graine et un parcours de cent secondes ne constituent pas une étude multi-graines ou de plusieurs heures.
+
+
+Cette séquence donnera la structure du futur PowerPoint : environnement/perceptions en phases 1–2, PatrolDrone en phase 3, Interceptor en phase 4, Capital en phase 5, phénomène émergent et interaction globale en phase 6. **Aucun PowerPoint n'est généré maintenant.**
+
 ## 3. Agents et environnement actuels
 
 ### Agent 1 — Chasseur bleu
@@ -646,8 +687,8 @@ Viewport étendu, coque profilée, orientation visuelle limitée, étoiles rapid
 ### M10 — Agent 4 : Capital Artillery Ship ✅
 Grand vaisseau lointain, cinq attaques, télégraphie, vulnérabilité, destruction et remplacement, populations, panneau et tests de performance.
 
-### M11 — Bombes BlueShip / scénarios finaux / étude / PowerPoint
-Bombes limitées, situations de démonstration, comparaison des paramètres et états initiaux, stabilisation, vidéo, rapport final et PowerPoint de 10 minutes. M11 n’est pas commencé dans M10.
+### M11 — Démonstration finale ✅
+Simulation libre conservée, démo guidée en six phases, resets sans fausse mort, reprise de l’état libre, planète/anneau stylisés, projectiles lisibles, validation complète et rendu vidéo 1080p. Le PowerPoint reste à préparer séparément ; aucune bombe n’est ajoutée.
 
 ---
 

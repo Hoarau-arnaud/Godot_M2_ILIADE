@@ -3,6 +3,7 @@ extends CharacterBody3D
 
 signal died(drone: PatrolDrone)
 signal destroyed(drone: PatrolDrone)
+signal patrol_fired(projectile: EnemyLaser)
 
 const EXPLOSION_SCENE: PackedScene = preload("res://scenes/explosion.tscn")
 const BODY_CLEARANCE: float = 2.2
@@ -19,6 +20,14 @@ enum PatrolState { PATROL, AVOIDING, CHANGING_WAYPOINT, DESTROYED }
 @export var patrol_height: float = 24.0
 @export var forward_variation: float = 1.0
 @export var individual_seed: int = 1
+@export var demonstration_route: bool = false
+@export var patrol_fire_enabled: bool = false
+var patrol_projectile_container: Node3D
+var route_waypoints: Array[Vector3] = []
+var route_index: int = 0
+var routes_completed: int = 0
+var patrol_shots_fired: int = 0
+var _patrol_fire_timer: float = 1.0
 
 @export_category("Perceptions locales")
 @export var obstacle_detection_radius: float = 44.0
@@ -62,6 +71,21 @@ func _ready() -> void:
 
 
 func _choose_waypoint() -> void:
+	if demonstration_route:
+		if route_waypoints.is_empty() or route_index >= route_waypoints.size():
+			if not route_waypoints.is_empty():
+				routes_completed += 1
+			route_waypoints.assign([
+				Vector3(patrol_anchor.x - 18, patrol_anchor.y - 6, global_position.z - 24),
+				Vector3(patrol_anchor.x + 18, patrol_anchor.y + 9, global_position.z - 59),
+				Vector3(patrol_anchor.x + 18, patrol_anchor.y - 9, global_position.z - 94),
+				Vector3(patrol_anchor.x - 18, patrol_anchor.y + 6, global_position.z - 129)])
+			route_index = 0
+		waypoint = route_waypoints[route_index]
+		route_index += 1
+		waypoints_selected += 1
+		patrol_state = PatrolState.PATROL
+		return
 	waypoint = Vector3(
 		patrol_anchor.x + _random.randf_range(-patrol_width, patrol_width),
 		patrol_anchor.y + _random.randf_range(-patrol_height, patrol_height),
@@ -103,6 +127,39 @@ func _physics_process(delta: float) -> void:
 	var collision: KinematicCollision3D = move_and_collide(velocity * delta, false, 0.001, true)
 	if collision != null and collision.get_collider() is SpaceAsteroid:
 		_die()
+	if alive and patrol_fire_enabled:
+		_update_patrol_fire(delta)
+
+
+func _update_patrol_fire(delta: float) -> void:
+	_patrol_fire_timer = maxf(_patrol_fire_timer - delta, 0)
+	if _patrol_fire_timer > 0:
+		return
+	var chosen: BlueShip = null
+	var distance: float = 70
+	for node: Node in get_tree().get_nodes_in_group("blue_ships"):
+		var ship: BlueShip = node as BlueShip
+		if ship.alive and global_position.distance_to(ship.global_position) < distance:
+			chosen = ship
+			distance = global_position.distance_to(ship.global_position)
+	if chosen == null:
+		return
+	var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(global_position, chosen.global_position, 2)
+	if not get_world_3d().direct_space_state.intersect_ray(query).is_empty():
+		return
+	var projectile: EnemyLaser = preload("res://scenes/enemy_laser.tscn").instantiate() as EnemyLaser
+	projectile.patrol_pulse = true
+	projectile.projectile_speed = 26
+	projectile.lifetime = 6
+	projectile.avoidance_radius = 5
+	projectile.flight_direction = (chosen.global_position + chosen.velocity * 0.5 - global_position).normalized()
+	var container: Node3D = patrol_projectile_container if is_instance_valid(patrol_projectile_container) else get_parent() as Node3D
+	container.add_child(projectile)
+	var up: Vector3 = Vector3.RIGHT if absf(projectile.flight_direction.y) > 0.98 else Vector3.UP
+	projectile.global_transform = Transform3D(Basis.looking_at(projectile.flight_direction, up), global_position + projectile.flight_direction * 3)
+	patrol_shots_fired += 1
+	_patrol_fire_timer = 2.2
+	patrol_fired.emit(projectile)
 
 
 func _obstacle_avoidance() -> Vector3:
