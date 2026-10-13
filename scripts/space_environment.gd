@@ -87,10 +87,11 @@ func recycle_stars(center: Vector3, delta: float = 0.0, demo_pace: float = 1.0, 
 	for layer: int in range(_star_layers.size()):
 		var extent: Vector3 = LAYER_EXTENTS[layer]
 		var positions: PackedVector3Array = _star_positions[layer]
+		var drift: float = [0.0, 4.0, 18.0][layer] * guided_speed_effect * delta
 		for index: int in range(positions.size()):
 			var star_position: Vector3 = positions[index]
 			# Le proche défile plus vite ; le lointain garde sa parallaxe naturelle.
-			star_position.z += ([0.0, 4.0, 18.0][layer] as float) * guided_speed_effect * delta
+			star_position.z += drift
 			var relative: Vector3 = star_position - center
 			if absf(relative.x) <= extent.x and absf(relative.y) <= extent.y and relative.z >= -extent.z and relative.z <= extent.z * 0.25:
 				if layer > 0 and delta > 0:
@@ -107,12 +108,13 @@ func recycle_stars(center: Vector3, delta: float = 0.0, demo_pace: float = 1.0, 
 			_star_layers[layer].multimesh.set_instance_transform(index, Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * _star_sizes[layer][index]), star_position))
 		_star_positions[layer] = positions
 	_update_streaks(center, delta, demo_pace, fleet_velocity)
+	var sight: Vector3 = (readability_center - center).normalized()
+	var corridor_length: float = center.distance_to(readability_center) + 140
 	for index: int in range(_debris_points.size()):
 		var relative: Vector3 = _debris_points[index] - center
 		var point: Vector3 = center + Vector3(wrapf(relative.x, -200, 200), wrapf(relative.y, -135, 135), wrapf(relative.z + delta * 3, -600, 140))
 		_debris_points[index] = point
-		var sight: Vector3 = (readability_center - center).normalized()
-		var projected: float = clampf((point - center).dot(sight), 0, center.distance_to(readability_center) + 140)
+		var projected: float = clampf((point - center).dot(sight), 0, corridor_length)
 		var corridor_gap: float = point.distance_to(center + sight * projected)
 		var hidden_decor: bool = point.distance_to(center) < 210 or point.distance_to(readability_center) < 130 or corridor_gap < 45
 		var visible_scale: float = 0 if guided_readability and hidden_decor else 1
@@ -146,11 +148,13 @@ func _create_streaks() -> void:
 
 
 func _update_streaks(center: Vector3, delta: float, demo_pace: float, fleet_velocity: Vector3) -> void:
-	streak_length_multiplier = clampf(1.0 + maxf(demo_pace - 1.0, 0.0) * 0.75 + fleet_velocity.length() / 35.0, 1.0, 2.5) * guided_speed_effect
+	var speed: float = fleet_velocity.length()
+	streak_length_multiplier = clampf(1.0 + maxf(demo_pace - 1.0, 0.0) * 0.75 + speed / 35.0, 1.0, 2.5) * guided_speed_effect
 	var drift: Vector3 = -fleet_velocity.normalized() if fleet_velocity.length_squared() > 0.01 else Vector3.BACK
 	var alignment: Basis = Basis.looking_at(-drift, Vector3.UP)
+	var displacement: Vector3 = drift * (32.0 + speed * 0.8) * guided_speed_effect * delta
 	for index: int in range(_streak_positions.size()):
-		var point: Vector3 = _streak_positions[index] + drift * (32.0 + fleet_velocity.length() * 0.8) * guided_speed_effect * delta
+		var point: Vector3 = _streak_positions[index] + displacement
 		var relative: Vector3 = point - center
 		point = center + Vector3(wrapf(relative.x, -75, 75), wrapf(relative.y, -48, 48), wrapf(relative.z, -160, 60))
 		_streak_positions[index] = point

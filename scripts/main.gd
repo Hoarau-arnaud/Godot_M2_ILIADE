@@ -33,6 +33,7 @@ var shots_targeted_per_ship: Dictionary[int, int] = {}
 var weapon_metrics: Dictionary = {}
 var _threat_serial: int = 0
 var reinforcement_count: int = 0
+var death_causes: Dictionary[String, int] = {}
 var reinforcement_waits: Array[float] = []
 var reinforcement_spawns: Array[Dictionary] = []
 var _reinforcement_stagger: float = 0
@@ -785,9 +786,15 @@ func _update_action_intensity(center: Vector3, delta: float) -> void:
 
 
 func _exit_tree() -> void:
+	get_tree().paused = false
 	if _engine_settings_owned:
 		Engine.time_scale = _previous_time_scale
 		Engine.physics_ticks_per_second = _previous_physics_rate
+
+
+func set_presentation_paused(value: bool) -> void:
+	get_tree().paused = value
+	demo_controls.pause_label.visible = value
 
 
 func _random_ship_position() -> Vector3:
@@ -846,6 +853,7 @@ func _measure_group(center: Vector3) -> void:
 func _on_ship_died(ship: BlueShip) -> void:
 	if not ships.has(ship):
 		return
+	death_causes[ship.death_cause] = int(death_causes.get(ship.death_cause, 0)) + 1
 	ships.erase(ship)
 	death_count += 1
 	if demonstration.is_guided() and guided_reinforcements_enabled:

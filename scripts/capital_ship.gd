@@ -162,11 +162,15 @@ func _physics_process(delta: float) -> void:
 		_state_time += delta
 		_update_state(delta)
 	_move(delta, correction)
-	var charge: float = clampf(_state_time / prepare_duration, 0, 1) if state == State.PREPARE else 0.0
 	_flash_time = maxf(_flash_time - delta, 0)
-	$Visuals.show_charge(maxf(charge, 1.5 if _flash_time > 0 else 0), _time, alive)
 	while state_history.size() > 64:
 		state_history.pop_front()
+
+
+func _process(_delta: float) -> void:
+	if alive:
+		var charge: float = clampf(_state_time / prepare_duration, 0, 1) if state == State.PREPARE else 0.0
+		$Visuals.show_charge(maxf(charge, 1.5 if _flash_time > 0 else 0), _time, alive)
 
 
 func _update_state(delta: float) -> void:

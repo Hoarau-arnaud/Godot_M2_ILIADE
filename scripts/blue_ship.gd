@@ -104,6 +104,7 @@ var critical_threat_count: int = 0
 var near_miss_count: int = 0
 var asteroid_near_miss_count: int = 0
 var arcade_visuals_enabled: bool = false
+var death_cause: String = ""
 var gate_opening_choices: int = 0
 var gate_opening_changes: int = 0
 var _gate_memory: Dictionary[MovingLaserGate, Dictionary] = {}
@@ -171,6 +172,7 @@ var _recovery: Vector3 = Vector3.ZERO
 
 func _ready() -> void:
 	health = maxi(max_health, 1)
+	_hit_flash.hide()
 	_build_boost_visual()
 	_demo_movement_current = demo_movement_multiplier
 	_demo_spacing_current = demo_spacing_multiplier
@@ -240,14 +242,13 @@ func _physics_process(delta: float) -> void:
 	var desired_velocity: Vector3 = Vector3(side_velocity.x, side_velocity.y, -base_speed + forward_variation)
 	velocity = velocity.move_toward(desired_velocity, maxf(acceleration, 0.1) * lerpf(1, boost_acceleration_multiplier, _boost_blend) * delta)
 	_update_orientation(delta)
-	_update_exhausts()
 	# Le balayage physique détecte le contact, même si le déplacement dépasse une petite roche.
 	var collision: KinematicCollision3D = move_and_collide(velocity * delta, false, 0.001, true)
 	if collision != null:
 		var obstacle: SpaceAsteroid = collision.get_collider() as SpaceAsteroid
 		var collider: Node = collision.get_collider() as Node
 		if obstacle != null or (collider != null and collider.is_in_group("hostile_agents")):
-			_die()
+			_die("asteroid" if obstacle != null else "hostile_contact")
 	if alive:
 		_update_combat(delta)
 
@@ -645,12 +646,17 @@ func take_damage(amount: int) -> void:
 		_die()
 	else:
 		_hit_flash_time = 0.14
+		_hit_flash.show()
 		_hit_flash.light_energy = 2.5
 
 
 func _process(delta: float) -> void:
+	if alive:
+		_update_exhausts(delta)
 	_hit_flash_time = maxf(_hit_flash_time - delta, 0.0)
 	_hit_flash.light_energy = 2.5 * _hit_flash_time / 0.14
+	# Une lumière d'énergie nulle ne doit pas rester dans les passes de rendu.
+	_hit_flash.visible = _hit_flash_time > 0
 
 
 func _forget_obstacle(obstacle: SpaceAsteroid) -> void:
@@ -719,12 +725,12 @@ func _update_orientation(delta: float) -> void:
 	_visuals.basis = Basis.from_euler(_visual_angles)
 
 
-func _update_exhausts() -> void:
+func _update_exhausts(delta: float = 0) -> void:
 	var visual_boost: float = maxf(_boost_blend, 0.65 if reinforcement_glow_remaining > 0 else 0)
 	var boost_scale: float = lerpf(1, 2.8 if arcade_visuals_enabled else 2.2, visual_boost)
 	_boost_material.emission_energy_multiplier = lerpf(1.5, 7.0 if arcade_visuals_enabled else 5.0, visual_boost)
 	if arcade_visuals_enabled:
-		_update_arcade_boost(visual_boost)
+		_update_arcade_boost(visual_boost, delta if delta > 0 else get_physics_process_delta_time())
 	_boost_streak.visible = _boost_blend > 0.15
 	_boost_streak.scale.z = lerpf(0.5, 1.3, _boost_blend)
 	var thrust: float = 0.65 + clampf(velocity.length() / maxf(forward_speed, 0.1), 0.4, 1.8) * 0.5
@@ -765,9 +771,10 @@ func _stop_navigation() -> void:
 	collision_mask = 0
 
 
-func _die() -> void:
+func _die(cause: String = "damage") -> void:
 	if not alive:
 		return
+	death_cause = cause
 	_stop_navigation()
 	health = 0
 	var explosion: Node3D = EXPLOSION_SCENE.instantiate() as Node3D
@@ -1024,9 +1031,9 @@ func _build_arcade_boost() -> void:
 		_boost_rings.append(display)
 
 
-func _update_arcade_boost(visual_boost: float) -> void:
+func _update_arcade_boost(visual_boost: float, delta: float) -> void:
 	var desired: float = visual_boost if evasive_boost_remaining > 0 or reinforcement_glow_remaining > 0 else 0
-	_aura_blend = move_toward(_aura_blend, desired, get_physics_process_delta_time() * (12 if desired > _aura_blend else 2.5))
+	_aura_blend = move_toward(_aura_blend, desired, delta * (12 if desired > _aura_blend else 2.5))
 	_aura.visible = _aura_blend > 0.025
 	_aura_material.albedo_color.a = 0.22 * _aura_blend
 	_aura_ring_material.albedo_color.a = 0.8 * _aura_blend
