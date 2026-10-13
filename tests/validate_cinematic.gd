@@ -60,6 +60,7 @@ func _empty(count: int = 10) -> SpaceSimulation:
 	sim.streaming_enabled = false
 	sim.drones_enabled = false
 	sim.interceptors_enabled = false
+	(sim.get_node("Asteroids") as ObstacleField).moving_asteroids_enabled = false
 	root.add_child(sim)
 	return sim
 
@@ -142,10 +143,10 @@ func _test_ship_design() -> void:
 	_check(ship._visuals.basis.x.y > 0.1, "Déplacement gauche sans aile gauche abaissée.")
 	ship.velocity = Vector3(0, 5, -10)
 	ship._update_orientation(10.0)
-	_check((-ship._visuals.basis.z).y > 0.1, "Montée sans nez relevé.")
+	_check((-ship._visuals.basis.z).y > 0.04, "Montée sans nez relevé.")
 	ship.velocity = Vector3(0, -5, -10)
 	ship._update_orientation(10.0)
-	_check((-ship._visuals.basis.z).y < -0.1, "Descente sans nez abaissé.")
+	_check((-ship._visuals.basis.z).y < -0.04, "Descente sans nez abaissé.")
 	ship.velocity = Vector3.FORWARD * ship.forward_speed
 	ship._update_exhausts()
 	var low_thrust: float = ship._left_exhaust.scale.y
@@ -279,6 +280,7 @@ func _test_barrage(pattern: int, inverted: bool = false) -> void:
 
 func _test_run(action: bool) -> void:
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	(sim.get_node("Asteroids") as ObstacleField).moving_asteroids_enabled = false
 	sim.manual_difficulty = 3
 	root.add_child(sim)
 	var seconds: int = 60 if action else 90

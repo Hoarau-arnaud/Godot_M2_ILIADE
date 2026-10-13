@@ -13,6 +13,11 @@ enum Pattern { SINGLE, OFFSET_PAIR, HORIZONTAL_PAIR, VERTICAL_PAIR, STAGGERED_CL
 @export var horizontal_spread: float = 56.0
 @export var vertical_spread: float = 36.0
 @export var cinematic_patterns_enabled: bool = true
+@export_category("Astéroïdes mobiles")
+@export var moving_asteroids_enabled: bool = true
+@export_range(0.0, 1.0) var easy_mobile_ratio: float = 0.05
+@export_range(0.0, 1.0) var intermediate_mobile_ratio: float = 0.20
+@export_range(0.0, 1.0) var hard_mobile_ratio: float = 0.42
 
 @export_category("Difficulte selon la distance")
 @export var intermediate_distance: float = 500.0
@@ -27,6 +32,10 @@ enum Pattern { SINGLE, OFFSET_PAIR, HORIZONTAL_PAIR, VERTICAL_PAIR, STAGGERED_CL
 var configurations: Array[Node3D] = []
 var active_asteroid_count: int = 0
 var maximum_active_observed: int = 0
+var active_mobile_count: int = 0
+var maximum_mobile_observed: int = 0
+var motions_generated: Dictionary[int, int] = {}
+var _motion_totals_by_level: Dictionary[int, Vector2i] = {}
 var generated_configuration_count: int = 0
 var removed_configuration_count: int = 0
 var patterns_generated: Dictionary[int, int] = {}
@@ -45,6 +54,7 @@ func initialize_field(seed_value: int, center: Vector3, front_z: float) -> void:
 	_origin_z = center.z
 	_next_z = front_z - maxf(start_distance, 50.0)
 	_pending_pattern = -1
+	_motion_totals_by_level.clear()
 
 
 func difficulty_for_distance(distance: float) -> int:
@@ -140,6 +150,13 @@ func _spawn_configuration(pattern: int, level: int, center: Vector3, z_position:
 	configuration.set_meta("inverted", inverted)
 	configuration.set_meta("passages", passage_points(pattern, inverted))
 	var cleanup_z: float = z_position
+	var ratios: Array[float] = [easy_mobile_ratio, intermediate_mobile_ratio, hard_mobile_ratio]
+	var mobile_ratio: float = ratios[level - 1] if moving_asteroids_enabled else 0.0
+	var totals: Vector2i = _motion_totals_by_level.get(level, Vector2i.ZERO)
+	var barrage_mobile: int = -1
+	if pattern >= Pattern.ASTEROID_GATE:
+		var desired_mobile: int = roundi((totals.x + offsets.size()) * mobile_ratio)
+		barrage_mobile = int(absi(totals.y + offsets.size() - desired_mobile) < absi(totals.y - desired_mobile))
 	for index: int in range(offsets.size()):
 		var asteroid: SpaceAsteroid = ASTEROID_SCENE.instantiate() as SpaceAsteroid
 		asteroid.name = "Asteroid_%d" % index
@@ -150,14 +167,62 @@ func _spawn_configuration(pattern: int, level: int, center: Vector3, z_position:
 		if inverted:
 			asteroid.position.y *= -1.0
 		asteroid.rotation = Vector3(_random.randf_range(-PI, PI), _random.randf_range(-PI, PI), _random.randf_range(-PI, PI))
+		# Un barrage partage son mouvement : ses ouvertures restent géométriquement ouvertes.
+		var motion_seed: int = _seed + generated_configuration_count * 997 + (0 if pattern >= Pattern.ASTEROID_GATE else index * 67)
+		# Quota cumulatif, pas effectif vivant : les types ne dépendent pas du nettoyage.
+		var mobile_decision: int = barrage_mobile if barrage_mobile >= 0 else int(totals.y < roundi((totals.x + 1) * mobile_ratio))
+		_configure_motion(asteroid, level, motion_seed, maxf(center.z - z_position, 0.0), mobile_decision)
 		configuration.add_child(asteroid)
-		cleanup_z = minf(cleanup_z, asteroid.global_position.z - asteroid.avoidance_radius)
+		cleanup_z = minf(cleanup_z, z_position + asteroid.motion_center.z - asteroid.avoidance_radius - asteroid.motion_depth_margin())
 		active_asteroid_count += 1
+		totals.x += 1
+		if asteroid.motion_type != SpaceAsteroid.MotionType.STATIC:
+			active_mobile_count += 1
+			totals.y += 1
+		motions_generated[asteroid.motion_type] = motions_generated.get(asteroid.motion_type, 0) + 1
 	configuration.set_meta("cleanup_z", cleanup_z)
+	_motion_totals_by_level[level] = totals
 	configurations.append(configuration)
 	generated_configuration_count += 1
 	patterns_generated[pattern] = patterns_generated.get(pattern, 0) + 1
 	maximum_active_observed = maxi(maximum_active_observed, active_asteroid_count)
+	maximum_mobile_observed = maxi(maximum_mobile_observed, active_mobile_count)
+
+
+func _configure_motion(asteroid: SpaceAsteroid, level: int, seed_value: int, distance: float, mobile_decision: int = -1) -> void:
+	var random: RandomNumberGenerator = RandomNumberGenerator.new()
+	random.seed = seed_value + 171037
+	var ratios: Array[float] = [easy_mobile_ratio, intermediate_mobile_ratio, hard_mobile_ratio]
+	var probability: float = random.randf()
+	if not moving_asteroids_enabled or mobile_decision == 0 or (mobile_decision < 0 and probability >= ratios[clampi(level, 1, 3) - 1]):
+		return
+	asteroid.motion_type = random.randi_range(1, 5) as SpaceAsteroid.MotionType
+	var side: float = -1.0 if random.randf() < 0.5 else 1.0
+	var vertical: float = -1.0 if random.randf() < 0.5 else 1.0
+	asteroid.motion_duration = random.randf_range(12, 16)
+	asteroid.motion_start_delay = maxf(distance / 10.5 - asteroid.motion_duration * 0.5, 0.0)
+	asteroid.motion_velocity = Vector3(side * random.randf_range(4, 7), 0, 0)
+	match asteroid.motion_type:
+		SpaceAsteroid.MotionType.LINEAR:
+			if random.randf() < 0.35:
+				asteroid.motion_velocity = Vector3(0, vertical * random.randf_range(4, 6), 0)
+		SpaceAsteroid.MotionType.DIAGONAL:
+			asteroid.motion_velocity.y = vertical * random.randf_range(2, 4)
+			asteroid.motion_velocity.z = random.randf_range(-2, 2)
+		SpaceAsteroid.MotionType.VERTICAL_SWEEP:
+			asteroid.motion_velocity = Vector3(side * 1.0, vertical * random.randf_range(5, 7), random.randf_range(-1, 1))
+		SpaceAsteroid.MotionType.CIRCULAR:
+			var planes: Array[Basis] = [Basis.IDENTITY, Basis(Vector3.RIGHT, PI * 0.5), Basis(Vector3.UP, PI * 0.5), Basis(Vector3(1, 1, 0).normalized(), 0.7)]
+			var plane: Basis = planes[random.randi_range(0, 3)]
+			asteroid.orbit_axis_u = plane * Vector3.RIGHT
+			asteroid.orbit_axis_v = plane * Vector3.UP
+			asteroid.motion_amplitude = Vector2(random.randf_range(12, 18), random.randf_range(8, 14))
+			asteroid.motion_period = random.randf_range(16, 24)
+			asteroid.motion_phase = random.randf_range(0, TAU)
+		SpaceAsteroid.MotionType.ARC:
+			asteroid.motion_velocity.y = vertical * 1.5
+			asteroid.orbit_axis_v = Vector3.UP * vertical
+			asteroid.motion_amplitude.y = random.randf_range(8, 14)
 
 
 func pattern_offsets(pattern: int, gap: float) -> Array[Vector3]:
@@ -252,6 +317,8 @@ func _cleanup_passed(rear_z: float) -> void:
 		if cleanup_z <= rear_z + maxf(cleanup_distance, 70.0):
 			continue
 		for child: Node in configuration.get_children():
+			if (child as SpaceAsteroid).motion_type != SpaceAsteroid.MotionType.STATIC:
+				active_mobile_count -= 1
 			child.remove_from_group("asteroids")
 		active_asteroid_count -= configuration.get_child_count()
 		configurations.remove_at(index)

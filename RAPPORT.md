@@ -213,6 +213,31 @@ Validation M8, Godot 4.7.2, graine `20261012`, collisions actives :
 
 Les six barrages et la plongée inversée sont testés séparément sur 30 s : passages ouverts, détours dans plusieurs directions et aucun survivant isolé à la fin. La plongée normale cause **une perte** sur cet essai ; les autres gardent dix survivants. Les suites historiques M1–M7 passent avec leur décor et leurs réglages de référence, tandis que la suite M8 exerce le nouveau champ. Les coûts et limites de cadrage sont détaillés dans le README ; ces essais ne garantissent pas la survie sur toutes les graines.
 
+### Milestone 9 — Vol dynamique et environnement mobile
+
+La fenêtre devient responsive : le rendu remplit les surfaces redimensionnées, maximisées ou en plein écran. Le canvas d'interface s'étend avec le ratio au lieu de conserver des bandes autour du 16:9. Le BlueShip reçoit une coque profilée avec un nez effilé, un dos et un ventre ; son orientation visuelle reste modérée en montée, sans réduire le mouvement vertical réel.
+
+Les astéroïdes suivent maintenant des segments, diagonales, passages verticaux, ellipses et arcs, avec une part conservée sans translation. Les trajectoires sont reproductibles par graine et les chasseurs anticipent localement leur position et leur vitesse. **Les astéroïdes mobiles restent des obstacles de l'environnement, jamais des agents.** Les barrages partagent leur mouvement pour conserver les ouvertures.
+
+Étoiles proches rapides, traits lumineux discrets, planètes lointaines, lune, nébuleuses, bande de galaxie et amas colorés renforcent la sensation de vitesse. La caméra accompagne davantage les déplacements collectifs X/Y, avec une légère avance/retard, un faible roulis et un FOV variable. Le monde et les agents progressent toujours globalement vers −Z ; aucune trajectoire de groupe n'est imposée.
+
+Ces dangers renforcent le phénomène **dispersion → évitement individuel → regroupement collectif**. Les tests comparent aussi les trajectoires avec et sans orientation visuelle : les forces de navigation restent indépendantes de la présentation. M9 conserve trois types d'agents ; le futur quatrième sera un vaisseau d'artillerie lointain, prévu seulement pour M10.
+
+Validation finale, Godot 4.7.2, graine `20261012`, collisions actives :
+
+| Mesure | Niveau 3 Cinématique, 90 s équivalentes | Spectacle, 60 s réelles à 1080p |
+|---|---:|---:|
+| BlueShip vivants / morts | 10 / 0 | 10 / 0 |
+| Verts / rouges actifs | 3 / 2 | 5 / 4 |
+| Astéroïdes maximum | 89 | 77 |
+| Trajectoires mobiles maximum / translation effective maximum | 39 / 29 | 35 / 22 |
+| Projectiles maximum / nœuds échantillonnés | 12 / 1 337 | 16 / 1 291 |
+| Dispersion maximale / finale | 44,93 / 41,70 m | 50,01 / 38,78 m |
+| Isolés à la fin | 0 | 1 |
+| Coût headless / FPS réels moyens | environ 1,26 ms par pas | **99,3 FPS** |
+
+Le minimum graphique sur les fenêtres d'une seconde vaut **92,9 FPS**, au-dessus de l'objectif 60 FPS sur cette machine. Le test de montée conserve 18,75 m de déplacement vertical en quatre secondes avec un pitch inférieur à 8°. Chaque trajectoire passe trente secondes de contrôle physique ; le croisement anticipé survit, tandis que le stress sans perception provoque une mort réelle. Les fenêtres redimensionnées, la maximisation et le plein écran passent avec rendu. Les suites historiques sont conservées en obstacles sans translation. Les données headless et graphiques sont distinguées dans le README ; ces essais ne garantissent ni le regroupement complet ni la survie sur toutes les graines.
+
 ## 3. Agents et environnement actuels
 
 ### Agent 1 — Chasseur bleu
@@ -314,11 +339,11 @@ Il tire seulement pendant la poursuite, devant son nez, à **52 m**, dans un dem
 
 Les astéroïdes ne sont **pas considérés comme des agents** dans le modèle actuel.
 
-Ils constituent des éléments de l'environnement que les chasseurs doivent percevoir et éviter. Ils existent en plusieurs tailles et formes et tournent lentement.
+Ils constituent des éléments de l'environnement que les chasseurs doivent percevoir et éviter. Ils existent en plusieurs tailles et formes, tournent lentement et peuvent suivre les trajectoires environnementales introduites en M9. L'anticipation locale utilise leur vitesse relative ; ils ne prennent aucune décision autonome.
 
 Le champ prépare des configurations jusqu'à 320 m devant le premier chasseur, autour de la position X/Y mesurée du groupe. Une configuration est retirée seulement lorsqu'elle est à plus de 100 m derrière le dernier survivant. La caméra et les chasseurs ne reçoivent aucune consigne de déplacement de ce système.
 
-Le nettoyage protège aussi les drones et intercepteurs encore actifs. Les barrages M8 restent des configurations de ces mêmes obstacles. L'Agent 4 est prévu pour M9.
+Le nettoyage protège aussi les drones et intercepteurs encore actifs et tient compte de l'enveloppe de déplacement des rochers. Les barrages restent des configurations de ces mêmes obstacles. L'Agent 4 est prévu pour M10.
 
 ---
 
@@ -485,30 +510,19 @@ M4 introduit une première perturbation mobile avec le drone de patrouille. Le p
 
 Un test M3 commence avec dix chasseurs volontairement dispersés, dont certains n'ont aucun voisin dans les 32 m habituels mais voient encore un membre du groupe à moins de 50 m. En **30 secondes**, la dispersion diminue de **49,00 m à 19,92 m**. L'espacement final vaut **10,82 m**, avec un minimum observé de **7,15 m**. Ils retrouvent la même zone sans finir collés. À 70 m, un chasseur ne reçoit aucune attraction : la récupération reste locale et limitée.
 
+En M9, les croisements mobiles provoquent de nouveaux détours individuels. Les rochers et la caméra ne fournissent pas de route commune : la séparation temporaire et le regroupement résultent encore des perceptions et règles locales. Les mesures de dispersion et les épisodes de regroupement échantillonnés permettent de suivre ce phénomène, sans considérer chaque réaction comme une collision certainement évitée.
+
 ---
 
 ## 9. Futurs types d'agents envisagés
 
 Les astéroïdes resteront des obstacles de l'environnement. Le projet vise désormais quatre types d'agents simples à distinguer et à expliquer.
 
-### Agent 4 — Bomber / MineLayer
+### Agent 4 — Capital Artillery Ship, prévu pour M10
 
-Futur agent plus lent, orange ou violet, qui contrôlera une zone avec des mines ou un projectile lourd. Le dépôt de mines reste l'un des comportements envisagés.
+Le futur quatrième agent sera un **très grand vaisseau ennemi d'artillerie lointaine**, souvent visible à l'horizon. Il ne poursuivra pas physiquement le groupe comme l'Interceptor. Il enverra continuellement des menaces lentes qui mettent du temps à atteindre les BlueShip : missile lourd, salve, missile en arc, guidage léger éventuel et barrage de projectiles.
 
-Les mines créées seront des **obstacles de l'environnement**, pas des agents supplémentaires.
-
-Comportement prévu :
-
-```mermaid
-stateDiagram-v2
-    [*] --> Entree
-    Entree --> Deplacement : zone atteinte
-    Deplacement --> Depot : point de dépôt atteint
-    Depot --> Sortie : mine déposée
-    Sortie --> Entree : nouveau passage
-```
-
-L'intercepteur apporte déjà la poursuite active et les tirs ennemis. Le futur Agent 4 ajoutera un rôle de contrôle de zone ; il n'est pas implémenté dans M8.
+Ce rôle remplace le projet Bomber/MineLayer. Il s'agit uniquement du planning : aucun Capital Ship, missile ou nouvel agent n'est implémenté dans M9. Les diagrammes des trois agents existants restent conservés.
 
 ---
 
@@ -521,7 +535,7 @@ La version actuelle comporte plusieurs simplifications :
 - récupération impossible si tous les membres de l'autre groupe sont au-delà de 50 m ;
 - budget borné pouvant retarder la génération si le groupe s'étire exceptionnellement en profondeur ;
 - hitboxes simplifiées ;
-- obstacles principalement statiques ;
+- mélange d'obstacles sans translation et de trajectoires environnementales simples ;
 - trois types d'agents pour le moment ;
 - anticipation mobile supposant une vitesse constante sur quelques secondes ;
 - deux morts réelles observées sur le parcours M5 de cinq minutes ;
@@ -564,11 +578,14 @@ Rythme global accéléré, trois étoiles, panneau TAB, réglages runtime, popul
 ### M8 — Cinématique / barrages / design spatial ✅
 Chasseur spatial redessiné, six cadrages automatiques, barrages ouverts, plein écran, aide et presets de démonstration. Aucun nouvel agent.
 
-### M9 — Agent 4 : Bomber / MineLayer
-Ajouter l'Agent 4 plus lent, avec un rôle de contrôle de zone par projectile lourd ou mines.
+### M9 — Vol dynamique / obstacles mobiles / responsive / décor ✅
+Viewport étendu, coque profilée, orientation visuelle limitée, étoiles rapides, décor lointain, trajectoires d'astéroïdes et anticipation locale, caméra plus réactive.
 
-### M10 — Scénarios, bombes BlueShip, étude et finalisation
-Préparer les scénarios de démonstration et les bombes limitées, comparer paramètres, états initiaux, difficultés et mesures, puis stabiliser la vidéo, le rapport, les diagrammes et le PowerPoint de 10 minutes. Si ce périmètre devient trop grand, un **M11 de finalisation** pourra être ajouté. M9–M11 ne sont pas implémentés dans M8.
+### M10 — Agent 4 : Capital Artillery Ship
+Artillerie lointaine : grand vaisseau à l'horizon, plusieurs familles de missiles et salves, sans poursuite physique des BlueShip.
+
+### M11 — Bombes BlueShip / scénarios finaux / étude / PowerPoint
+Bombes limitées, situations de démonstration, comparaison des paramètres et états initiaux, stabilisation, vidéo, rapport final et PowerPoint de 10 minutes. M10 et M11 ne sont pas commencés dans M9.
 
 ---
 

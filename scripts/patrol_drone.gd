@@ -112,7 +112,11 @@ func _obstacle_avoidance() -> Vector3:
 			_obstacle_directions.erase(key)
 			continue
 		var remembered: SpaceAsteroid = key as SpaceAsteroid
-		if global_position.z < remembered.global_position.z - remembered.avoidance_radius - BODY_CLEARANCE:
+		var passed: bool = global_position.z < remembered.global_position.z - remembered.avoidance_radius - BODY_CLEARANCE
+		if remembered.motion_type != SpaceAsteroid.MotionType.STATIC:
+			var offset: Vector3 = remembered.global_position - global_position
+			passed = offset.dot(remembered.velocity - velocity) >= 0 and offset.length() > remembered.avoidance_radius + BODY_CLEARANCE + obstacle_clearance + 2.0
+		if passed:
 			_obstacle_directions.erase(remembered)
 	var candidates: Array[SpaceAsteroid] = []
 	for node: Node in get_tree().get_nodes_in_group("asteroids"):
@@ -120,10 +124,10 @@ func _obstacle_avoidance() -> Vector3:
 		if obstacle == null or obstacle.is_queued_for_deletion():
 			continue
 		var offset: Vector3 = obstacle.global_position - global_position
-		if offset.length() > maxf(obstacle_detection_radius, 0.0) or offset.z > 0.0:
+		if offset.length() > maxf(obstacle_detection_radius, 0.0) or (offset.z > 0.0 and obstacle.motion_type == SpaceAsteroid.MotionType.STATIC):
 			continue
 		var clearance: float = obstacle.avoidance_radius + BODY_CLEARANCE + obstacle_clearance
-		var prediction: Vector2 = MobileAvoidance.approach(offset, -velocity, prediction_time)
+		var prediction: Vector2 = MobileAvoidance.approach(offset, obstacle.velocity - velocity, prediction_time)
 		if prediction.y >= clearance and not _obstacle_directions.has(obstacle):
 			continue
 		var index: int = 0
@@ -136,13 +140,13 @@ func _obstacle_avoidance() -> Vector3:
 	for obstacle: SpaceAsteroid in candidates:
 		var offset: Vector3 = obstacle.global_position - global_position
 		var clearance: float = obstacle.avoidance_radius + BODY_CLEARANCE + obstacle_clearance
-		var prediction: Vector2 = MobileAvoidance.approach(offset, -velocity, prediction_time)
+		var prediction: Vector2 = MobileAvoidance.approach(offset, obstacle.velocity - velocity, prediction_time)
 		if not _obstacle_directions.has(obstacle):
-			_obstacle_directions[obstacle] = MobileAvoidance.direction(offset, -velocity, prediction.x, _preferred_avoidance)
+			_obstacle_directions[obstacle] = MobileAvoidance.direction(offset, obstacle.velocity - velocity, prediction.x, _preferred_avoidance)
 			var callback: Callable = _forget_obstacle.bind(obstacle)
 			if not obstacle.tree_exiting.is_connected(callback):
 				obstacle.tree_exiting.connect(callback, CONNECT_ONE_SHOT)
-		result += MobileAvoidance.steering(offset, -velocity, prediction.x, clearance, _obstacle_directions[obstacle]) / (1.0 + float(perceived_obstacle_count) * 0.7)
+		result += MobileAvoidance.steering(offset, obstacle.velocity - velocity, prediction.x, clearance, _obstacle_directions[obstacle]) / (1.0 + float(perceived_obstacle_count) * 0.7)
 		perceived_obstacle_count += 1
 	return result.limit_length(3.0)
 
