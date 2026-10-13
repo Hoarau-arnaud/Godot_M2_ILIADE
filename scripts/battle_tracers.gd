@@ -7,6 +7,7 @@ var emitted: int = 0
 var maximum_active: int = 0
 var active_count: int = 0
 var rate: float = 30
+var background_only: bool = false
 var _credit: float = 0
 var _cursor: int = 0
 var _random: RandomNumberGenerator = RandomNumberGenerator.new()
@@ -54,7 +55,7 @@ func _process(delta: float) -> void:
 			var aim: Vector3 = target_ship.global_position + target_ship.velocity * 9 + Vector3(_random.randf_range(-65, 65), _random.randf_range(-45, 45), 0)
 			_positions[_cursor] = origin
 			_velocities[_cursor] = (aim - origin).normalized() * _random.randf_range(35, 55)
-			_lifetimes[_cursor] = 11
+			_lifetimes[_cursor] = 3.0 if background_only else 11
 			multimesh.set_instance_color(_cursor, Color(1, _random.randf_range(0.12, 0.65), _random.randf_range(0.05, 0.6)))
 			_cursor = (_cursor + 1) % CAPACITY
 			emitted += 1

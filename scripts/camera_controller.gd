@@ -1,6 +1,26 @@
 class_name SimulationCamera
 extends Camera3D
 
+var action_observation_enabled: bool = false
+var _action_shot: Shot = Shot.CHASE
+var _action_hold: float = 0
+
+func _observe_primary_action(fallback: Shot) -> Shot:
+	for node: Node in get_tree().get_nodes_in_group("asteroids"):
+		var rock: SpaceAsteroid = node as SpaceAsteroid
+		var offset: Vector3 = rock.global_position - _group_center
+		if rock.diameter >= 20 and offset.length() < 170 and offset.dot(rock.velocity - group_velocity) < 0:
+			return Shot.TOP_DOWN if rock.mega_trajectory == SpaceAsteroid.MegaTrajectory.MEGA_VERTICAL else Shot.SIDE_FAST
+	for node: Node in get_tree().get_nodes_in_group("combat_hazards"):
+		var zone: ArtilleryZone = node as ArtilleryZone
+		if zone.kind == ArtilleryZone.Kind.BOMB and zone.delay - zone.age < 3:
+			return Shot.TOP_DOWN
+	for node: Node in get_tree().get_nodes_in_group("artillery_projectiles"):
+		var projectile: ArtilleryProjectile = node as ArtilleryProjectile
+		if projectile.targeted and projectile.global_position.distance_to(_group_center) < 110:
+			return Shot.REAR_CLOSE
+	return Shot.WIDE if _group_spread > 55 else fallback
+
 signal mode_changed(free_camera: bool)
 signal camera_mode_changed(new_mode: int)
 
@@ -153,6 +173,13 @@ func _update_cinematic(delta: float) -> void:
 		if shot_history.size() > 64:
 			shot_history.pop_front()
 	var effective_shot: Shot = Shot.WIDE if _group_spread > 45.0 and not guided_spectacle else cinematic_shot
+	if action_observation_enabled:
+		_action_hold = maxf(_action_hold - delta, 0)
+		var observed: Shot = _observe_primary_action(effective_shot)
+		if observed != _action_shot and _action_hold <= 0:
+			_action_shot = observed
+			_action_hold = 0.8
+		effective_shot = _action_shot
 	var offsets: Array[Vector3] = [Vector3(14, 18, 52), Vector3(-55, 16, 28), Vector3(55, 14, 28), Vector3(8, 52, 38), Vector3(-18, -6, 37), Vector3(10, 34, 78), Vector3(-8, 12, -62), Vector3(5, 8, 35), Vector3(12, 80, 48), Vector3(-10, -50, 48), Vector3(10, 25, 95), Vector3(-65, 12, 22)]
 	if effective_shot != _last_effective_shot:
 		_previous_shot_offset = _current_shot_offset
@@ -209,7 +236,15 @@ func _framing_distance(target: Vector3, direction: Vector3) -> float:
 	var tangent_y: float = tan(deg_to_rad(fov * 0.5)) * 0.75
 	var tangent_x: float = tangent_y * viewport_size.x / maxf(viewport_size.y, 1.0)
 	var distance: float = 30.0
-	for point: Vector3 in _agent_positions:
+	var framing_points: Array[Vector3] = _agent_positions
+	if action_observation_enabled:
+		var nearby: Array[Vector3] = []
+		for point: Vector3 in _agent_positions:
+			if point.distance_to(_group_center) < 110:
+				nearby.append(point)
+		if nearby.size() >= 10:
+			framing_points = nearby
+	for point: Vector3 in framing_points:
 		var relative: Vector3 = point - target
 		var depth: float = relative.dot(direction)
 		distance = maxf(distance, depth + (absf(relative.dot(view.x)) + 5.0) / maxf(tangent_x, 0.1))

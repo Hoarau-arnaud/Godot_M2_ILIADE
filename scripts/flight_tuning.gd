@@ -7,6 +7,7 @@ static func legacy_actor(actor: Node) -> void:
 	if actor is SpaceSimulation:
 		(actor as SpaceSimulation).auto_start_guided_demo = false
 		(actor as SpaceSimulation).legacy_flight_profile = true
+		m13_fixture(actor)
 	elif actor is BlueShip:
 		var blue: BlueShip = actor as BlueShip
 		blue.forward_speed = 10.5
@@ -34,3 +35,11 @@ static func legacy_actor(actor: Node) -> void:
 		(actor as BlueLaser).projectile_speed = 60
 	elif actor is EnemyLaser:
 		(actor as EnemyLaser).projectile_speed = 45
+
+
+static func m13_fixture(actor: Node) -> void:
+	if actor is SpaceSimulation:
+		var sim: SpaceSimulation = actor as SpaceSimulation
+		sim.threat_choreography_enabled = false
+		sim.guided_reinforcements_enabled = false
+		sim.stop_on_squadron_extinction = true

@@ -235,7 +235,7 @@ func _test_enemy_damage() -> void:
 		await _advance(30)
 		if impact < 2:
 			_check(ship.alive and ship.health == 2 - impact and sim.death_count == 0, "Impact ennemi sans perte d'un HP.")
-	_check(_deaths == 1 and sim.death_count == 1 and sim.blue_ship_hits == 3 and sim.statistics.text == "Vaisseaux détruits : 1", "Trois impacts sans mort unique/HUD exact.")
+	_check(_deaths == 1 and sim.death_count == 1 and sim.blue_ship_hits == 3 and sim.statistics.text == "Vaisseaux bleus détruits : 1", "Trois impacts sans mort unique/HUD exact.")
 	_check(green.health == 4 and red.health == 4, "Friendly fire ennemi.")
 	await _dispose(sim)
 	sim = _empty()
@@ -420,7 +420,7 @@ func _test_run(mode: int, seconds: int) -> void:
 		nodes_max = maxi(nodes_max, get_node_count())
 		_check(sim.living_agent_count + sim.death_count == 10 and sim.drones.size() <= sim.target_drone_count() and sim.interceptors.size() <= sim.target_interceptor_count(), "Comptage/populations incohérents.")
 		_check(sim.asteroid_container.active_asteroid_count <= 72 and sim.projectile_container.get_child_count() <= 70 and nodes_max < 1800, "Budget d'objets dépassé.")
-		_check(sim.statistics.text == "Vaisseaux détruits : %d" % sim.death_count and sim.get_node("HUD").find_children("*", "Label", true, false).size() == 1, "HUD enrichi pendant M6.")
+		_check(sim.statistics.text == "Vaisseaux bleus détruits : %d" % sim.death_count and sim.get_node("HUD").find_children("*", "Label", true, false).size() == 1, "HUD enrichi pendant M6.")
 	await process_frame
 	var cpu_last: int = Time.get_ticks_usec() - cpu_last_start
 	_check(sim.living_agent_count > 0, "Essaim exterminé dans le parcours M6.")

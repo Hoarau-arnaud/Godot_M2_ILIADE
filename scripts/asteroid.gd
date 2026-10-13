@@ -1,7 +1,10 @@
 class_name SpaceAsteroid
 extends AnimatableBody3D
 
-enum SizeCategory { SMALL, MEDIUM, LARGE }
+enum SizeCategory { SMALL, MEDIUM, LARGE, MEGA }
+enum MegaTrajectory { MEGA_LINEAR, MEGA_DIAGONAL, MEGA_VERTICAL, MEGA_SLOW_CROSSING }
+var mega_trajectory: MegaTrajectory = MegaTrajectory.MEGA_LINEAR
+var threat_strength: float = 1.0
 enum MotionType { STATIC, LINEAR, DIAGONAL, VERTICAL_SWEEP, CIRCULAR, ARC }
 static var _primitive_cache: Dictionary[int, PrimitiveMesh] = {}
 static var _convex_points_cache: Dictionary[int, PackedVector3Array] = {}
@@ -9,7 +12,7 @@ var single_convex_envelope: bool = false
 var _envelope_points: PackedVector3Array = PackedVector3Array()
 
 @export var size_category: SizeCategory = SizeCategory.MEDIUM
-@export_range(0.6, 16.0, 0.1) var diameter: float = 3.0
+@export_range(0.6, 60.0, 0.1) var diameter: float = 3.0
 @export var shape_seed: int = 1
 @export var rotation_speed: float = 0.1
 @export_category("Trajectoire environnementale")

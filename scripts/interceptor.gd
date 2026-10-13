@@ -34,6 +34,7 @@ var _pursuit_time: float = 0.0
 var _disengage_time: float = 0.0
 var _escape_direction: Vector3 = Vector3.RIGHT
 var _shot_timer: float = 0.0
+var bursts_started: int = 0
 var _burst_remaining: int = 0
 var _fire_random: RandomNumberGenerator = RandomNumberGenerator.new()
 
@@ -106,15 +107,20 @@ func _update_mission(delta: float) -> void:
 
 func _nearest_blue_ship() -> BlueShip:
 	var selected: BlueShip = null
+	var candidates: Array[BlueShip] = []
 	var nearest: float = maxf(target_detection_radius, 0.0)
 	for node: Node in get_tree().get_nodes_in_group("blue_ships"):
 		var ship: BlueShip = node as BlueShip
 		if ship == null or not ship.alive or ship.is_queued_for_deletion():
 			continue
 		var distance: float = global_position.distance_to(ship.global_position)
+		if readable_threats and distance <= target_detection_radius:
+			candidates.append(ship)
 		if distance <= nearest:
 			selected = ship
 			nearest = distance
+	if readable_threats and not candidates.is_empty():
+		return (get_parent().get_parent() as SpaceSimulation).balanced_target(candidates)
 	return selected
 
 
@@ -169,12 +175,21 @@ func _update_fire(delta: float) -> void:
 	if offset.length() > firing_range or offset.length_squared() < 0.001 or offset.normalized().dot(forward) < cos(deg_to_rad(firing_cone_angle)) or not _has_clear_line_of_sight() or _shot_timer > 0.0:
 		return
 	if _burst_remaining == 0:
+		bursts_started += 1
 		_burst_remaining = maxi(burst_size, 1)
 	# Une estimation imparfaite au départ ; le projectile garde ensuite sa direction.
 	var spread: Vector2 = Vector2(_fire_random.randf_range(-1.0, 1.0), _fire_random.randf_range(-1.0, 1.0)) * tan(deg_to_rad(shot_spread_angle))
 	var aim: Vector3 = CombatPrediction.aim(_muzzle.global_position, target.global_position, target.velocity, 85) if predictive_targeting else target.global_position
+	var category_value: int = ThreatPattern.Category.TARGETED
+	if readable_threats:
+		var sim: SpaceSimulation = get_parent().get_parent() as SpaceSimulation
+		category_value = ThreatPattern.category(sim._threat_serial)
+		aim += ThreatPattern.error(category_value, _fire_random)
 	var direction: Vector3 = ((aim - _muzzle.global_position).normalized() + _muzzle.global_basis.x * spread.x + _muzzle.global_basis.y * spread.y).normalized()
-	if direction.dot(forward) < cos(deg_to_rad(firing_cone_angle)):
+	var departure_cone: float = firing_cone_angle
+	if readable_threats and category_value != ThreatPattern.Category.TARGETED:
+		departure_cone = 55 if category_value == ThreatPattern.Category.SUPPRESSION else 32
+	if direction.dot(forward) < cos(deg_to_rad(departure_cone)):
 		return
 	if ArtilleryZone.dangerous_count(get_tree()) >= dangerous_projectile_limit:
 		return
@@ -182,7 +197,11 @@ func _update_fire(delta: float) -> void:
 	projectile.visual_variant = [EnemyLaser.VisualVariant.BOLT, EnemyLaser.VisualVariant.BOLT if predictive_targeting or burst_size >= 4 else EnemyLaser.VisualVariant.PULSE, EnemyLaser.VisualVariant.SPEAR][shots_fired % 3]
 	projectile.projectile_speed = 85 if predictive_targeting else 45
 	projectile.lifetime = 2.5 if predictive_targeting else 3.5
-	projectile.targeted = predictive_targeting
+	projectile.damage = 2 if readable_threats else 1
+	projectile.targeted = predictive_targeting and category_value == ThreatPattern.Category.TARGETED
+	projectile.threat_category = category_value
+	projectile.target_seed = target.individual_seed
+	projectile.set_meta("weapon_family", "Bolt")
 	projectile.initial_target_position = target.global_position
 	projectile.initial_target_velocity = target.velocity
 	projectile.flight_direction = direction
@@ -190,6 +209,8 @@ func _update_fire(delta: float) -> void:
 	container.add_child(projectile)
 	projectile.global_transform = Transform3D(Basis.looking_at(direction, _muzzle.global_basis.y.normalized()), _muzzle.global_position)
 	shots_fired += 1
+	if readable_threats:
+		(get_parent().get_parent() as SpaceSimulation).next_threat_category()
 	_burst_remaining -= 1
 	_shot_timer = (maxf(burst_interval, 0.05) if _burst_remaining > 0 else maxf(burst_cooldown, 0.1)) / fire_intensity
 	fired.emit(projectile)

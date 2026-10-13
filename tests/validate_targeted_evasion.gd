@@ -24,6 +24,7 @@ func frames(count: int) -> void:
 
 func empty(count: int = 1) -> SpaceSimulation:
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	FlightTuning.m13_fixture(sim)
 	sim.auto_start_guided_demo = false
 	sim.ship_count = count
 	sim.simulation_speed_multiplier = 1
@@ -361,6 +362,7 @@ func storm_signature(sim: SpaceSimulation) -> String:
 
 func lifecycle() -> void:
 	var default_sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	FlightTuning.m13_fixture(default_sim)
 	root.add_child(default_sim)
 	await frames(2)
 	check(default_sim.demonstration.is_guided() and default_sim.demonstration.phase_index == 0 and default_sim.demo_controls.phase_panel.visible, "Autostart phase 1 absent")
@@ -406,6 +408,7 @@ func demonstration_run(native: bool) -> void:
 		root.content_scale_size = Vector2i(1920, 1080)
 		root.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_KEEP
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	FlightTuning.m13_fixture(sim)
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--pace="):
 			sim.guided_simulation_speed = argument.trim_prefix("--pace=").to_float()

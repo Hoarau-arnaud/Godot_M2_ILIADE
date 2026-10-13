@@ -14,6 +14,8 @@ var _star_sizes: Array[PackedFloat32Array] = []
 var _streaks: MultiMeshInstance3D
 var _streak_positions: PackedVector3Array = PackedVector3Array()
 var _streak_lengths: PackedFloat32Array = PackedFloat32Array()
+var guided_readability: bool = false
+var readability_center: Vector3 = Vector3.ZERO
 var _debris: MultiMeshInstance3D
 var _debris_points: PackedVector3Array = PackedVector3Array()
 var _debris_bases: Array[Basis] = []
@@ -108,7 +110,12 @@ func recycle_stars(center: Vector3, delta: float = 0.0, demo_pace: float = 1.0, 
 		var relative: Vector3 = _debris_points[index] - center
 		var point: Vector3 = center + Vector3(wrapf(relative.x, -200, 200), wrapf(relative.y, -135, 135), wrapf(relative.z + delta * 3, -600, 140))
 		_debris_points[index] = point
-		_debris.multimesh.set_instance_transform(index, Transform3D(_debris_bases[index], point))
+		var sight: Vector3 = (readability_center - center).normalized()
+		var projected: float = clampf((point - center).dot(sight), 0, center.distance_to(readability_center) + 140)
+		var corridor_gap: float = point.distance_to(center + sight * projected)
+		var hidden_decor: bool = point.distance_to(center) < 210 or point.distance_to(readability_center) < 130 or corridor_gap < 45
+		var visible_scale: float = 0 if guided_readability and hidden_decor else 1
+		_debris.multimesh.set_instance_transform(index, Transform3D(_debris_bases[index].scaled(Vector3.ONE * visible_scale), point))
 	# Ciel lointain sans collision : profondeur constante, légère parallaxe X/Y.
 	_backdrop.position = Vector3(center.x * 0.08, center.y * 0.08, center.z)
 
