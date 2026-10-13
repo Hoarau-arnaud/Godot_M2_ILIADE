@@ -23,6 +23,18 @@ const DIFFICULTY_NAMES: Array[String] = ["Facile", "Intermédiaire", "Difficile"
 
 @export var auto_start_guided_demo: bool = true
 @export var guided_simulation_speed: float = 2.0
+@export var threat_choreography_enabled: bool = true
+@export var guided_reinforcements_enabled: bool = true
+@export var stop_on_squadron_extinction: bool = false
+var near_pass_projectile_count: int = 0
+var zone_attack_count: int = 0
+var shots_targeted_per_ship: Dictionary[int, int] = {}
+var weapon_metrics: Dictionary = {}
+var _threat_serial: int = 0
+var reinforcement_count: int = 0
+var reinforcement_waits: Array[float] = []
+var reinforcement_spawns: Array[Dictionary] = []
+var _reinforcement_stagger: float = 0
 var legacy_flight_profile: bool = false
 var evasive_boost_count: int = 0
 var critical_threat_count: int = 0
@@ -169,7 +181,10 @@ func _physics_process(delta: float) -> void:
 	if demonstration.game_over:
 		return
 	elapsed_simulation_time += delta
-	_maintain_requested_ships(delta)
+	if demonstration.is_guided() and guided_reinforcements_enabled:
+		_maintain_reinforcements(delta / maxf(Engine.time_scale, 0.01))
+	else:
+		_maintain_requested_ships(delta)
 	if ships.is_empty():
 		return
 	var center: Vector3 = _fleet_center()
@@ -427,7 +442,10 @@ func _on_interceptor_died(hostile: PatrolDrone) -> void:
 
 
 func _on_enemy_fired(projectile: EnemyLaser) -> void:
-	_count_targeted_projectile(projectile.targeted)
+	if demonstration.is_guided() and threat_choreography_enabled:
+		_record_threat(projectile)
+	else:
+		_count_targeted_projectile(projectile.targeted)
 	enemy_shots_fired += 1
 	projectile.hit_blue_ship.connect(_on_blue_ship_hit)
 	maximum_active_projectiles = maxi(maximum_active_projectiles, projectile_container.get_child_count())
@@ -488,7 +506,10 @@ func _maintain_capitals(center: Vector3, delta: float) -> void:
 
 
 func _on_artillery_fired(projectile: ArtilleryProjectile) -> void:
-	_count_targeted_projectile(projectile.targeted)
+	if demonstration.is_guided() and threat_choreography_enabled:
+		_record_threat(projectile)
+	else:
+		_count_targeted_projectile(projectile.targeted)
 	enemy_shots_fired += 1
 	projectile.hit_blue_ship.connect(func(ship: BlueShip, amount: int) -> void:
 		artillery_hits += 1
@@ -577,6 +598,7 @@ func _add_ship(local_position: Vector3) -> void:
 		else:
 			near_miss_count += 1)
 	ship.damage_received.connect(func(_amount: int) -> void: combat_impacts += 1)
+	ship.threat_reaction.connect(func(family: String) -> void: _weapon_entry(family).reactions += 1)
 	if legacy_flight_profile:
 		FlightTuning.legacy_actor(ship)
 	ship_container.add_child(ship)
@@ -670,10 +692,20 @@ func _runtime_ship_position_is_clear(candidate: Vector3) -> bool:
 		var hostile: Node3D = node as Node3D
 		if candidate.distance_to(hostile.global_position) < _hostile_spawn_clearance(hostile):
 			return false
+	for node: Node in get_tree().get_nodes_in_group("hostile_projectiles"):
+		var projectile: Node3D = node as Node3D
+		if candidate.distance_to(projectile.global_position) < float(projectile.get("avoidance_radius")) + 6:
+			return false
+	for node: Node in get_tree().get_nodes_in_group("combat_hazards"):
+		var zone: ArtilleryZone = node as ArtilleryZone
+		if candidate.distance_to(zone.global_position) < zone.radius + 8:
+			return false
 	return true
 
 
 func _hostile_spawn_clearance(hostile: Node3D) -> float:
+	if hostile is CapitalShip:
+		return CapitalShip.BODY_CLEARANCE + 8
 	var radius: Variant = hostile.get("body_clearance")
 	return maxf(12, float(radius) + 8) if radius != null else 12.0
 
@@ -801,17 +833,20 @@ func _on_ship_died(ship: BlueShip) -> void:
 		return
 	ships.erase(ship)
 	death_count += 1
-	# Les pertes ne sont jamais remplacées automatiquement par la consigne du panneau.
-	target_ship_count = maxi(target_ship_count - 1, 0)
+	if demonstration.is_guided() and guided_reinforcements_enabled:
+		# Horloge réelle : délai indépendant de la vitesse de démonstration.
+		reinforcement_waits.append(1.0 + float(death_count % 5) * 0.15)
+	else:
+		target_ship_count = maxi(target_ship_count - 1, 0)
 	living_agent_count = ships.size()
-	if ships.is_empty() and demonstration.is_guided() and not legacy_flight_profile:
+	if ships.is_empty() and demonstration.is_guided() and stop_on_squadron_extinction and not legacy_flight_profile:
 		demonstration.end_squadron()
 	_measure_group(_fleet_center())
 	_update_hud()
 
 
 func _update_hud() -> void:
-	statistics.text = "Vaisseaux détruits : %d" % death_count
+	statistics.text = "Vaisseaux bleus détruits : %d" % death_count
 	demo_controls.refresh(self)
 
 
@@ -828,6 +863,7 @@ func _fleet_center() -> Vector3:
 
 
 func _update_camera(center: Vector3, delta: float) -> void:
+	camera.action_observation_enabled = demonstration.is_guided() and threat_choreography_enabled
 	var spread: float = 0.0
 	var positions: Array[Vector3] = []
 	var mean_velocity: Vector3 = Vector3.ZERO
@@ -847,8 +883,38 @@ func _update_camera(center: Vector3, delta: float) -> void:
 		if is_instance_valid(ship) and ship.alive and ship.evasive_boost_remaining > 0:
 			boosting += 1
 	camera.boost_fov_extra = minf(boosting / 3.0, 1) * 3 if demonstration.is_guided() else 0
+	space_decor.readability_center = center
+	space_decor.guided_readability = demonstration.is_guided() and threat_choreography_enabled
 	space_decor.guided_speed_effect = 1.25 if demonstration.is_guided() and not legacy_flight_profile else 1
-	camera.observe_group(center, spread, delta, positions, action_intensity, mean_velocity, simulation_speed_multiplier)
+	if camera.action_observation_enabled and positions.size() >= 10:
+		var focus: Array[Vector3] = _camera_subjects(positions)
+		var focus_center: Vector3 = Vector3.ZERO
+		for point: Vector3 in focus:
+			focus_center += point
+		focus_center /= focus.size()
+		var focus_spread: float = 0
+		for point: Vector3 in focus:
+			focus_spread = maxf(focus_spread, point.distance_to(focus_center))
+		camera.observe_group(focus_center, focus_spread, delta, focus, action_intensity, mean_velocity, simulation_speed_multiplier)
+	else:
+		camera.observe_group(center, spread, delta, positions, action_intensity, mean_velocity, simulation_speed_multiplier)
+
+
+func _camera_subjects(positions: Array[Vector3]) -> Array[Vector3]:
+	# Observer le noyau le plus dense ; les isolés restent des agents normaux.
+	var anchor: Vector3 = positions[0]
+	var maximum: int = 0
+	for candidate: Vector3 in positions:
+		var nearby: int = 0
+		for point: Vector3 in positions:
+			if point.distance_to(candidate) < 75:
+				nearby += 1
+		if nearby > maximum:
+			maximum = nearby
+			anchor = candidate
+	var ordered: Array[Vector3] = positions.duplicate()
+	ordered.sort_custom(func(left: Vector3, right: Vector3) -> bool: return left.distance_squared_to(anchor) < right.distance_squared_to(anchor))
+	return ordered.slice(0, mini(12, positions.size()))
 
 
 func reset_threat_metrics() -> void:
@@ -859,7 +925,99 @@ func reset_threat_metrics() -> void:
 	near_miss_count = 0
 	asteroid_near_miss_count = 0
 	combat_impacts = 0
+	near_pass_projectile_count = 0
+	zone_attack_count = 0
+	shots_targeted_per_ship.clear()
+	weapon_metrics.clear()
+	_threat_serial = 0
 
 
 func threat_metrics() -> Dictionary:
-	return {"boosts": evasive_boost_count, "critical_threats": critical_threat_count, "targeted": targeted_projectile_count, "suppression": suppression_projectile_count, "near_misses": near_miss_count, "asteroid_near_misses": asteroid_near_miss_count, "impacts": combat_impacts}
+	return {"boosts": evasive_boost_count, "critical_threats": critical_threat_count, "targeted": targeted_projectile_count, "suppression": suppression_projectile_count, "near_pass": near_pass_projectile_count, "zone_attacks": zone_attack_count, "reinforcements": reinforcement_count, "near_misses": near_miss_count, "asteroid_near_misses": asteroid_near_miss_count, "impacts": combat_impacts}
+
+
+func _maintain_reinforcements(real_delta: float) -> void:
+	for index: int in range(reinforcement_waits.size()):
+		reinforcement_waits[index] -= real_delta
+	_reinforcement_stagger = maxf(_reinforcement_stagger - real_delta, 0)
+	if _reinforcement_stagger > 0 or ships.size() >= target_ship_count:
+		return
+	var due: int = -1
+	for index: int in range(reinforcement_waits.size()):
+		if reinforcement_waits[index] <= 0:
+			due = index
+			break
+	if due < 0:
+		return
+	var center: Vector3 = _fleet_center()
+	for attempt: int in range(96):
+		var candidate: Vector3 = center + Vector3(_ship_spawn_random.randf_range(-22, 22), _ship_spawn_random.randf_range(-14, 14), _ship_spawn_random.randf_range(30, 50))
+		if not _runtime_ship_position_is_clear(candidate):
+			continue
+		_add_ship(ship_container.to_local(candidate))
+		var blue: BlueShip = ships.back()
+		blue.environment_perception_interval = 0.06
+		blue.adaptive_threat_response = threat_choreography_enabled
+		if threat_choreography_enabled:
+			configure_guided_blue(blue)
+		blue.reinforcement_glow_remaining = Engine.time_scale
+		reinforcement_waits.remove_at(due)
+		reinforcement_count += 1
+		if reinforcement_spawns.size() >= 64:
+			reinforcement_spawns.pop_front()
+		reinforcement_spawns.append({"position": candidate, "center": center, "safe": true, "real_time": demonstration.elapsed_real, "seed": blue.individual_seed})
+		_reinforcement_stagger = 0.06
+		_update_hud()
+		return
+
+
+func next_threat_category() -> int:
+	var result: int = ThreatPattern.category(_threat_serial)
+	_threat_serial += 1
+	return result
+
+
+func balanced_target(candidates: Array[BlueShip]) -> BlueShip:
+	var chosen: BlueShip = null
+	var minimum: int = 2147483647
+	for blue: BlueShip in candidates:
+		var shots: int = shots_targeted_per_ship.get(blue.individual_seed, 0)
+		if chosen == null or shots < minimum:
+			chosen = blue
+			minimum = shots
+	return chosen
+
+
+func _weapon_entry(family: String) -> Dictionary:
+	if not weapon_metrics.has(family):
+		weapon_metrics[family] = {"shots": 0, "targets": {}, "reactions": 0, "impacts": 0}
+	return weapon_metrics[family]
+
+
+func _record_threat(projectile: Node3D) -> void:
+	var category_value: int = int(projectile.get("threat_category"))
+	if category_value == ThreatPattern.Category.TARGETED and bool(projectile.get("targeted")):
+		targeted_projectile_count += 1
+		var seed_value: int = int(projectile.get("target_seed"))
+		shots_targeted_per_ship[seed_value] = shots_targeted_per_ship.get(seed_value, 0) + 1
+	elif category_value == ThreatPattern.Category.NEAR_PASS:
+		near_pass_projectile_count += 1
+	elif category_value == ThreatPattern.Category.ZONE:
+		zone_attack_count += 1
+	else:
+		suppression_projectile_count += 1
+	var family: String = str(projectile.get_meta("weapon_family", "Pulse" if projectile is EnemyLaser and (projectile as EnemyLaser).patrol_pulse else "Bolt"))
+	var entry: Dictionary = _weapon_entry(family)
+	entry.shots += 1
+	if bool(projectile.get("targeted")):
+		var seed_value: int = int(projectile.get("target_seed"))
+		entry.targets[seed_value] = int(entry.targets.get(seed_value, 0)) + 1
+	projectile.connect("hit_blue_ship", func(_blue: BlueShip, _damage: int) -> void: _weapon_entry(family).impacts += 1)
+
+
+func configure_guided_blue(blue: BlueShip) -> void:
+	# Toujours des voisins locaux ; aucune force calculée depuis le centre global.
+	blue.neighbor_radius = 48
+	blue.recovery_radius = 100
+	blue.recovery_speed = 7
+	blue.cohesion_weight = 0.3

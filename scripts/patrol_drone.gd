@@ -23,6 +23,7 @@ enum PatrolState { PATROL, AVOIDING, CHANGING_WAYPOINT, DESTROYED }
 @export var demonstration_route: bool = false
 @export var patrol_fire_enabled: bool = false
 @export var predictive_targeting: bool = true
+var readable_threats: bool = false
 @export var patrol_firing_cone_degrees: float = 32
 var patrol_projectile_container: Node3D
 var route_waypoints: Array[Vector3] = []
@@ -143,14 +144,19 @@ func _update_patrol_fire(delta: float) -> void:
 	if _patrol_fire_timer > 0:
 		return
 	var chosen: BlueShip = null
+	var candidates: Array[BlueShip] = []
 	var distance: float = 70
 	for node: Node in get_tree().get_nodes_in_group("blue_ships"):
 		var ship: BlueShip = node as BlueShip
 		var offset: Vector3 = ship.global_position - global_position
 		var in_cone: bool = not predictive_targeting or offset.normalized().dot(velocity.normalized()) >= cos(deg_to_rad(patrol_firing_cone_degrees))
+		if readable_threats and ship.alive and not ship.is_queued_for_deletion() and in_cone and offset.length() < 70:
+			candidates.append(ship)
 		if ship.alive and not ship.is_queued_for_deletion() and in_cone and offset.length() < distance:
 			chosen = ship
 			distance = global_position.distance_to(ship.global_position)
+	if readable_threats and not candidates.is_empty():
+		chosen = (get_parent().get_parent() as SpaceSimulation).balanced_target(candidates)
 	if chosen == null:
 		return
 	if ArtilleryZone.dangerous_count(get_tree()) >= dangerous_projectile_limit:
@@ -168,6 +174,8 @@ func _update_patrol_fire(delta: float) -> void:
 		aim += Vector3(_random.randf_range(-1.5, 1.5), _random.randf_range(-1.5, 1.5), 0)
 	projectile.flight_direction = (aim - global_position).normalized()
 	projectile.targeted = predictive_targeting
+	projectile.target_seed = chosen.individual_seed
+	projectile.set_meta("weapon_family", "Pulse")
 	projectile.initial_target_position = chosen.global_position
 	projectile.initial_target_velocity = chosen.velocity
 	var container: Node3D = patrol_projectile_container if is_instance_valid(patrol_projectile_container) else get_parent() as Node3D
@@ -175,7 +183,7 @@ func _update_patrol_fire(delta: float) -> void:
 	var up: Vector3 = Vector3.RIGHT if absf(projectile.flight_direction.y) > 0.98 else Vector3.UP
 	projectile.global_transform = Transform3D(Basis.looking_at(projectile.flight_direction, up), global_position + projectile.flight_direction * 3)
 	patrol_shots_fired += 1
-	_patrol_fire_timer = 2.2 / fire_intensity
+	_patrol_fire_timer = (3.2 if readable_threats else 2.2) / fire_intensity
 	patrol_fired.emit(projectile)
 
 

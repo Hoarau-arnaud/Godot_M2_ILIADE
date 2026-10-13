@@ -5,6 +5,7 @@ signal evasive_boost_started
 signal critical_threat_detected
 signal near_miss_recorded(asteroid: bool)
 signal damage_received(amount: int)
+signal threat_reaction(family: String)
 signal died(ship: BlueShip)
 signal fired(projectile: BlueLaser)
 signal projectile_dodge_started
@@ -102,9 +103,13 @@ var evasive_boost_count: int = 0
 var critical_threat_count: int = 0
 var near_miss_count: int = 0
 var asteroid_near_miss_count: int = 0
+var adaptive_threat_response: bool = false
+var reinforcement_glow_remaining: float = 0
+var _boost_strength: float = 1
 var _boost_blend: float = 0
 var _boost_threat_id: int = 0
 var _critical_candidate: Dictionary = {}
+var _reaction_ids: Dictionary[int, WeakRef] = {}
 var _critical_ids: Dictionary[int, WeakRef] = {}
 var _near_passes: Dictionary[int, Dictionary] = {}
 var _boost_streak: MeshInstance3D
@@ -180,6 +185,7 @@ func _physics_process(delta: float) -> void:
 	if not alive:
 		return
 	_time += delta
+	reinforcement_glow_remaining = maxf(reinforcement_glow_remaining - delta, 0)
 	var adjustment: float = 1.0 - exp(-4.0 * delta)
 	_demo_movement_current = lerpf(_demo_movement_current, demo_movement_multiplier, adjustment)
 	_demo_spacing_current = lerpf(_demo_spacing_current, demo_spacing_multiplier, adjustment)
@@ -215,7 +221,7 @@ func _physics_process(delta: float) -> void:
 	if projectile_avoidance_active:
 		separation_priority = (1.0 - projectile_priority) * (1.0 - collision_priority)
 	steering += _critical_separation * separation_weight * avoidance_priority * 0.75 * separation_priority
-	var side_limit: float = max_side_speed * lerpf(1, boost_lateral_multiplier, _boost_blend)
+	var side_limit: float = max_side_speed * lerpf(1, boost_lateral_multiplier * _boost_strength, _boost_blend)
 	var boost_steering: Vector3 = boost_direction * side_limit
 	steering = steering.lerp(boost_steering, _boost_blend)
 	var side_velocity: Vector2 = Vector2(steering.x, steering.y).limit_length(maxf(side_limit, 0.0))
@@ -421,7 +427,7 @@ func _find_threats() -> void:
 		if obstacle == null or obstacle.is_queued_for_deletion():
 			continue
 		var offset: Vector3 = obstacle.global_position - global_position
-		if offset.length() > maxf(obstacle_detection_radius, 0.0):
+		if offset.length() > effective_obstacle_detection(obstacle):
 			continue
 		if evasive_boost_enabled:
 			var danger_radius: float = obstacle.avoidance_radius + SHIP_CLEARANCE + obstacle_clearance
@@ -430,7 +436,7 @@ func _find_threats() -> void:
 		var remembered: bool = _avoid_directions.has(obstacle)
 		var clearance: float = obstacle.avoidance_radius + SHIP_CLEARANCE + maxf(obstacle_clearance, 0.0)
 		if obstacle.motion_type != SpaceAsteroid.MotionType.STATIC:
-			var prediction: Vector2 = MobileAvoidance.approach(offset, obstacle.velocity - velocity, mobile_prediction_time)
+			var prediction: Vector2 = MobileAvoidance.approach(offset, obstacle.velocity - velocity, 7.0 if adaptive_threat_response and obstacle.diameter >= 20 else mobile_prediction_time)
 			if prediction.y < clearance + 1.0 or remembered:
 				_insert_threat(obstacle)
 			continue
@@ -478,6 +484,7 @@ func _obstacle_avoidance() -> Vector3:
 		if obstacle.motion_type != SpaceAsteroid.MotionType.STATIC:
 			moving_asteroid_threat_count += 1
 		if not _avoid_directions.has(obstacle):
+			_record_reaction(obstacle)
 			_avoid_directions[obstacle] = _choose_avoidance_direction(obstacle)
 			obstacle.tree_exiting.connect(_forget_obstacle.bind(obstacle), CONNECT_ONE_SHOT)
 		var force: Vector3 = _avoidance_force(obstacle, _avoid_directions[obstacle])
@@ -571,6 +578,7 @@ func _projectile_avoidance() -> Vector3:
 		if not dangerous and not _projectile_directions.has(projectile):
 			continue
 		if not _projectile_directions.has(projectile):
+			_record_reaction(projectile)
 			_projectile_directions[projectile] = MobileAvoidance.direction(offset, relative_velocity, prediction.x, _preferred_avoidance)
 			var callback: Callable = _forget_projectile.bind(projectile)
 			if not projectile.tree_exiting.is_connected(callback):
@@ -589,6 +597,7 @@ func _projectile_avoidance() -> Vector3:
 		if evasive_boost_enabled and not force.is_zero_approx() and zone.delay - zone.age <= 1.0:
 			_consider_zone_boost(zone, force)
 		if not force.is_zero_approx():
+			_record_reaction(zone)
 			result = force # Zone télégraphiée prioritaire devant les petits bolts.
 			projectile_threat_count += 1
 	projectile_avoidance_active = projectile_threat_count > 0
@@ -632,8 +641,8 @@ func _avoidance_force(obstacle: SpaceAsteroid, direction: Vector3) -> Vector3:
 	var clearance: float = obstacle.avoidance_radius + SHIP_CLEARANCE + maxf(obstacle_clearance, 0.0)
 	if obstacle.motion_type != SpaceAsteroid.MotionType.STATIC:
 		var relative_velocity: Vector3 = obstacle.velocity - velocity
-		var prediction: Vector2 = MobileAvoidance.approach(offset, relative_velocity, mobile_prediction_time)
-		return MobileAvoidance.steering(offset, relative_velocity, prediction.x, clearance + 0.5, direction)
+		var prediction: Vector2 = MobileAvoidance.approach(offset, relative_velocity, 7.0 if adaptive_threat_response and obstacle.diameter >= 20 else mobile_prediction_time)
+		return MobileAvoidance.steering(offset, relative_velocity, prediction.x, clearance + (7 if adaptive_threat_response and obstacle.diameter >= 20 else 0.5), direction)
 	var lateral_offset: Vector3 = Vector3(-offset.x, -offset.y, 0.0)
 	var remaining: float = clearance + 0.5 - lateral_offset.dot(direction)
 	var time_before_contact: float = maxf((-offset.z - obstacle.avoidance_radius - SHIP_CLEARANCE) / maxf(-velocity.z, 0.1), 0.4)
@@ -645,7 +654,7 @@ func _choose_avoidance_direction(obstacle: SpaceAsteroid) -> Vector3:
 	var offset: Vector3 = obstacle.global_position - global_position
 	var time_to_obstacle: float = maxf(-offset.z / maxf(-velocity.z, 0.1), 0.0)
 	if obstacle.motion_type != SpaceAsteroid.MotionType.STATIC:
-		time_to_obstacle = MobileAvoidance.approach(offset, obstacle.velocity - velocity, mobile_prediction_time).x
+		time_to_obstacle = MobileAvoidance.approach(offset, obstacle.velocity - velocity, 7.0 if adaptive_threat_response and obstacle.diameter >= 20 else mobile_prediction_time).x
 	var future_offset: Vector3 = global_position + velocity * time_to_obstacle - (obstacle.global_position + obstacle.velocity * time_to_obstacle)
 	future_offset.z = 0.0
 	var preferred: Vector3 = future_offset.normalized() if future_offset.length_squared() > 0.04 else _preferred_avoidance
@@ -689,8 +698,9 @@ func _update_orientation(delta: float) -> void:
 
 
 func _update_exhausts() -> void:
-	var boost_scale: float = lerpf(1, 2.2, _boost_blend)
-	_boost_material.emission_energy_multiplier = lerpf(1.5, 5.0, _boost_blend)
+	var visual_boost: float = maxf(_boost_blend, 0.65 if reinforcement_glow_remaining > 0 else 0)
+	var boost_scale: float = lerpf(1, 2.2, visual_boost)
+	_boost_material.emission_energy_multiplier = lerpf(1.5, 5.0, visual_boost)
 	_boost_streak.visible = _boost_blend > 0.15
 	_boost_streak.scale.z = lerpf(0.5, 1.3, _boost_blend)
 	var thrust: float = 0.65 + clampf(velocity.length() / maxf(forward_speed, 0.1), 0.4, 1.8) * 0.5
@@ -718,6 +728,7 @@ func _stop_navigation() -> void:
 	_projectile_memory_until.clear()
 	_near_passes.clear()
 	_critical_ids.clear()
+	_reaction_ids.clear()
 	_critical_candidate.clear()
 	evasive_boost_remaining = 0
 	projectile_avoidance_active = false
@@ -781,6 +792,9 @@ func _register_critical(danger: Dictionary) -> void:
 		_critical_ids[id] = danger.node
 		critical_threat_count += 1
 		critical_threat_detected.emit()
+		var node: Node = (danger.node as WeakRef).get_ref() as Node
+		if is_instance_valid(node):
+			_record_reaction(node as Node3D)
 	if _critical_candidate.is_empty() or danger.score > _critical_candidate.score:
 		_critical_candidate = danger
 
@@ -799,7 +813,9 @@ func _update_evasive_boost(delta: float) -> void:
 		if is_instance_valid(danger_node) and (boost_cooldown_remaining <= 0 or lethal_override):
 			boost_direction = _choose_boost_direction(_critical_candidate)
 			_boost_threat_id = _critical_candidate.id
-			evasive_boost_remaining = evasive_boost_duration
+			var strength_value: Variant = danger_node.get("threat_strength")
+			_boost_strength = clampf(float(strength_value), 1, 1.6) if adaptive_threat_response and strength_value != null else 1.0
+			evasive_boost_remaining = evasive_boost_duration * _boost_strength
 			evasive_boost_count += 1
 			evasive_boost_started.emit()
 	_boost_blend = move_toward(_boost_blend, 1 if evasive_boost_remaining > 0 else 0, delta * (12 if evasive_boost_remaining > 0 else 2.8))
@@ -862,6 +878,10 @@ func _track_near_pass(node: Node3D, offset: Vector3, relative: Vector3, radius_v
 
 
 func _cleanup_local_metrics() -> void:
+	for id: int in _reaction_ids.keys():
+		var node: Node3D = _reaction_ids[id].get_ref() as Node3D
+		if not is_instance_valid(node) or node.global_position.distance_to(global_position) > 240:
+			_reaction_ids.erase(id)
 	for id: int in _near_passes.keys():
 		var object: Object = (_near_passes[id].node as WeakRef).get_ref()
 		if not is_instance_valid(object) or (object as Node3D).global_position.distance_squared_to(global_position) > 14400:
@@ -869,3 +889,17 @@ func _cleanup_local_metrics() -> void:
 	for id: int in _critical_ids.keys():
 		if not is_instance_valid(_critical_ids[id].get_ref()):
 			_critical_ids.erase(id)
+
+
+func effective_obstacle_detection(obstacle: SpaceAsteroid) -> float:
+	if not adaptive_threat_response or obstacle_detection_radius <= 0:
+		return maxf(obstacle_detection_radius, 0)
+	return clampf(obstacle_detection_radius + obstacle.avoidance_radius * 3.8, obstacle_detection_radius, 140)
+
+
+func _record_reaction(node: Node3D) -> void:
+	var id: int = node.get_instance_id()
+	if _reaction_ids.has(id):
+		return
+	_reaction_ids[id] = weakref(node)
+	threat_reaction.emit(str(node.get_meta("weapon_family", "Mega" if node is SpaceAsteroid and (node as SpaceAsteroid).diameter >= 20 else "Small")))

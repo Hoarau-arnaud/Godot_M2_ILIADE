@@ -117,7 +117,7 @@ func _test_stars_and_toggle() -> void:
 	_key(KEY_TAB)
 	await _advance(2)
 	_check(not ui.panel.visible and ui.stars.visible and sim.statistics.is_visible_in_tree(), "TAB masque le HUD principal ou laisse le panneau visible.")
-	_check(ui.stars_text() == "★★★" and sim.statistics.text == "Vaisseaux détruits : 0", "HUD masqué incorrect.")
+	_check(ui.stars_text() == "★★★" and sim.statistics.text == "Vaisseaux bleus détruits : 0", "HUD masqué incorrect.")
 	_key(KEY_TAB)
 	await _advance(2)
 	_check(ui.panel.visible, "TAB ne réaffiche pas le panneau.")
@@ -369,7 +369,7 @@ func _test_run(intense: bool) -> void:
 		_check(sim.living_agent_count + sim.death_count + sim.ship_retired_count == sim.ship_spawn_count, "Bilan des BlueShip incohérent.")
 		_check(sim.drones.size() <= sim.target_drone_count() and sim.interceptors.size() <= sim.target_interceptor_count() and sim.asteroid_container.active_asteroid_count <= 72, "Population ou streaming hors budget.")
 		_check(sim.projectile_container.get_child_count() <= 160 and node_max < 2500, "Accumulation de projectiles ou nœuds.")
-		_check(sim.statistics.text == "Vaisseaux détruits : %d" % sim.death_count and sim.demo_controls.stars_text() == "★★★", "HUD principal incorrect pendant démonstration.")
+		_check(sim.statistics.text == "Vaisseaux bleus détruits : %d" % sim.death_count and sim.demo_controls.stars_text() == "★★★", "HUD principal incorrect pendant démonstration.")
 	await process_frame
 	var wall_usec: int = Time.get_ticks_usec() - wall_start
 	var last_window_usec: int = Time.get_ticks_usec() - last_window_start

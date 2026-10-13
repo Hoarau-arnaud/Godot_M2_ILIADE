@@ -17,6 +17,9 @@ var flight_direction: Vector3 = Vector3.FORWARD
 var velocity: Vector3:
 	get:
 		return flight_direction.normalized() * maxf(projectile_speed, 0.0)
+var threat_strength: float = 1.0
+var threat_category: int = ThreatPattern.Category.TARGETED
+var target_seed: int = 0
 var targeted: bool = false
 var initial_target_position: Vector3
 var initial_target_velocity: Vector3

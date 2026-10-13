@@ -238,7 +238,16 @@ Validation finale, Godot 4.7.2, graine `20261012`, collisions actives :
 
 Le minimum graphique sur les fenêtres d'une seconde vaut **92,9 FPS**, au-dessus de l'objectif 60 FPS sur cette machine. Le test de montée conserve 18,75 m de déplacement vertical en quatre secondes avec un pitch inférieur à 8°. Chaque trajectoire passe trente secondes de contrôle physique ; le croisement anticipé survit, tandis que le stress sans perception provoque une mort réelle. Les fenêtres redimensionnées, la maximisation et le plein écran passent avec rendu. Les suites historiques sont conservées en obstacles sans translation. Les données headless et graphiques sont distinguées dans le README ; ces essais ne garantissent ni le regroupement complet ni la survie sur toutes les graines.
 
-## Milestone 13 — Attaques prédictives et boost local
+## Milestone 14 — Chorégraphie des menaces et renforts
+Moins de dangers simultanés (plafonds 64/48/64 rochers, 40 unités de combat), mais des méga astéroïdes de 28–40 m coupent un corridor prédit et déclenchent un contournement anticipé. Ils restent des obstacles, sans poursuite et sans ordre global aux chasseurs. Trois instances du même Capital alternent des attaques reconnaissables ; les attaques simples visent environ 80 % de cibles individuelles, avec 15 % de near-pass et 5 % de suppression.
+
+**Menace importante → détection individuelle → esquives → dispersion → arrivée éventuelle de renfort → cohésion → regroupement** constitue le phénomène observé. Chaque BlueShip conserve séparation, alignement, cohésion, recovery, combat et boost. La caméra observe ce mouvement sans le commander. Il reste exactement quatre types d’agents.
+
+**« Vaisseaux bleus détruits » représente les pertes BlueShip réelles cumulées depuis le début du run.** Les survivants persistent entre les phases ; retraits et nettoyages ne sont pas des morts. Des renforts cherchent un spawn sûr 30–50 m derrière, après 1,0–1,6 s réelles, pour maintenir une cible de quinze actifs. L’extinction temporaire n’arrête plus Guided ; Replay seul ou un nouveau run efface les pertes. Le Game Over historique reste testable par flag explicite.
+
+Validation M14 : les dix suites historiques et les fixtures de pertes/renforts passent. Le méga 40 m provoque 13/15 détours visibles, sans perte, avec récupération 53.98 → 27.91 m. Sur cent tirs contrôlés : 80 ciblés, 15 near-pass, 5 suppressions, répartis sur les quinze cibles. Le parcours 1080p mesure **98.63 FPS moyens / 84.90 minimum d’une seconde**. Après 60 s réelles de finale : 15 actifs, 1 pertes cumulées sur le run (1 en finale), 1 renforts en finale, 73 boosts et 2 impacts. Les limites de perception et de regroupement local restent présentes ; mesures détaillées et familles d’armes dans le README.
+
+## Référence historique M13 — Attaques prédictives et boost local
 
 Les attaques ennemies visent maintenant davantage les BlueShip, avec une interception calculée à partir de la position, de la vitesse de la cible et de la vitesse du projectile. Une petite erreur déterministe conserve une imprécision. Rapid cible individuellement 17 tirs sur 24, Swarm 13 missiles sur 18 ; les autres départs contrôlent une zone proche du groupe. Le Patrol tire dans un cône tout en conservant sa route ; l'Interceptor vise sa propre cible de poursuite. Les missiles restent limités à 12°/s simulée. Les tirs décoratifs ont été réduits.
 
@@ -704,6 +713,12 @@ Simulation libre conservée, démo guidée en six phases, resets sans fausse mor
 
 ### M12 — Polish visuel et difficulté ✅
 Tempête aléatoire reproductible, densité renforcée, plusieurs instances du même Agent 4, dangers annoncés, caméra plus active, deux sliders FREE, budgets et validation 1080p.
+
+### M13 — Menaces ciblées et boosts individuels ✅
+Visée prédictive, perception des trajectoires convergentes et esquive locale visible ; finale continue et démarrage guidé automatique.
+
+### M14 — Chorégraphie des menaces et renforts ✅
+Dangers plus espacés, méga astéroïdes, attaques significatives, renforts et compteur cumulatif de pertes.
 
 ## 12. Questions auxquelles le rapport final devra répondre
 

@@ -20,6 +20,9 @@ const LAUNCHERS: Array[Vector3] = [Vector3(-23, 5.5, 18), Vector3(23, 5.5, 18)]
 @export var demonstration_cycle: bool = false
 @export var predictive_targeting: bool = true
 var _target_cursor: int = 0
+var readable_arsenal: bool = false
+var choreographed: bool = false
+var _category_cursor: int = 0
 var spectacle_enabled: bool = false
 var fire_intensity: float = 1.0
 var fleet_offset: Vector2 = Vector2.ZERO
@@ -171,6 +174,8 @@ func _update_state(delta: float) -> void:
 			if _state_time >= 2:
 				_transition(State.OBSERVE)
 		State.OBSERVE:
+			if choreographed:
+				return
 			if demonstration_cycle and demonstration_attack_order.is_empty():
 				return
 			if _state_time >= (0.4 if demonstration_cycle else 1.0) and observed_count > 0 and combat_enabled:
@@ -256,6 +261,8 @@ func _obstacle_correction() -> Vector3:
 
 func build_salvo(pattern: int) -> Array[Dictionary]:
 	var salvo: Array[Dictionary] = []
+	if readable_arsenal:
+		return _build_readable_salvo(pattern)
 	if predictive_targeting:
 		return _build_targeted_salvo(pattern)
 	if pattern >= ArtilleryPattern.RAPID_BARRAGE:
@@ -291,23 +298,29 @@ func _launch(spec: Dictionary) -> void:
 	var aim: Vector3 = spec.aim
 	var chosen: BlueShip = spec.target if is_instance_valid(spec.target) else null
 	projectile.targeted = bool(spec.get("targeted", false)) and chosen != null and chosen.alive
-	if projectile.targeted:
+	projectile.threat_category = int(spec.get("category", ThreatPattern.Category.TARGETED if projectile.targeted else ThreatPattern.Category.SUPPRESSION))
+	projectile.target_seed = chosen.individual_seed if chosen != null else 0
+	if readable_arsenal:
+		projectile.set_meta("weapon_family", family_for_pattern(int(spec.pattern)))
+		projectile.threat_strength = 1.6 if int(spec.pattern) in [0, 4, 9] else 1.0
+	if chosen != null and chosen.alive and (projectile.targeted or projectile.threat_category == ThreatPattern.Category.NEAR_PASS):
 		projectile.initial_target_position = chosen.global_position
 		projectile.initial_target_velocity = chosen.velocity
 		aim = CombatPrediction.aim(origin, chosen.global_position, chosen.velocity, spec.speed) + Vector3(spec.aim_error)
-	elif predictive_targeting:
+	elif predictive_targeting and not (readable_arsenal and int(spec.pattern) == ArtilleryPattern.BOMB_CLUSTER):
 		aim = CombatPrediction.aim(origin, observed_center, observed_velocity, spec.speed) + Vector3(spec.aim_error)
 	projectile.kind = int(spec["pattern"]) as ArtilleryProjectile.Kind
 	projectile.projectile_speed = spec["speed"]
 	projectile.flight_direction = (aim - origin).normalized()
 	projectile.damage = 2 if projectile.kind == ArtilleryProjectile.Kind.HEAVY_SHOT else 1
-	projectile.avoidance_radius = 10 if projectile.damage == 2 else 5 if projectile.kind == ArtilleryProjectile.Kind.SEEKER_SALVO else 4
+	projectile.avoidance_radius = (16 if readable_arsenal else 10) if projectile.damage == 2 else 5 if projectile.kind == ArtilleryProjectile.Kind.SEEKER_SALVO else 4
 	projectile.lifetime = 18 if predictive_targeting else 22 if spectacle_enabled else 14
 	projectile.turn_rate_degrees = 12 if predictive_targeting else 6
-	projectile.target = chosen if projectile.kind in [ArtilleryProjectile.Kind.SEEKER_SALVO, ArtilleryProjectile.Kind.MISSILE_SWARM] else null
+	projectile.target = chosen if (projectile.targeted or not readable_arsenal) and projectile.kind in [ArtilleryProjectile.Kind.SEEKER_SALVO, ArtilleryProjectile.Kind.MISSILE_SWARM] else null
 	if projectile.kind == ArtilleryProjectile.Kind.BOMB_CLUSTER:
 		var zone: ArtilleryZone = ArtilleryZone.new()
 		zone.kind = ArtilleryZone.Kind.BOMB
+		zone.set_meta("weapon_family", "Bomb")
 		zone.delay = origin.distance_to(aim) / projectile.projectile_speed
 		zone.warning_time = 5.0
 		zone.position = projectile_container.to_local(aim)
@@ -411,10 +424,13 @@ func _fire_spectacle() -> void:
 		if ArtilleryZone.dangerous_count(get_tree()) + needed > limit:
 			continue # Plafond global ; aucune file d'attente retardée sans limite.
 		if pattern in [ArtilleryPattern.LASER_CURTAIN, ArtilleryPattern.LASER_GRID]:
+			if readable_arsenal and pattern == ArtilleryPattern.LASER_GRID and _grid_exists():
+				continue
 			if get_tree().get_nodes_in_group("combat_hazards").size() >= 6:
 				continue
 			var zone: ArtilleryZone = ArtilleryZone.new()
 			zone.kind = ArtilleryZone.Kind.GRID if pattern == ArtilleryPattern.LASER_GRID else ArtilleryZone.Kind.CURTAIN
+			zone.set_meta("weapon_family", "Laser")
 			zone.delay = spec.travel
 			zone.source = global_position + Vector3(spec.local_origin)
 			zone.position = projectile_container.to_local(spec.aim)
@@ -465,3 +481,61 @@ func _build_targeted_salvo(pattern: int) -> Array[Dictionary]:
 		var travel: float = origin.distance_to(aim) / speed
 		salvo.append({"index": index, "delay": index * (0.085 if pattern == ArtilleryPattern.RAPID_BARRAGE else 0.06 if pattern == ArtilleryPattern.MISSILE_SWARM else 0.18), "origin": origin, "local_origin": origin - global_position, "aim": aim, "speed": speed, "travel": travel, "target": chosen, "targeted": targeted, "aim_error": aim_error, "pattern": pattern})
 	return salvo
+
+
+static func family_for_pattern(pattern: int) -> String:
+	return "Heavy" if pattern == 0 else "Seeker" if pattern == 4 else "Bomb" if pattern == 6 else "Laser" if pattern in [7, 8] else "Swarm" if pattern == 9 else "Rapid"
+
+
+func _grid_exists() -> bool:
+	for node: Node in get_tree().get_nodes_in_group("combat_hazards"):
+		if (node as ArtilleryZone).kind == ArtilleryZone.Kind.GRID and not node.is_queued_for_deletion():
+			return true
+	return false
+
+
+func _build_readable_salvo(pattern: int) -> Array[Dictionary]:
+	var salvo: Array[Dictionary] = []
+	var counts: Array[int] = [3, 5, 4, 6, 6, 10, 2, 1, 1, 10]
+	var speeds: Array[float] = [72, 80, 62, 80, 65, 88, 48, 60, 60, 65]
+	var targets: Array[BlueShip] = []
+	for node: Node in get_tree().get_nodes_in_group("blue_ships"):
+		var blue: BlueShip = node as BlueShip
+		if blue.alive and not blue.is_queued_for_deletion():
+			targets.append(blue)
+	for index: int in range(counts[pattern]):
+		var category_value: int = ThreatPattern.Category.ZONE if pattern in [6, 7, 8] else ThreatPattern.Category.TARGETED if pattern in [0, 4] else ThreatPattern.category(_category_cursor)
+		if pattern not in [0, 4, 6, 7, 8]:
+			_category_cursor += 1
+		var chosen: BlueShip = null
+		if not targets.is_empty():
+			chosen = targets[_target_cursor % targets.size()]
+			_target_cursor += 1
+		var targeted_value: bool = category_value == ThreatPattern.Category.TARGETED and chosen != null
+		var origin: Vector3 = global_position + LAUNCHERS[index % 2]
+		var error_value: Vector3 = ThreatPattern.error(category_value, _random)
+		if category_value == ThreatPattern.Category.ZONE:
+			error_value = Vector3((index * 2 - 1) * 9, 0, 0)
+		var aim: Vector3 = CombatPrediction.aim(origin, chosen.global_position if chosen != null and category_value != ThreatPattern.Category.ZONE else observed_center, chosen.velocity if chosen != null and category_value != ThreatPattern.Category.ZONE else observed_velocity, speeds[pattern]) + error_value
+		if pattern == ArtilleryPattern.BOMB_CLUSTER:
+			var cluster: Dictionary = _dense_cluster(targets)
+			aim = CombatPrediction.aim(origin, cluster.position, cluster.velocity, speeds[pattern]) + error_value
+		salvo.append({"index": index, "delay": index * 0.16, "origin": origin, "local_origin": origin - global_position, "aim": aim, "speed": speeds[pattern], "travel": origin.distance_to(aim) / speeds[pattern], "target": chosen, "targeted": targeted_value, "category": category_value, "aim_error": error_value, "pattern": pattern})
+	return salvo
+
+
+func _dense_cluster(targets: Array[BlueShip]) -> Dictionary:
+	var best: Array[BlueShip] = []
+	for blue: BlueShip in targets:
+		var neighbors: Array[BlueShip] = []
+		for other: BlueShip in targets:
+			if blue.global_position.distance_to(other.global_position) < 24:
+				neighbors.append(other)
+		if neighbors.size() > best.size():
+			best = neighbors
+	var point: Vector3 = Vector3.ZERO
+	var speed: Vector3 = Vector3.ZERO
+	for blue: BlueShip in best:
+		point += blue.global_position
+		speed += blue.velocity
+	return {"position": point / best.size() if not best.is_empty() else observed_center, "velocity": speed / best.size() if not best.is_empty() else observed_velocity}

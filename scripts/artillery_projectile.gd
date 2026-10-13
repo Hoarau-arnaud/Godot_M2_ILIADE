@@ -12,6 +12,9 @@ enum Kind { HEAVY_SHOT, SPREAD, ARC_SALVO, CROSS_FIRE, SEEKER_SALVO, RAPID_BARRA
 @export var damage: int = 2
 @export var avoidance_radius: float = 10.0
 @export var turn_rate_degrees: float = 6.0
+var threat_strength: float = 1.0
+var threat_category: int = ThreatPattern.Category.TARGETED
+var target_seed: int = 0
 var targeted: bool = false
 var batch_visuals_enabled: bool = true
 var initial_target_position: Vector3

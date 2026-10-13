@@ -225,7 +225,7 @@ func _test_damage_and_replacement() -> void:
 			_check(is_instance_valid(target) and target.health == 3 - hit_index, "Le laser ne retire pas exactement un HP.")
 	_check(_destroyed_signals == 1 and simulation.enemies_destroyed == 1 and simulation.hostile_hits == 4 and simulation.blue_shots_fired == 4, "Destruction, impacts ou score comptés plusieurs fois.")
 	_check(simulation.drone_death_count == 1 and simulation.drones.is_empty() and not is_instance_valid(target) and ship.combat_target == null, "Drone détruit encore référencé.")
-	_check(simulation.statistics.text == "Vaisseaux détruits : 0" and simulation.death_count == 0 and simulation.living_agent_count == 1, "Détruire un PatrolDrone modifie le compteur de BlueShip détruits.")
+	_check(simulation.statistics.text == "Vaisseaux bleus détruits : 0" and simulation.death_count == 0 and simulation.living_agent_count == 1, "Détruire un PatrolDrone modifie le compteur de BlueShip détruits.")
 	await _advance(270)
 	_check(simulation.drones.is_empty(), "Le drone est remplacé avant le délai de 5 secondes.")
 	await _advance(45)

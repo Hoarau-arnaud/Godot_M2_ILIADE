@@ -39,6 +39,12 @@ var curtain_activations: int = 0
 var missile_count: int = 0
 var _arrived_ids: Dictionary[int, bool] = {}
 var _phase_deaths: int = 0
+var _next_mega: float = 3
+var _mega_cursor: int = 0
+var _fast_meteors_shown: bool = false
+var _next_attack: float = 1
+var _attack_cursor: int = 0
+var _weapon_start: Dictionary = {}
 var _ui_visibility: Vector2i
 var _camera_transform: Transform3D
 var _camera_fov: float
@@ -86,6 +92,11 @@ func start() -> void:
 	simulation.elapsed_simulation_time = 0
 	simulation.death_count = 0
 	simulation.reset_threat_metrics()
+	simulation.reinforcement_count = 0
+	simulation.reinforcement_waits.clear()
+	simulation.reinforcement_spawns.clear()
+	simulation._reinforcement_stagger = 0
+	simulation._ship_spawn_random.seed = demonstration_seed + 83003
 	simulation.blue_ship_hits = 0
 	simulation.ship_spawn_count = 0
 	simulation.ship_retired_count = 0
@@ -222,15 +233,19 @@ func _restore_properties(object: Object, properties: Dictionary) -> void:
 			object.set(key, value)
 
 
-func _clear_stage() -> void:
-	simulation.ship_retired_count += simulation.ships.size()
+func _clear_stage(keep_blues: bool = false) -> void:
+	if not keep_blues:
+		simulation.ship_retired_count += simulation.ships.size()
 	for container: Node3D in _stage_containers():
 		for entity: Node in container.get_children():
+			if keep_blues and entity is BlueShip and (entity as BlueShip).alive:
+				continue
 			if _saved_root_ids.has(entity.get_instance_id()):
 				continue
 			_disable_entity(entity)
 			entity.queue_free()
-	simulation.ships.clear()
+	if not keep_blues:
+		simulation.ships.clear()
 	simulation.drones.clear()
 	simulation.interceptors.clear()
 	simulation.capitals.clear()
@@ -264,8 +279,12 @@ func _disable_entity(node: Node) -> void:
 		_disable_entity(child)
 
 
+func choreographed() -> bool:
+	return spectacle() and simulation.threat_choreography_enabled
+
+
 func _begin_phase(index: int, center: Vector3) -> void:
-	_clear_stage()
+	_clear_stage(choreographed() and index > 0)
 	phase_index = index
 	phase_elapsed = 0
 	_phase_deaths = simulation.death_count
@@ -278,10 +297,10 @@ func _begin_phase(index: int, center: Vector3) -> void:
 	simulation.set_simulation_speed((1.9 if simulation.legacy_flight_profile else simulation.guided_simulation_speed) if spectacle() else 1.7)
 	simulation.set_movement_multiplier((1.6 if index == 5 else 1.35 if index in [2, 3] else 1.5) if spectacle() else 1.3 if index == 5 else 1.2)
 	simulation.set_spacing_multiplier(1.05 if index == 5 else 1.0)
-	simulation.manual_drone_count_override = 5 if index == 5 else 4 if index == 2 else 0
-	simulation.manual_interceptor_count_override = (5 if spectacle() else 4) if index in [3, 5] else 0
-	simulation.manual_capital_count_override = (5 if index == 4 else 4) if spectacle() and index in [4, 5] else 1 if index in [4, 5] else 0
-	for ship_index: int in range(15):
+	simulation.manual_drone_count_override = (4 if choreographed() else 5) if index == 5 else 4 if index == 2 else 0
+	simulation.manual_interceptor_count_override = (4 if choreographed() else 5 if spectacle() else 4) if index in [3, 5] else 0
+	simulation.manual_capital_count_override = (3 if choreographed() else 5 if index == 4 else 4) if spectacle() and index in [4, 5] else 1 if index in [4, 5] else 0
+	for ship_index: int in range(15 - simulation.ships.size() if index == 0 or not choreographed() else 0):
 		var offset: Vector3 = Vector3((ship_index % 3 - 1) * 9.5, (ship_index / 3 % 3 - 1) * 9.5, (ship_index / 9) * 12 + (ship_index % 3) * 2)
 		if index == 5 and ship_index >= 13:
 			# Deux voisins restent dans la portée de récupération, sans consigne de vol.
@@ -290,15 +309,26 @@ func _begin_phase(index: int, center: Vector3) -> void:
 		if spectacle():
 			simulation.ships.back().environment_perception_interval = 0.05 if simulation.legacy_flight_profile else 0.06
 	simulation.target_ship_count = 15
-	simulation.living_agent_count = 15
+	simulation.living_agent_count = simulation.ships.size()
+	for blue: BlueShip in simulation.ships:
+		blue.combat_enabled = index >= 3
+		blue.adaptive_threat_response = choreographed()
+		if choreographed():
+			simulation.configure_guided_blue(blue)
 	if not simulation.legacy_flight_profile:
 		simulation.initial_agent_count = 15
 	simulation._last_center = simulation._fleet_center()
 	var field: ObstacleField = simulation.asteroid_container
-	field.max_active_asteroids = 180 if spectacle() else 160 if index == 0 else 96
+	field.max_active_asteroids = (48 if index == 1 else 64) if choreographed() else 180 if spectacle() else 160 if index == 0 else 96
 	field.storm_enabled = spectacle() and index in [0, 1, 5]
 	field.storm_complex = index == 1
-	field.storm_target = 84 if index == 1 else (150 if simulation.legacy_flight_profile else 110) if index == 5 else 180
+	field.storm_target = (46 if index == 1 else 60 if index == 0 else 62) if choreographed() else 84 if index == 1 else (150 if simulation.legacy_flight_profile else 110) if index == 5 else 180
+	_next_mega = 3
+	_mega_cursor = 0
+	_fast_meteors_shown = false
+	_next_attack = 1
+	_attack_cursor = 0
+	_weapon_start = simulation.weapon_metrics.duplicate(true)
 	bomb_explosions = 0
 	grid_activations = 0
 	curtain_activations = 0
@@ -321,15 +351,17 @@ func _begin_phase(index: int, center: Vector3) -> void:
 		if spectacle():
 			tracers = BattleTracers.new()
 			tracers.name = "DecorativeBattleTracers"
-			tracers.rate = 90 if simulation.legacy_flight_profile else 30
+			tracers.rate = 14 if choreographed() else 90 if simulation.legacy_flight_profile else 30
+			tracers.background_only = choreographed()
 			simulation.projectile_container.add_child(tracers)
 	_set_camera_phase(index)
 	simulation._measure_group(simulation._fleet_center())
 	simulation._update_hud()
 	if not simulation.legacy_flight_profile:
 		simulation.set_fire_intensity(1.2 if index == 5 else 1.0)
-	simulation.demo_controls.set_phase(index, TITLES[index])
-	_phase_sample = {"phase": index + 1, "title": TITLES[index], "nodes_max": get_tree().get_node_count(), "projectiles_max": 0, "asteroids_max": field.active_asteroid_count, "dispersion_max": 0.0, "regroup_episodes": 0, "regrouping": {}, "lateral_excursion": 0.0, "origin": center, "green_shots": 0, "waypoints": 0, "routes": 0, "pursuits": 0, "disengagements": 0, "dodges_start": simulation.projectile_dodge_count, "blue_shots_start": simulation.blue_shots_fired, "enemy_shots_start": simulation.enemy_shots_fired, "salvos_start": simulation.capital_salvos.duplicate()}
+	var title: String = phase_title(index)
+	simulation.demo_controls.set_phase(index, title)
+	_phase_sample = {"phase": index + 1, "title": title, "nodes_max": get_tree().get_node_count(), "projectiles_max": 0, "asteroids_max": field.active_asteroid_count, "dispersion_max": 0.0, "regroup_episodes": 0, "regrouping": {}, "lateral_excursion": 0.0, "origin": center, "green_shots": 0, "waypoints": 0, "routes": 0, "pursuits": 0, "disengagements": 0, "dodges_start": simulation.projectile_dodge_count, "blue_shots_start": simulation.blue_shots_fired, "enemy_shots_start": simulation.enemy_shots_fired, "salvos_start": simulation.capital_salvos.duplicate()}
 	_phase_sample.metrics_start = simulation.threat_metrics()
 	_phase_sample.initial_positions = {}
 	for ship: BlueShip in simulation.ships:
@@ -356,7 +388,8 @@ func _spawn_patrol(center: Vector3, index: int, markers: bool) -> void:
 	drone.individual_seed = demonstration_seed + phase_index * 1091 + index * 401
 	drone.demonstration_route = markers
 	drone.patrol_fire_enabled = true
-	drone.dangerous_projectile_limit = (54 if phase_index == 5 else 90) if spectacle() else 50
+	drone.dangerous_projectile_limit = 34 if choreographed() else (54 if phase_index == 5 else 90) if spectacle() else 50
+	drone.readable_threats = choreographed()
 	drone.environment_perception_interval = (0.05 if simulation.legacy_flight_profile else 0.06) if spectacle() else 0
 	drone.patrol_anchor = Vector2(center.x + (index - 1.5) * 9, center.y)
 	drone.patrol_projectile_container = simulation.projectile_container
@@ -381,11 +414,12 @@ func _spawn_interceptor(center: Vector3, index: int) -> void:
 	hostile.individual_seed = demonstration_seed + phase_index * 1091 + index * 409
 	hostile.projectile_container = simulation.projectile_container
 	if spectacle():
-		hostile.dangerous_projectile_limit = 54 if phase_index == 5 else 90
+		hostile.dangerous_projectile_limit = 34 if choreographed() else 54 if phase_index == 5 else 90
+		hostile.readable_threats = choreographed()
 		hostile.environment_perception_interval = 0.05 if simulation.legacy_flight_profile else 0.06
-		hostile.burst_size = 5
-		hostile.burst_interval = 0.16
-		hostile.burst_cooldown = 1.05
+		hostile.burst_size = 4 if choreographed() else 5
+		hostile.burst_interval = 0.22 if choreographed() else 0.16
+		hostile.burst_cooldown = 1.8 if choreographed() else 1.05
 	hostile.position = simulation.interceptor_container.to_local(_safe_position(center + Vector3((index - 1.5) * 12, -6 if index % 2 == 0 else 6, 42), 3))
 	hostile.died.connect(simulation._on_interceptor_died)
 	hostile.destroyed.connect(simulation._on_hostile_destroyed)
@@ -402,9 +436,11 @@ func _spawn_capital(center: Vector3, teaching: bool, index: int = 0) -> void:
 	var positions: Array[Vector3] = [Vector3(-120, 35, -390), Vector3(-40, -58, -460), Vector3(58, 66, -515), Vector3(145, -12, -580), Vector3(12, 8, -630)]
 	hostile.normal_distance = -positions[index].z if spectacle() else 230
 	hostile.spectacle_enabled = spectacle()
-	hostile.fleet_role = index if phase_index == 4 else [0, 1, 3, 4][index]
+	hostile.fleet_role = index if choreographed() or phase_index == 4 else [0, 1, 3, 4][index]
+	hostile.readable_arsenal = choreographed()
+	hostile.choreographed = choreographed()
 	hostile.fleet_offset = Vector2(positions[index].x, positions[index].y)
-	hostile.artillery_limit = (60 if phase_index == 5 else 90) if spectacle() else 50
+	hostile.artillery_limit = 40 if choreographed() else (60 if phase_index == 5 else 90) if spectacle() else 50
 	hostile.demonstration_cycle = teaching and not spectacle()
 	if teaching:
 		hostile.demonstration_attack_order.assign([0, 1, 2, 3, 4])
@@ -472,12 +508,14 @@ func _add_route_markers(drone: PatrolDrone) -> void:
 func _process(delta: float) -> void:
 	if not is_guided() or game_over:
 		return
-	if simulation.ships.is_empty() and not simulation.legacy_flight_profile:
+	if simulation.ships.is_empty() and simulation.stop_on_squadron_extinction and not simulation.legacy_flight_profile:
 		end_squadron()
 		return
 	var real_delta: float = delta / maxf(Engine.time_scale, 0.01)
 	phase_elapsed += real_delta
 	elapsed_real += real_delta
+	if choreographed():
+		_update_choreography()
 	if simulation.legacy_flight_profile and phase_index == 5 and phase_elapsed >= phase_duration(5) - finale_relief_duration:
 		# Une courte respiration laisse les tirs existants passer et la cohésion agir.
 		for drone: PatrolDrone in simulation.drones:
@@ -492,6 +530,12 @@ func _process(delta: float) -> void:
 		node.set_meta("sampled", true)
 		var zone: ArtilleryZone = node as ArtilleryZone
 		zone.damage_applied.connect(simulation._on_blue_ship_hit)
+		if choreographed():
+			var family: String = str(zone.get_meta("weapon_family", "Bomb"))
+			zone.damage_applied.connect(func(_blue: BlueShip, _amount: int) -> void: simulation._weapon_entry(family).impacts += 1)
+			if family == "Laser":
+				simulation._weapon_entry(family).shots += 1
+				simulation.zone_attack_count += 1
 		zone.activated.connect(func() -> void:
 			if zone.kind == ArtilleryZone.Kind.GRID:
 				grid_activations += 1
@@ -541,6 +585,8 @@ func _sample_phase() -> void:
 	_phase_sample.tracers_emitted = tracers.emitted if is_instance_valid(tracers) else 0
 	_phase_sample.physical_projectiles_max = maxi(int(_phase_sample.get("physical_projectiles_max", 0)), get_tree().get_nodes_in_group("hostile_projectiles").size())
 	var current_center: Vector3 = simulation._fleet_center()
+	var group_offset: Vector3 = current_center - Vector3(_phase_sample.origin)
+	_phase_sample.group_lateral_excursion = maxf(float(_phase_sample.get("group_lateral_excursion", 0)), Vector2(group_offset.x, group_offset.y).length())
 	for node: Node in get_tree().get_nodes_in_group("artillery_projectiles"):
 		if (node as Node3D).global_position.distance_to(current_center) < 65:
 			_arrived_ids[node.get_instance_id()] = true
@@ -548,6 +594,8 @@ func _sample_phase() -> void:
 	_phase_sample.asteroids_max = maxi(_phase_sample.asteroids_max, simulation.asteroid_container.active_asteroid_count)
 	_phase_sample.dispersion_max = maxf(_phase_sample.dispersion_max, simulation.dispersion)
 	for ship: BlueShip in simulation.ships:
+		if not _phase_sample.initial_positions.has(ship.get_instance_id()):
+			_phase_sample.initial_positions[ship.get_instance_id()] = ship.global_position
 		var relative: Vector3 = ship.global_position - Vector3(_phase_sample.initial_positions[ship.get_instance_id()])
 		_phase_sample.lateral_excursion = maxf(_phase_sample.lateral_excursion, Vector2(relative.x, relative.y).length())
 		var regrouping: bool = ship.behavior_state == BlueShip.BehaviorState.REGROUPING
@@ -565,10 +613,13 @@ func _sample_phase() -> void:
 	_phase_sample.routes = maxi(_phase_sample.routes, routes)
 	_phase_sample.green_shots = maxi(_phase_sample.green_shots, shots)
 	var pursuits: int = 0
+	var bursts: int = 0
 	var disengages: int = 0
 	for hostile: Interceptor in simulation.interceptors:
 		pursuits += hostile.pursuits_started
+		bursts += hostile.bursts_started
 		disengages += hostile.disengagements
+	_phase_sample.bursts = maxi(int(_phase_sample.get("bursts", 0)), bursts)
 	_phase_sample.pursuits = maxi(_phase_sample.pursuits, pursuits)
 	_phase_sample.disengagements = maxi(_phase_sample.disengagements, disengages)
 
@@ -594,13 +645,26 @@ func _finish_phase() -> void:
 		salvos.append(simulation.capital_salvos[index] - int(sample.salvos_start[index]))
 	sample.salvos = salvos
 	sample.motion_types = simulation.asteroid_container.motions_generated.duplicate()
+	sample.megas = simulation.asteroid_container.mega_generated
+	sample.mega_types = simulation.asteroid_container.mega_types.duplicate()
+	sample.group_lateral_final = Vector2(simulation._fleet_center().x - _phase_sample.origin.x, simulation._fleet_center().y - _phase_sample.origin.y).length()
+	sample.weapon_families = {}
+	for family: String in simulation.weapon_metrics:
+		var entry: Dictionary = simulation.weapon_metrics[family]
+		var before: Dictionary = _weapon_start.get(family, {"shots": 0, "targets": {}, "reactions": 0, "impacts": 0})
+		var distinct: int = 0
+		for seed_value: int in entry.targets:
+			if int(entry.targets[seed_value]) > int(before.targets.get(seed_value, 0)):
+				distinct += 1
+		sample.weapon_families[family] = {"shots": int(entry.shots) - int(before.shots), "distinct_targets": distinct, "reactions": int(entry.reactions) - int(before.reactions), "impacts": int(entry.impacts) - int(before.impacts)}
+	sample.target_distribution = simulation.shots_targeted_per_ship.duplicate()
 	for key: String in ["dodges_start", "blue_shots_start", "enemy_shots_start", "salvos_start", "metrics_start"]:
 		sample.erase(key)
 	phase_results.append(sample.duplicate(true))
 
 
 func end_squadron() -> void:
-	if not is_guided() or game_over or simulation.legacy_flight_profile:
+	if not is_guided() or game_over or simulation.legacy_flight_profile or not simulation.stop_on_squadron_extinction:
 		return
 	game_over = true
 	simulation.streaming_enabled = false
@@ -612,3 +676,38 @@ func end_squadron() -> void:
 	_sample_phase()
 	_finish_phase()
 	simulation.demo_controls.show_game_over(true)
+
+
+func phase_title(index: int) -> String:
+	return "ÉVITEMENT D’OBSTACLES" if choreographed() and index == 0 else "ASTÉROÏDES DYNAMIQUES" if choreographed() and index == 1 else TITLES[index]
+
+
+func _update_choreography() -> void:
+	if phase_index == 0 and phase_elapsed >= 15.5 and not _fast_meteors_shown:
+		_fast_meteors_shown = true
+		simulation.asteroid_container.spawn_fast_crossing(simulation._fleet_center())
+	if phase_index in [0, 1, 5] and phase_elapsed >= _next_mega and (phase_index != 0 or _mega_cursor < 3):
+		var fleet_velocity: Vector3 = Vector3.ZERO
+		for blue: BlueShip in simulation.ships:
+			fleet_velocity += blue.velocity
+		fleet_velocity /= maxf(simulation.ships.size(), 1)
+		var types: Array[int] = []
+		types.assign([0, 1, 2] if phase_index == 0 else [3, 1, 2, 0])
+		if simulation.asteroid_container.spawn_mega(simulation._fleet_center(), fleet_velocity, types[_mega_cursor % types.size()], 28.0 if _mega_cursor == 0 and phase_index == 0 else 40.0):
+			_mega_cursor += 1
+			_next_mega = phase_elapsed + (12 if phase_index == 5 else 5)
+		else:
+			_next_mega = phase_elapsed + 0.4
+	if phase_index in [4, 5] and phase_elapsed >= _next_attack and not simulation.capitals.is_empty():
+		# Départs espacés en temps réel ; chaque rôle conserve le même Agent 4.
+		var patterns: Array[int] = [0, 4, 6, 7, 9, 5]
+		var pattern: int = patterns[_attack_cursor % patterns.size()]
+		if _attack_cursor > 0 and _attack_cursor % 12 == 9:
+			pattern = 8
+		var role: int = 0 if pattern in [0, 4, 5] else 1 if pattern in [6, 9] else 2
+		var capital: CapitalShip = simulation.capitals[role % simulation.capitals.size()]
+		if capital.alive and capital.state != CapitalShip.State.FIRE:
+			capital._transition(CapitalShip.State.PREPARE)
+			capital.selected_pattern = pattern as CapitalShip.ArtilleryPattern
+			_attack_cursor += 1
+		_next_attack += 4.5

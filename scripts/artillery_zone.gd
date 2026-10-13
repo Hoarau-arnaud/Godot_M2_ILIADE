@@ -1,6 +1,8 @@
 class_name ArtilleryZone
 extends Node3D
 
+var threat_strength: float = 1.6
+
 signal damage_applied(ship: BlueShip, amount: int)
 signal activated
 signal detonated

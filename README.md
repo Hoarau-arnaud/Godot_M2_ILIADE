@@ -1,12 +1,94 @@
-# Simulation SMA spatiale — milestone 13
+# Simulation SMA spatiale — milestone 14
 
 Projet pédagogique **Godot 4.7.2 / GDScript**, avec exactement quatre types d'agents : **BlueShip, PatrolDrone, Interceptor et Capital Artillery Ship**. Les projectiles, missiles, bombes, faisceaux et rochers sont des éléments de combat/environnement.
 
-## M13 — Menaces ciblées et boosts individuels
+## M14 — Menaces lisibles et renforts
+
+F5 lance toujours Guided automatiquement. Le sujet du plan reste l’escadron bleu : **menace importante → perception individuelle → contournement ou boost → dispersion → renfort éventuel → récupération locale**. Les quatre types d’agents sont inchangés. Les méga astéroïdes sont des `SpaceAsteroid`, les projectiles et zones restent des dangers passifs.
+
+| Phase | Population et dangers M14 | Référence M13 |
+|---|---|---|
+| 1 — ÉVITEMENT D’OBSTACLES | 15 BlueShip, plafond 64 rochers, croisements majeurs espacés | 180 rochers |
+| 2 — ASTÉROÏDES DYNAMIQUES | plafond 48, diagonal/vertical/circular/arc et méga | 84 rochers |
+| 3 — DRONES DE PATROUILLE | 4 PatrolDrone, route A–B–C–D, pulses espacés | 4 PatrolDrone |
+| 4 — INTERCEPTEURS | 4 Interceptor, rafales de 4, pause 1,8 s simulée | 5, rafales de 5 |
+| 5 — FLOTTE D’ARTILLERIE | 3 Capital Ships à 390–515 m, attaques espacées | 5 Capitaux, plafond 90 dangers |
+| 6 — ASSAUT FINAL continu | cible 15 Blue, 4 Patrol, 4 Interceptor, 3 Capital, plafond 64 rochers et 40 unités dangereuses | 15/5/5/4, 110 rochers, plafond 60 dangers |
+
+### Méga astéroïdes et perception
+
+La catégorie MEGA accepte **20–60 m nominaux** ; la démonstration emploie **28 et 40 m**, sans cas 50–60 m aléatoire susceptible de fermer le passage. MEGA_LINEAR, MEGA_DIAGONAL, MEGA_VERTICAL et MEGA_SLOW_CROSSING décrivent des translations fixées à l’apparition, avec un seul méga principal actif. Le croisement est préparé à `fleet_center + fleet_average_velocity * 6 s`, décalé de 12 m X / 4 m Y pour laisser un contournement. Aucun recalcul en poursuite et aucune direction commune n’est envoyée aux BlueShip.
+
+Chaque BlueShip augmente sa portée à `clamp(44 + avoidance_radius * 3.8, 44, 140)` : environ 45–50 m pour les petites roches et 90–140 m pour les mégas. L’horizon méga passe à 7 s simulées et une marge supplémentaire prépare une grande courbe, avec une direction locale mémorisée. Le boost reste un secours critique. La taille nominale n’est pas le diamètre exact du maillage lobé.
+
+### Tirs et chorégraphie
+
+Les attaques simples Rapid/Swarm et les bolts parcourent un cycle déterministe **80 % TARGETED / 15 % NEAR_PASS / 5 % SUPPRESSION** ; Heavy et Seeker sont entièrement ciblés. TARGETED intercepte un Blue vivant avec une erreur ±1,3 m X/Y (bolts : spread ±0,75° par axe en plus) ; NEAR_PASS ajoute un décalage radial 5–12 m ; SUPPRESSION ajoute 22–35 m. Ces derniers restent des tirs physiques et peuvent toucher un autre agent. Bombes et faisceaux gardent leur catégorie ZONE et sont mesurés séparément. Les tirs admis sous budget peuvent donner un ratio différent du cycle nominal. `shots_targeted_per_ship` mesure les tirs effectivement émis, indexés par seed individuelle, y compris les renforts.
+
+Les trois Capitaux se partagent Heavy/Seeker, Bomb/Swarm et Curtain/Grid. Heavy passe à 72 m/s et un rayon d’évitement de 16 m dans ce profil ; les bombes prédisent un petit amas de voisins vivants plutôt qu’un barycentre vide après dispersion. Un départ principal toutes les **4,5 s réelles** distingue Heavy (3), Seeker (6), Bomb (2), Curtain, Swarm (10), puis Rapid (10). Grid remplace occasionnellement Curtain ; une grille préparée ou active interdit une seconde grille. Les trajets déjà partis peuvent se croiser. Le plafond partagé 40 comprend les raycasts/corps et les lignes de faisceaux ; 6 places sont réservées aux zones, les autres armes s’arrêtent à 34. Les tracers deviennent secondaires : **14/s réelles**, durée 3 s simulées, près des batteries lointaines. Les débris décoratifs proches de la caméra, des BlueShip ou du corridor de visée sont masqués en Guided ; les rochers physiques restent visibles et collidables.
+
+Une force de menace générique prolonge les boosts des missiles/torpilles jusqu’à 1,04 s simulée et augmente leur correction latérale. La direction reste stable pendant chaque boost. Les bombes sont évitées par leur zone annoncée. La caméra observe les mégas, missiles et explosions imminentes pour privilégier side/top/rear, puis wide lors d’une forte dispersion. Les cadrages sont tenus au moins 0,8 s. Pour garder les sujets identifiables malgré quelques isolés, la caméra cadre les douze BlueShip proches du noyau le plus dense ; les autres continuent leur vol normal et peuvent sortir du plan. Elle n’agit jamais sur la navigation.
+
+Les bolts Interceptor du profil M14 infligent 2 HP, les pulses Patrol 1 HP et les Heavy 2 HP : la difficulté vient des tirs admis et des collisions réelles, sans destruction scriptée dans la démonstration. Le ratio de départ des bolts avance uniquement lorsqu’un tir est effectivement émis.
+
+### Pertes cumulées et renforts
+
+Le HUD affiche **Vaisseaux bleus détruits : X**. Seul le signal de destruction réelle d’un BlueShip incrémente ce compteur ; retraits, nettoyage, changement de mode/phase et morts ennemies n’y participent pas. Les survivants gardent leur identité et leurs HP entre les phases. Le profil Guided élargit uniquement les perceptions locales de voisinage/récupération à 48/100 m, avec cohésion 0,3 et récupération 7 m/s pour revenir après les grands détours. FREE conserve 32/50 m et ses poids d’origine. Les pertes restent cumulatives jusqu’à Rejouer/nouveau run ; quinze actifs peuvent coexister avec vingt-sept pertes.
+
+Chaque perte planifie un remplacement après **1,0–1,6 s réelles**, indépendant d’Engine.time_scale. Les départs rapprochés sont espacés de 0,06 s réelle. Le spawn recherche un volume libre **30–50 m derrière le centre**, X ±22 / Y ±14, vérifié contre BlueShip, hostiles, rochers, projectiles et zones ; s’il est encombré, il est retardé. Après extinction, le dernier centre connu sert d’ancrage. Les moteurs brillent environ une seconde réelle, puis le renfort utilise exactement les règles SMA ordinaires, sans téléportation au centre.
+
+Le parcours normal ne s’arrête plus lors d’une extinction temporaire : `guided_reinforcements_enabled=true`, `stop_on_squadron_extinction=false`. Les fixtures M13 emploient explicitement l’inverse et `threat_choreography_enabled=false`. FREE conserve son comportement et sa restitution d’état. Rejouer nettoie Guided, remet les pertes/renforts/métriques à zéro, restaure la seed et recommence à quinze en phase 1.
+
+### Validation M14
+
+`tests/validate_threat_choreography.gd` vérifie trois vraies morts par laser, explosions, délai, spawn, arrivée locale, retraits sans mort, identités entre phases, Replay, extinction simultanée, Game Over M13 optionnel, méga 40 m et cent tirs contrôlés. Il mesure ensuite les six phases et **60 secondes réelles** de finale.
+
+```powershell
+$godotExe = 'C:\Users\Sora\Desktop\Godot_v4.7.2-stable_win64.exe'
+Start-Process -FilePath $godotExe -ArgumentList '--headless','--path','.','--fixed-fps','60','--script','res://tests/validate_threat_choreography.gd','--log-file','.godot/m14_validation.log','--','--unit-only' -WindowStyle Hidden -Wait
+```
+
+Pour le benchmark graphique : retirer `--headless`/`--fixed-fps`, remplacer `--unit-only` par `--native`. `--native --capture` est un essai distinct avec captures PNG, exclu des résultats FPS. Les suites M1–M13 choisissent leurs paramètres historiques, sans changer les règles physiques de leurs assertions. Les logs/JSON/captures restent ignorés dans `.godot/`.
+
+Les réactions par famille comptent les paires Blue/danger ayant déclenché un évitement ou un boost ; le compteur de menaces critiques reste distinct ; elles ne prouvent pas une collision évitée. La récupération locale ne garantit pas la réunion de sous-groupes hors de portée. Le spawn peut attendre au-delà du délai nominal si tout le volume est occupé. Les performances et pertes ne sont pas garanties sur d’autres machines, graines ou plusieurs heures.
+
+### Résultats d’acceptation M14
+
+Godot **4.7.2**, seed **20261012**, Intel Arc Graphics, OpenGL Compatibility/MSAA 4×, rendu interne **1920×1080**, vitesse **2,0× / 120 Hz**. Les dix suites historiques M1–M13 et les fixtures M14 passent sans erreur/warning dans leurs journaux d’acceptation. Le benchmark sans PNG couvre les cinq phases puis **60.00 secondes réelles de finale** : **98.63 FPS moyens**, minimum d’une seconde **84.90 FPS**. Le coût de compression des captures est vérifié dans un essai séparé et exclu de ces valeurs.
+
+| Phase | Rochers / mégas | TARGETED / NEAR_PASS / SUPPRESSION / ZONE | Boosts / impacts | Pertes / renforts / actifs | Dispersion max → finale |
+|---|---:|---:|---:|---:|---:|
+| 1 | 63 / 3 | 0 / 0 / 0 / 0 | 0 / 0 | 0 / 0 / 15 | 63.97 → 63.46 m |
+| 2 | 47 / 3 | 0 / 0 / 0 / 0 | 1 / 0 | 0 / 0 / 15 | 81.12 → 78.83 m |
+| 3 | 3 / 0 | 19 / 0 / 0 / 0 | 14 / 0 | 0 / 0 / 15 | 85.91 → 70.59 m |
+| 4 | 3 / 0 | 33 / 6 / 2 / 0 | 13 / 0 | 0 / 0 / 15 | 90.01 → 69.52 m |
+| 5 | 0 / 0 | 27 / 2 / 0 / 3 | 29 / 0 | 0 / 0 / 15 | 113.42 → 91.59 m |
+| 6 | 63 / 5 | 157 / 21 / 7 / 6 | 73 / 2 | 1 / 1 / 15 | 139.92 → 112.33 m |
+
+Phase 1 : excursion maximale du centre 22.63 m. Phase 2 : mouvements diagonal/vertical/circular/arc et 3 mégas. Phase 3 : 19 pulses. Phase 4 : 12 poursuites, 12 rafales commencées et 12 désengagements. Une rafale peut être interrompue avant ses quatre départs.
+
+| Phase 5, famille | Tirs ou zones | Cibles individuelles distinctes | Réactions Blue/danger | Impacts |
+|---|---:|---:|---:|---:|
+| Heavy | 3 | 3 | 20 | 0 |
+| Seeker | 6 | 6 | 9 | 0 |
+| Bomb | 2 | 0 | 9 | 0 |
+| Laser | 1 | 0 | 10 | 0 |
+| Swarm | 10 | 9 | 13 | 0 |
+| Rapid | 10 | 9 | 1 | 0 |
+
+Bomb et Laser visent des **zones**, sans cible individuelle : zéro dans cette colonne ne signifie pas zéro BlueShip affecté. Les réactions regroupent évitement et boost, une fois par paire Blue/danger tant que le danger reste dans la mémoire locale ; elles ne sont pas des collisions évitées prouvées. Les impacts comptent les événements de dégâts, pas la quantité de HP retirée.
+
+Finale : **15 actifs**, **1 perte pendant la finale**, **1 perte cumulée depuis la phase 1**, **1 renfort pendant la finale**. Budget observé : 34 projectiles physiques, 34 unités avec beams, 63 rochers, 5 mégas générés successivement, 1774 nœuds maximum ; maximum global 1774 nœuds. Les tirs simples admis en finale donnent 84.86 % ciblés ; zones séparées. Le nombre de morts provient des collisions réelles ; aucun objectif de mortalité n’est imposé.
+
+Fixtures : trois destructions par laser donnent **3 pertes / 3 renforts / 15 actifs**, les trois retraits administratifs n’ajoutent aucune perte ; extinction simultanée → **15 pertes / 15 renforts / 15 actifs**, sans Game Over, avec apparition progressive. Le flag historique conserve Game Over et Replay dans les six phases. Les volumes occupés par rocher, missile, zone, voisin et grande coque Capital sont refusés.
+
+Méga 40 m : portée effective **115.24 m**, 13 détections, **13/15 manœuvres X/Y >10 m**, excursion du centre 11.21 m, 0 boost, 0 collision mortelle, dispersion **53.98 → 27.91 m**. Le contournement est progressif. Cent tirs Rapid contrôlés donnent **80 / 15 / 5**, tous les 80 ciblés sont initialement menaçants si les BlueShip gardent leur vitesse, **15 cibles distinctes**, au plus 7 tirs ciblés pour une identité.
+
+## Référence historique M13 — Menaces ciblées et boosts individuels
 
 **F5 démarre automatiquement la Démo guidée**, après l'initialisation complète de Main (`auto_start_guided_demo=true`, appel différé). La caméra Cinématique et le titre de phase sont actifs sans entrée utilisateur. **D / Simulation libre** restitue les mêmes entités FREE suspendues, leurs HP, cibles, mémoires, réglages et RNG. TAB ouvre les commandes, H l'aide, F11/Alt+Entrée le plein écran. Recommencer démo/Rejouer repart du début.
 
-Les phases 1–4 durent **18 secondes réelles** chacune ; la flotte Capital dure **28 s**. Chacune recrée 15 BlueShip à 3 HP ; ce retrait n'est pas une mort. **La phase 6 est continue, difficulté 3**, initialement 15 BlueShip, 5 PatrolDrone, 5 Interceptor, 4 Capitaux lointains et **110 météores en streaming** (budget réduit après benchmark), Mouvement 1,6 et Intensité tirs 1,2. Elle ne termine pas sur un timer et n'applique pas d'escalade automatique supplémentaire. Les pertes sont possibles.
+Les phases 1–4 durent **18 secondes réelles** chacune ; la flotte Capital dure **28 s**. Chacune recrée 15 BlueShip à 3 HP ; ce retrait n'est pas une mort. **La phase 6 historique est continue, difficulté 3**, initialement 15 BlueShip, 5 PatrolDrone, 5 Interceptor, 4 Capitaux lointains et **110 météores en streaming** (budget réduit après benchmark), Mouvement 1,6 et Intensité tirs 1,2. Elle ne termine pas sur un timer et n'applique pas d'escalade automatique supplémentaire. Les pertes sont possibles.
 
 **Zéro BlueShip dans n'importe quelle phase arrête immédiatement le combat guidé**, les vols/tirs existants, la génération d'ennemis et de rochers, ainsi que le timer de phase. L'écran centré **ESCADRON DÉTRUIT** propose un grand **REJOUER** et Simulation libre. Rejouer nettoie les entités guidées, restaure la seed 20261012, efface morts/impacts/menaces/boosts/passages proches, recrée 15 chasseurs à 3 HP, reprend la phase 1 et la caméra Cinématique, puis cache l'écran. UI et caméra restent réactives pendant Game Over.
 
@@ -97,7 +179,7 @@ Autostart, Game Over **dans chacune des six phases**, arrêt des tirs/streaming/
 Limites : une seule machine et une graine de référence ; cadence de rendu et intégration peuvent changer les pertes/trajectoires. Les near misses sont des paires approximatives, pas une preuve causale de chaque impact évité. La prédiction suppose la vitesse instantanée, particulièrement imparfaite face aux arcs/guidages ; les rochers absorbent les tirs. Le regroupement reste local et certains survivants demeurent isolés. La finale est continue mais l’essai natif couvre 60 s ; aucune garantie d’équilibrage/performance sur plusieurs heures. Les captures PNG sont séparées du benchmark car leur lecture GPU/compression perturbe les FPS.
 
 
-Les références suivantes décrivent les jalons précédents et leurs fixtures ; le comportement normal courant est celui de M13 ci-dessus.
+Les références suivantes décrivent les jalons précédents et leurs fixtures ; le comportement normal courant est celui de M14 ci-dessus.
 
 ## Référence historique M12 — Traversée d'une zone de guerre spatiale
 
@@ -605,7 +687,7 @@ La graine **20261012** initialise les chasseurs et un générateur indépendant 
 
 ## HUD
 
-Le HUD principal affiche **Vaisseaux détruits : X** à gauche et **trois étoiles seules** en haut-centre. Le panneau droit contient les six réglages, Reset agents et les outils de présentation M8. L'aide caméra est en bas à gauche. **H puis TAB** masquent les deux panneaux ; le compteur et les étoiles restent visibles. Aucun HP, score, distance ou statistique de combat n'est affiché.
+Le HUD principal affiche **Vaisseaux bleus détruits : X** à gauche et **trois étoiles seules** en haut-centre. Le panneau droit contient les six réglages, Reset agents et les outils de présentation M8. L'aide caméra est en bas à gauche. **H puis TAB** masquent les deux panneaux ; le compteur et les étoiles restent visibles. Aucun HP, score, distance ou statistique de combat n'est affiché.
 
 ## Architecture
 
@@ -655,7 +737,7 @@ Les 650 étoiles restent distribuées en trois couches : lointaine (62 %), inter
 - Signaux : morts bleues, dégâts/destructions hostiles, tirs et impacts des deux factions, début d'esquive. Main conserve les compteurs sans stocker de projectile supprimé.
 - BlueShip : couche **1** (bit 1), masque **6** (astéroïdes et hostiles). PatrolDrone et Interceptor : couche **3** (bit 4), masque **2**. Astéroïdes : couche **2** (bit 2), masque **0**. BlueLaser raycast **6**, EnemyLaser raycast **3** ; les projectiles n'ont pas de corps physique.
 - Les chasseurs se séparent localement sans collision physique entre eux. Leur balayage détecte les rochers et les drones. Le drone ne se bloque pas physiquement sur un BlueShip ; sa correction locale assure l'évitement réciproque, et un contact détecté par le chasseur reste fatal pour celui-ci.
-- Le HUD conserve « Vaisseaux détruits : X » après la dernière mort bleue. La caméra conserve alors son centre.
+- Le HUD conserve « Vaisseaux bleus détruits : X » après la dernière mort bleue. La caméra conserve alors son centre.
 
 ## Validation
 
@@ -929,4 +1011,4 @@ Références API : [PrismMesh](https://docs.godotengine.org/en/stable/classes/cl
 
 ## Hors de ce milestone et perspectives
 
-M1–M12 sont implémentés. La démo guidée prépare la présentation orale autour des quatre agents et du phénomène émergent. Le PowerPoint, une étude de plusieurs graines et les bombes BlueShip restent hors de ce travail.
+M1–M14 sont implémentés. La démo guidée prépare la présentation orale autour des quatre agents et du phénomène émergent. Le PowerPoint, une étude de plusieurs graines et les bombes BlueShip restent hors de ce travail.
