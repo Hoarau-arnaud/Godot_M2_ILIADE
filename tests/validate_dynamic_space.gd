@@ -50,6 +50,7 @@ func _advance(frames: int) -> void:
 
 func _empty(count: int = 1) -> SpaceSimulation:
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	sim.capital_ships_enabled = false
 	sim.ship_count = count
 	sim.simulation_speed_multiplier = 1.0
 	sim.streaming_enabled = false
@@ -351,6 +352,7 @@ func _finish_record(sim: SpaceSimulation, record: Dictionary) -> Dictionary:
 
 func _test_run(seconds: int, cinematic: bool, spectacle: bool = false) -> void:
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	sim.capital_ships_enabled = false
 	if not spectacle:
 		sim.manual_difficulty = 3
 	root.add_child(sim)
@@ -412,6 +414,7 @@ func _capture_viewport(sim: SpaceSimulation, label: String) -> void:
 func _test_native() -> void:
 	_check(DisplayServer.get_name() != "headless", "Validation viewport sans rendu natif.")
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	sim.capital_ships_enabled = false
 	root.add_child(sim)
 	sim.apply_action_preset()
 	for size: Vector2i in [Vector2i(800,450), Vector2i(1280,720), Vector2i(1600,900), Vector2i(1920,1080), Vector2i(1600,1000), Vector2i(900,900), Vector2i(1920,800)]:
@@ -468,6 +471,7 @@ func _test_render_spectacle() -> void:
 	_check(DisplayServer.get_name() != "headless", "FPS demandé sans rendu.")
 	DisplayServer.window_set_size(Vector2i(1920,1080))
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	sim.capital_ships_enabled = false
 	root.add_child(sim)
 	sim.apply_action_preset()
 	sim.demo_controls.toggle_help()

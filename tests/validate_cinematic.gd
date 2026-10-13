@@ -55,6 +55,7 @@ func _advance(frames: int) -> void:
 
 func _empty(count: int = 10) -> SpaceSimulation:
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	sim.capital_ships_enabled = false
 	sim.ship_count = count
 	sim.simulation_speed_multiplier = 1.0
 	sim.streaming_enabled = false
@@ -126,7 +127,7 @@ func _test_controls() -> void:
 	ui.normal_button.pressed.emit()
 	await _advance(2)
 	_check(sim.movement_multiplier == 1.2 and sim.manual_drone_count_override == -1 and sim.manual_interceptor_count_override == -1 and sim.camera.mode == SimulationCamera.Mode.FOLLOW, "Preset Normal incomplet.")
-	_check(sim.death_count == 1 and sim.distance_travelled >= 321 and sim.ships.size() == 9, "Un preset réinitialise les morts, la distance ou les agents.")
+	_check(sim.death_count == 1 and sim.distance_travelled >= 321 and sim.ships.size() >= 9 and sim.target_ship_count == 15, "Un preset réinitialise les morts, la distance ou les agents.")
 	print("Commandes : C/F, H/TAB, F11/Alt+Enter et presets sans reset validés.")
 	await _dispose(sim)
 
@@ -280,6 +281,7 @@ func _test_barrage(pattern: int, inverted: bool = false) -> void:
 
 func _test_run(action: bool) -> void:
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	sim.capital_ships_enabled = false
 	(sim.get_node("Asteroids") as ObstacleField).moving_asteroids_enabled = false
 	sim.manual_difficulty = 3
 	root.add_child(sim)
@@ -347,6 +349,7 @@ func _test_run(action: bool) -> void:
 func _native_capture() -> void:
 	_check(DisplayServer.get_name() != "headless", "Les tests plein écran et captures nécessitent le rendu.")
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	sim.capital_ships_enabled = false
 	sim.manual_difficulty = 3
 	root.add_child(sim)
 	sim.apply_action_preset()
@@ -417,6 +420,7 @@ func _capture_pace() -> void:
 	DisplayServer.window_set_size(Vector2i(1920, 1080))
 	for speed: float in [1.7, 1.8]:
 		var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+		sim.capital_ships_enabled = false
 		sim.manual_difficulty = 3
 		sim.simulation_speed_multiplier = speed
 		sim.movement_multiplier = 1.25
@@ -437,6 +441,7 @@ func _capture_pace() -> void:
 func _capture_action() -> void:
 	DisplayServer.window_set_size(Vector2i(1920, 1080))
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	sim.capital_ships_enabled = false
 	sim.manual_difficulty = 3
 	root.add_child(sim)
 	sim.apply_action_preset()
@@ -455,6 +460,7 @@ func _capture_action() -> void:
 func _render_benchmark() -> void:
 	DisplayServer.window_set_size(Vector2i(1920, 1080))
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	sim.capital_ships_enabled = false
 	sim.manual_difficulty = 3
 	root.add_child(sim)
 	sim.apply_action_preset()

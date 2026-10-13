@@ -1,0 +1,33 @@
+[gd_scene load_steps=7 format=3]
+
+[ext_resource type="Script" path="res://scripts/capital_ship.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/capital_ship_visuals.gd" id="2"]
+
+[sub_resource type="BoxShape3D" id="Hull"]
+size = Vector3(16, 12, 58)
+[sub_resource type="BoxShape3D" id="Arms"]
+size = Vector3(64, 5, 16)
+[sub_resource type="BoxShape3D" id="Bridge"]
+size = Vector3(10, 12, 18)
+[sub_resource type="BoxShape3D" id="Stern"]
+size = Vector3(22, 10, 8)
+
+[node name="CapitalShip" type="CharacterBody3D" groups=["capital_ships", "hostile_agents"]]
+collision_layer = 4
+collision_mask = 2
+motion_mode = 1
+script = ExtResource("1")
+
+[node name="HullCollision" type="CollisionShape3D" parent="."]
+shape = SubResource("Hull")
+[node name="ArmCollision" type="CollisionShape3D" parent="."]
+position = Vector3(0, -1, 4)
+shape = SubResource("Arms")
+[node name="BridgeCollision" type="CollisionShape3D" parent="."]
+position = Vector3(0, 9, 1)
+shape = SubResource("Bridge")
+[node name="SternCollision" type="CollisionShape3D" parent="."]
+position = Vector3(0, 0, 29)
+shape = SubResource("Stern")
+[node name="Visuals" type="Node3D" parent="."]
+script = ExtResource("2")

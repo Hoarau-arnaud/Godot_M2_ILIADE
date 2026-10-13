@@ -1,6 +1,79 @@
-# Simulation SMA spatiale — milestone 9
+# Simulation SMA spatiale — milestone 10
 
-Projet pédagogique **Godot 4.7.2 / GDScript**. Dix chasseurs bleus progressent vers **Z négatif**, comme un banc de poissons dans un champ d'astéroïdes. Les trois agents sont **BlueShip, PatrolDrone et Interceptor**. M9 ajoute des trajectoires d'astéroïdes, leur anticipation locale, une coque profilée, un viewport responsive et davantage de décor et d'indices de vitesse. La démonstration démarre à **1,7×**, avec **Mouvement 1,2**. Les règles collectives, HP, dégâts et cadences sont conservés. **MANUEL 3** est le scénario principal ; le lancement reste en AUTO. Aucun nouvel agent ou asset externe.
+Projet pédagogique **Godot 4.7.2 / GDScript**, avec quatre types d'agents : **BlueShip, PatrolDrone, Interceptor et Capital Artillery Ship**. M10 ajoute un grand hostile lointain, cinq familles de salves lentes et une phase de vulnérabilité. Les astéroïdes restent l'environnement ; les missiles sont des objets de combat. Le lancement AUTO conserve dix chasseurs, la vitesse **1,7×** et le mouvement **1,2**. Le **Mode spectacle** utilise désormais 15 chasseurs, 5 drones, 4 intercepteurs et 1 Capital. Navigation M1–M9, fenêtre responsive, plein écran et caméra restent disponibles. Aucun asset externe ni bombe BlueShip.
+
+## M10 — Capital Artillery Ship
+
+Le quatrième agent est un corps destructible, distinct des chasseurs et intercepteurs. Sa coque procédurale mesure **66 m**, avec un pont central, des plaques de blindage, deux bras latéraux, six batteries, deux lanceurs de salves et **quatre moteurs violets**. Les boîtes physiques couvrent coque, bras, pont et blindage arrière ; les flammes sont visuelles. Groupes : `capital_ships` et `hostile_agents`.
+
+Il observe toutes les **0,25 s** le centre approximatif, la vitesse moyenne, la dispersion et le nombre de survivants. Son RNG personnel découle de `simulation_seed` ; un cycle mélangé comporte les cinq attaques, l'éventail étant privilégié si la dispersion dépasse 40 m. Le choix est fait **une seule fois à OBSERVE → PREPARE**. Il ignore les règles internes des chasseurs.
+
+**ENTRY → OBSERVE → PREPARE → FIRE → COOLDOWN → REPOSITION → OBSERVE**. ENTRY dure 2 s, OBSERVE au moins 1 s, PREPARE **0,8–1,8 s**, FIRE au moins 0,5 s (jusqu'à 1,4 s pour les six tirs croisés), COOLDOWN **3–6 s**. Les lanceurs pulsent et se chargent avant le départ. Une correction locale anticipe les rochers à six secondes ; un obstacle critique à moins de deux secondes fait passer ENTRY/REPOSITION en **AVOIDING**, puis reprend l'état et son timer après 0,6 s de zone sûre. Les balayages physiques empêchent de simplement traverser une roche.
+
+Le Capital accompagne le groupe vers −Z : cible normale **190 m devant**, dérive X/Y lente (3 m/s hors évitement), accélération 4 m/s², correction Z bornée à ±6 m/s autour de la vitesse collective. Il n'est pas téléporté. Après chaque troisième salve, REPOSITION vise **65 m devant**, tient la proximité pendant 10 s, puis retourne vers sa distance normale ; délai de sortie de sécurité 38 s si les obstacles empêchent l'approche. Les distances 120–250 m et 50–90 m sont des zones visées, pas des contraintes imposées par téléportation.
+
+**24 HP**, laser BlueShip **−1 HP**. Le blindage arrière est un point visable du même corps, situé 32 m derrière son centre : au rapprochement, il entre naturellement dans les **44 m** de portée bleue. La portée, le cône de tir et la navigation BlueShip restent inchangés ; aucune poursuite du Capital. À zéro HP : arrêt des attaques, moteurs éteints, six petites explosions, une finale à 2,5 s, disparition à **3,4 s**, compteur ennemi incrémenté une seule fois. Les tirs existants poursuivent leur vol. Remplacement sûr après **25 s de simulation** ; un volume encombré reporte l'apparition.
+
+| Attaque | Nombre / vitesse | Identité et comportement | Dégâts / rayon d'esquive |
+|---|---|---|---|
+| HEAVY_SHOT | 1 / **27 m/s** | Masse violette, noyau orange, traînée 12 m ; collision sphérique rayon 1,8 m | **2 HP / 10 m** |
+| SPREAD | **5 / 30 m/s** | Bolts jaunes/orange ; centre + quatre offsets de 12–24 m autour du groupe | 1 HP / 4 m |
+| ARC_SALVO | **4 / 30 m/s** sur la corde | Magenta ; bosse latérale/verticale `24 × sin²(πt/T)`, fin dans la zone prévue | 1 HP / 4 m |
+| CROSS_FIRE | **6 / 30 m/s** | Deux lanceurs séparés de 46 m, directions convergentes, traits orange 7 m | 1 HP / 4 m |
+| SEEKER_SALVO | **3 / 30 m/s** | Missile rouge avec moteur ; cible choisie au lancement, correction **≤6°/s**, dernière direction si cible perdue | 1 HP / 5 m |
+
+Les projectiles partagent `scripts/artillery_projectile.gd` et les groupes `hostile_projectiles` / `artillery_projectiles`. Ils exposent `velocity`, `damage`, `avoidance_radius`, ont une durée de vie maximale de **14 s**, et balayent leur volume avec [move_and_collide](https://docs.godotengine.org/en/stable/classes/class_physicsbody3d.html#class-physicsbody3d-method-move-and-collide). Ils touchent uniquement les BlueShip et les astéroïdes, qui absorbent aussi les salves. Les tirs courbes ont une vitesse instantanée supérieure à 30 m/s pendant la déviation ; 30 m/s désigne leur progression sur la corde.
+
+Le plafond partagé est **50 projectiles d'artillerie actifs**. Une nouvelle salve est refusée si elle ne tient pas entièrement dans le budget ; il n'existe pas de file de salves infinie. Les historiques de diagnostic du Capital sont bornés à 64 entrées. Les BlueShip lisent le rayon du projectile sans distinction par classe, avec la priorité **collision/obstacle → projectile → séparation critique → flocking/récupération → tir**. Un tir est interdit pendant une esquive critique.
+
+| Niveau | BlueShip au lancement | PatrolDrone | Interceptor | Capital |
+|---|---:|---:|---:|---:|
+| 1 ★☆☆ | 10 | 1 | 0 | **0** |
+| 2 ★★☆ | 10 | 2 | 1 | **0** |
+| 3 ★★★ | 10 | 3 | 2 | **1** |
+| Mode spectacle | **15** | **5** | **4** | **1** |
+
+Le panneau affiche `Capital Ship [−] 0/1 [+]`. Reset agents efface l'override et reprend la cible du niveau. Le HUD vidéo demeure uniquement le compteur de pertes et les étoiles. La caméra conserve le groupe bleu : lorsqu'un Heavy est préparé et que le Capital est déjà visible avec assez de marge, la cible de cadrage se décale progressivement de **4 m maximum**. Les Heavy/Seeker proches, grosses salves et explosions contribuent modérément à `action_intensity`, au FOV et au roulis borné ; aucun cut ni caméra dédiée.
+
+### Validation M10
+
+`tests/validate_capital_artillery.gd` vérifie les états et leur reprise, seed, cinq salves, arc réellement courbe et endpoint, pas 60/120 Hz sous time_scale 1/2, guidage borné et cible supprimée, esquive Heavy et Seeker, collisions et dégâts des cinq objets, absorption par rocher, lifetime, budget, laser → Capital, destruction unique, délai de remplacement, populations, panneau et spectacle. Les suites M1–M9 restent séparées avec `capital_ships_enabled=false` dans les fixtures anciennes. Le test de preset historique tient compte de la nouvelle consigne de 15 BlueShip.
+
+```powershell
+$godotExe = 'C:\Users\Sora\Desktop\Godot_v4.7.2-stable_win64.exe'
+Start-Process -FilePath $godotExe -ArgumentList '--headless','--path','.','--fixed-fps','60','--script','res://tests/validate_capital_artillery.gd','--log-file','.godot/validate_capital_artillery_m10_final.log' -WindowStyle Hidden -Wait
+```
+
+Pour les essais avec rendu, enlever `--headless` **et `--fixed-fps`**, puis ajouter `-- --native` (spectacle 60 s réelles) ou `-- --long-native` (difficile 180 s réelles). `-- --capture-design`, avec rendu, produit les vues contrôlées du modèle et du panneau. Les journaux, JSON et captures restent dans `.godot/`, ignorés par Git. Les parcours fixes headless comptent des ticks équivalant à 90/60/180 s au rythme physique ; leur exécution est accélérée. Le coût est un temps moyen d'exécution par tick incluant simulation et instrumentation, pas un profiler de CPU isolé ni des FPS.
+
+Résultats **Godot 4.7.2, seed 20261012**, vitesse 1,7×. Difficile démarre directement en MANUEL 3 avec les valeurs par défaut ; spectacle ajoute progressivement les chasseurs manquants. Ordre des salves **H / S / A / C / K = Heavy / Spread / Arc / Cross / Seeker**. Les esquives comptent des épisodes de réaction à tous les projectiles hostiles, sans prouver qu'un impact aurait eu lieu.
+
+| Parcours | Blue vivants / morts | Capital actif / détruit | Salves H/S/A/C/K (total) | Impacts artillerie Blue / rocher | Esquives | Dispersion max → finale (m) |
+|---|---:|---:|---|---:|---:|---:|
+| Difficile 90 s, headless | 9 / 1 | 1 / 0 | 2/1/1/1/2 (7) | 0 / 2 | 72 | 35,84 → 19,21 |
+| Spectacle 60 s, headless | 14 / 1 | 1 / 0 | 1/1/1/1/1 (5) | 0 / 5 | 64 | 66,08 → 37,31 |
+| Difficile 180 s, headless | 9 / 1 | 1 / 0 | 3/3/3/2/3 (14) | 0 / 4 | 122 | 58,55 → 52,70 |
+| Spectacle 60 s réelles, rendu | 13 / 2 | 1 / 0 | 1/1/1/1/1 (5) | 1 / 2 | 44 | 64,17 → 41,07 |
+| Difficile 180 s réelles, rendu | 10 / 0 | 1 / 0 | 3/3/3/2/3 (14) | 1 / 3 | 116 | 42,02 → 21,83 |
+
+| Parcours | Projectiles total max / fin | Artillerie max (plafond 50) | Nœuds max / fin | Coût headless (ms/tick) | FPS moyen / minimum sur 1 s |
+|---|---:|---:|---:|---:|---:|
+| Difficile 90 s, headless | 19 / 1 | 9 | 1309 / 929 | 1,12 | — |
+| Spectacle 60 s, headless | 22 / 7 | 6 | 1493 / 1408 | 1,69 | — |
+| Difficile 180 s, headless | 19 / 7 | 9 | 1309 / 1134 | 1,13 | — |
+| Spectacle 60 s réelles, rendu | 21 / 8 | 6 | 1456 / 1366 | — | 98,52 / 81,22 |
+| Difficile 180 s réelles, rendu | 17 / 4 | 11 | 1424 / 1110 | — | 99,47 / 90,31 |
+
+Le spectacle avec rendu dure **60,08 s réelles**, avec **5 PatrolDrone, 4 Interceptor et 1 Capital** à la fin. Le parcours long dure **180,01 s réelles**, avec **3 drones, 1 intercepteur, 1 Capital**, et **306,09 s de simulation**. Rendu natif **1920×1080, Intel Arc Graphics, Compatibility OpenGL, MSAA 4×, VSync**, sans `--fixed-fps`. Les captures à 20/40/60 s sont incluses dans le coût du spectacle. L'objectif moyen >60 FPS est atteint.
+
+Les nœuds sont échantillonnés toutes les 0,5 s en headless et environ chaque seconde avec rendu ; les projectiles sont suivis à chaque tick. Le parcours long garde un budget stable et des projectiles supprimés, sans erreur, warning ou référence invalide dans les journaux finaux. Aucun Capital n'est détruit dans ces parcours naturels : le test contrôlé valide séparément destruction unique, explosions et respawn 25 s. Une destruction naturelle n'est pas promise.
+
+Le test de vulnérabilité atteint **66,42 m**, avec un pas maximal de **0,174 m**, puis un tir bleu naturel sans poursuite. Le contrôle Heavy prouve l'esquive avec perception et l'impact **−2 HP** sans perception. La dispersion diminue après les perturbations dans plusieurs parcours, mais le spectacle réel termine avec **1 chasseur isolé** et le long avec **0** : le regroupement local ne garantit pas que tous les survivants reviennent.
+
+Les six suites historiques et la suite M10 passent. Journaux finaux : `.godot/validate_*_m10_final.log`, `.godot/m10_native_final.log`, `.godot/m10_native_long_final.log`. Les FPS et les pertes peuvent varier entre rendu et headless ; les résultats ne couvrent pas plusieurs graines ni plusieurs heures.
+
+
+Limites : anticipation locale à vitesse instantanée pour arcs et guidage ; salves stoppées par les rochers ; faible taux de dégâts possible selon la graine. Le Capital peut manquer son créneau de vulnérabilité si le champ est encombré, et sa destruction n'est pas garantie pendant un parcours normal. Les populations sont des cibles, avec délai après destruction. La récupération bleue reste locale (50 m), donc certaines dispersions ne se résorbent pas. Une seule graine et cette machine ne démontrent pas un équilibrage général ni la performance d'une session de plusieurs heures.
 
 ## Lancement
 
@@ -51,15 +124,16 @@ Le panneau **Contrôles**, visible au lancement, est placé à droite : largeur 
 | BlueShip −/+ | 5–20 | 10 ; ajoute ou retire des chasseurs |
 | PatrolDrone −/+ | 0–8 | Cible du niveau, puis override explicite |
 | Interceptor −/+ | 0–8 | Cible du niveau, puis override explicite |
+| Capital Ship −/+ | 0–1 | 0 en niveaux 1/2, 1 en niveau 3 ; override explicite |
 | Mouvement | 0,5–2,0, pas 0,1 | **1,2** ; amplitude du wander X/Y/Z |
 | Espacement | 0,8–1,4, pas 0,1 | 1,0 ; distances de séparation, seuil critique et confort de cohésion |
-| Reset agents | Bouton | Efface seulement les deux overrides ennemis |
+| Reset agents | Bouton | Efface les trois overrides ennemis |
 | Plein écran | Toggle | Même bascule que F11 |
 | Caméra cinématique | Toggle | Synchronisé avec C et F |
-| Mode spectacle | Bouton | Manuel 3, vitesse 1,7×, mouvement 1,3, verts 5, rouges 4, espacement 1,0 et Cinématique |
+| Mode spectacle | Bouton | Manuel 3, vitesse 1,7×, mouvement 1,3, BlueShip 15, verts 5, rouges 4, Capital 1, espacement 1,0 et Cinématique |
 | Normal | Bouton | Vitesse 1,7×, mouvement 1,2, populations du niveau courant, espacement 1,0 et Suivi |
 
-Les presets réutilisent les réglages runtime. Ils ne recréent pas la scène et conservent les morts, la distance, les BlueShip et le champ. Normal conserve la difficulté courante. HUD, panneau et aide sont ancrés dans le canvas responsive, avec 1280×720 comme référence de taille.
+Les presets réutilisent les réglages runtime. Ils ne recréent pas la scène et conservent les morts, la distance et le champ. Spectacle demande 15 BlueShip, avec les ajouts progressifs habituels ; Normal conserve ensuite les chasseurs présents. Normal conserve la difficulté courante. HUD, panneau et aide sont ancrés dans le canvas responsive, avec 1280×720 comme référence de taille.
 
 Les étoiles **★☆☆ / ★★☆ / ★★★** représentent toujours `difficulty_level` effectif, avec les étoiles pleines jaunes et les vides gris. Elles changent immédiatement avec les touches 0/1/2/3 et avec les seuils AUTO. Aucun texte « Niveau », « AUTO » ou « MANUEL » ne les accompagne.
 
@@ -71,7 +145,7 @@ Le suivi utilise le temps de simulation pour rester fluide ; le pan libre utilis
 
 ### Populations et réglages
 
-Les comptes ennemis affichés sont des **cibles**, pas des statistiques de destruction. `manual_drone_count_override` et `manual_interceptor_count_override` valent **−1** par défaut : utiliser la difficulté. Une valeur **0–8** maintient la population choisie, même après un changement de niveau. **Reset agents** restaure −1 : les populations reprennent les nombres du niveau courant. Les morts, la distance, l'environnement, les BlueShip et les autres sliders restent inchangés.
+Les comptes ennemis affichés sont des **cibles**, pas des statistiques de destruction. `manual_drone_count_override`, `manual_interceptor_count_override` et `manual_capital_count_override` valent **−1** par défaut : utiliser la difficulté. Une valeur **0–8** (ou **0–1** pour le Capital) maintient la population choisie, même après un changement de niveau. **Reset agents** restaure −1 : les populations reprennent les nombres du niveau courant. Les morts, la distance, l'environnement, les BlueShip et les autres sliders restent inchangés.
 
 Les ajouts runtime sont espacés de **0,4 s de simulation**. Les ennemis réutilisent leurs apparitions sûres ; les nouveaux BlueShip apparaissent autour/derrière le groupe, avec contrôle des autres corps et du rayon des rochers. Chaque chasseur reçoit une seed unique, les groupes et les connexions de combat, puis rejoint les règles locales. Une position encombrée retarde l'ajout et provoque une nouvelle tentative.
 
@@ -645,7 +719,7 @@ Références API : [PrismMesh](https://docs.godotengine.org/en/stable/classes/cl
 - L'approche mobile suppose une vitesse constante sur quelques secondes. Des changements brusques ou des dangers opposés peuvent faire échouer l'évitement. Les ticks de réaction ne constituent pas un décompte certain de collisions évitées.
 - Les drones n'évitent pas encore les autres drones. Leur remplacement peut momentanément réduire la population ; leur route n'est pas recentrée continuellement sur le groupe bleu.
 - La récupération ne peut réunir des groupes dont aucun membre ne voit l'autre à 50 m. Aucun rappel global invisible n'impose un regroupement.
-- Les tirs sont droits et leur visée initiale est approximative. L'intercepteur poursuit pendant un temps limité ; les BlueShip ne poursuivent pas de cible. Aucun impact rouge n'est observé dans les trois parcours M6, et aucun hostile n'est détruit dans les deux parcours MANUEL 3 : l'équilibrage reste à étudier sur plusieurs graines.
+- Les lasers restent droits ; l’artillerie ajoute arcs et guidage limité. Leur visée initiale est approximative. L'intercepteur poursuit pendant un temps limité ; les BlueShip ne poursuivent pas de cible. Aucun impact rouge n'est observé dans les trois parcours M6, et aucun hostile n'est détruit dans les deux parcours MANUEL 3 : l'équilibrage reste à étudier sur plusieurs graines.
 - L'objectif de 9–14 m est un espacement moyen, pas une distance minimale imposée. Les manœuvres peuvent créer des rapprochements brefs ; le test normal M3 mesure 6,71 m au plus près.
 - Les hitboxes simplifient et réduisent la silhouette des chasseurs ; les pointes des ailes, le bout du nez et les flammes ne sont pas intégralement couverts.
 - Les tailles des astéroïdes sont nominales : la déformation et les lobes irréguliers modifient leurs dimensions exactes.
@@ -659,6 +733,4 @@ Références API : [PrismMesh](https://docs.godotengine.org/en/stable/classes/cl
 
 ## Hors de ce milestone et perspectives
 
-BlueShip, PatrolDrone et Interceptor sont les trois agents implémentés. Les astéroïdes restent indestructibles et ne sont pas des agents. **Agent 4, missiles, bombes BlueShip et scénarios finaux ne sont pas implémentés.**
-
-Planning : **M9 — Vol dynamique / obstacles mobiles / responsive / décor** ; **M10 — Agent 4 : Capital Artillery Ship**, grand vaisseau d'artillerie lointain qui enverra plusieurs familles de missiles lents, salves, arcs, guidage léger éventuel et barrages. Il restera à l'horizon et ne poursuivra pas physiquement les BlueShip comme un Interceptor. **M11 — Bombes BlueShip / scénarios finaux / étude / PowerPoint**. M9 s'arrête au vol dynamique ; M10 n'est pas commencé.
+Les quatre agents sont implémentés. Les astéroïdes restent des obstacles indestructibles ; les missiles sont des projectiles. **M11 — Bombes BlueShip / scénarios finaux / étude / PowerPoint** reste au planning. Aucune bombe ni système M11 n'est ajouté dans M10.

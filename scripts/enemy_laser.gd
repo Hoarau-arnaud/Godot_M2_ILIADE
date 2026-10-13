@@ -9,6 +9,7 @@ enum VisualVariant { BOLT, SPEAR, PULSE }
 @export var projectile_speed: float = 45.0
 @export var lifetime: float = 3.5
 @export var damage: int = 1
+@export var avoidance_radius: float = 4.0
 @export var visual_variant: VisualVariant = VisualVariant.BOLT
 
 var flight_direction: Vector3 = Vector3.FORWARD

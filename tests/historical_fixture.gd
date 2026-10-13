@@ -6,6 +6,7 @@ extends RefCounted
 static func configure(simulation: SpaceSimulation, speed: float = 1.0) -> void:
 	simulation.simulation_speed_multiplier = speed
 	simulation.movement_multiplier = 1.0
+	simulation.capital_ships_enabled = false
 	var field: ObstacleField = simulation.get_node("Asteroids") as ObstacleField
 	field.cinematic_patterns_enabled = false
 	field.moving_asteroids_enabled = false

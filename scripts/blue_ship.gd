@@ -83,8 +83,8 @@ var projectile_avoidance_active: bool = false
 var projectile_threat_count: int = 0
 var projectile_dodge_count: int = 0
 var projectile_dodge_ticks: int = 0
-var _projectile_directions: Dictionary[EnemyLaser, Vector3] = {}
-var _projectile_memory_until: Dictionary[EnemyLaser, float] = {}
+var _projectile_directions: Dictionary[Node3D, Vector3] = {}
+var _projectile_memory_until: Dictionary[Node3D, float] = {}
 var _hit_flash_time: float = 0.0
 var behavior_state: BehaviorState = BehaviorState.NAVIGATION
 var neighbor_count: int = 0
@@ -195,6 +195,10 @@ func _firing_forward() -> Vector3:
 	return -_muzzle.global_basis.z.normalized()
 
 
+func _combat_aim_position(target: Node3D) -> Vector3:
+	return target.call("combat_aim_position", _muzzle.global_position) if target.has_method("combat_aim_position") else target.global_position
+
+
 func _find_combat_target() -> Node3D:
 	var selected: Node3D = null
 	var nearest: float = maxf(combat_detection_radius, 0.0)
@@ -204,7 +208,7 @@ func _find_combat_target() -> Node3D:
 		var target: Node3D = node as Node3D
 		if target == null or target.is_queued_for_deletion() or not target.has_method("take_damage") or not bool(target.get("alive")):
 			continue
-		var offset: Vector3 = target.global_position - _muzzle.global_position
+		var offset: Vector3 = _combat_aim_position(target) - _muzzle.global_position
 		var distance: float = offset.length()
 		if distance < 0.001 or distance > nearest or offset.normalized().dot(forward) < minimum_dot:
 			continue
@@ -217,7 +221,7 @@ func _find_combat_target() -> Node3D:
 
 
 func _has_clear_line_of_sight(target: Node3D) -> bool:
-	var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(_muzzle.global_position, target.global_position, 2)
+	var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(_muzzle.global_position, _combat_aim_position(target), 2)
 	query.hit_from_inside = true
 	return get_world_3d().direct_space_state.intersect_ray(query).is_empty()
 
@@ -241,14 +245,14 @@ func _update_combat(delta: float) -> void:
 	# Le combat ne modifie aucune vitesse, force ou orientation de navigation.
 	if _fire_timer > 0.0 or behavior_state == BehaviorState.AVOIDANCE or projectile_avoidance_active or critical_separation_active:
 		return
-	if _muzzle.global_position.distance_to(combat_target.global_position) > maxf(firing_range, 0.0):
+	if _muzzle.global_position.distance_to(_combat_aim_position(combat_target)) > maxf(firing_range, 0.0):
 		return
 	var projectile: BlueLaser = LASER_SCENE.instantiate() as BlueLaser
 	# Estimation unique au départ, sans guidage du projectile ni rotation du chasseur.
 	var target_velocity: Vector3 = Vector3.ZERO
 	if combat_target is CharacterBody3D:
 		target_velocity = (combat_target as CharacterBody3D).velocity
-	var offset: Vector3 = combat_target.global_position - _muzzle.global_position
+	var offset: Vector3 = _combat_aim_position(combat_target) - _muzzle.global_position
 	var closing_speed: float = maxf(projectile.projectile_speed - target_velocity.dot(offset.normalized()), 1.0)
 	var flight_time: float = offset.length() / closing_speed
 	var direction: Vector3 = (offset + target_velocity * flight_time).normalized()
@@ -456,7 +460,8 @@ func _mobile_avoidance() -> Vector3:
 		if offset.length() > maxf(mobile_detection_radius, 0.0):
 			continue
 		var relative_velocity: Vector3 = drone.velocity - velocity
-		var clearance: float = SHIP_CLEARANCE + 2.2 + maxf(obstacle_clearance, 0.0)
+		var body_radius: Variant = drone.get("body_clearance")
+		var clearance: float = SHIP_CLEARANCE + (float(body_radius) if body_radius != null else 2.2) + maxf(obstacle_clearance, 0.0)
 		var prediction: Vector2 = MobileAvoidance.approach(offset, relative_velocity, mobile_prediction_time)
 		if prediction.y >= clearance or (prediction.x <= 0.0 and offset.dot(relative_velocity) >= 0.0 and offset.length() > clearance):
 			continue
@@ -485,24 +490,26 @@ func _projectile_avoidance() -> Vector3:
 			_projectile_directions.erase(key)
 			_projectile_memory_until.erase(key)
 			continue
-		var remembered: EnemyLaser = key as EnemyLaser
+		var remembered: Node3D = key as Node3D
 		if remembered.is_queued_for_deletion() or _time > _projectile_memory_until[remembered]:
 			_forget_projectile(remembered)
 	for node: Node in get_tree().get_nodes_in_group("hostile_projectiles"):
-		var projectile: EnemyLaser = node as EnemyLaser
+		var projectile: Node3D = node as Node3D
 		if projectile == null or projectile.is_queued_for_deletion():
 			continue
 		var offset: Vector3 = projectile.global_position - global_position
-		if offset.length() > maxf(hostile_projectile_detection_radius, 0.0):
+		var danger_radius: float = maxf(float(projectile.get("avoidance_radius")), 0.1)
+		var clearance: float = maxf(projectile_safety_distance, danger_radius)
+		if offset.length() > maxf(hostile_projectile_detection_radius, 0.0) + maxf(clearance - projectile_safety_distance, 0):
 			continue
-		var relative_velocity: Vector3 = projectile.velocity - velocity
+		var relative_velocity: Vector3 = Vector3(projectile.get("velocity")) - velocity
 		# Seuls les tirs entrants dont le passage prédit est trop proche comptent.
 		if offset.dot(relative_velocity) >= 0.0:
 			continue
 		var prediction: Vector2 = MobileAvoidance.approach(offset, relative_velocity, projectile_prediction_time)
 		if prediction.x <= 0.0:
 			continue
-		var dangerous: bool = prediction.y < maxf(projectile_safety_distance, 0.1)
+		var dangerous: bool = prediction.y < clearance
 		# Une courte persistance évite d'alterner esquive/navigation à la frontière de 4 m.
 		if not dangerous and not _projectile_directions.has(projectile):
 			continue
@@ -513,7 +520,7 @@ func _projectile_avoidance() -> Vector3:
 				projectile.tree_exiting.connect(callback, CONNECT_ONE_SHOT)
 		if dangerous:
 			_projectile_memory_until[projectile] = _time + maxf(projectile_direction_memory, 0.05)
-		var force: Vector3 = MobileAvoidance.steering(offset, relative_velocity, prediction.x, projectile_safety_distance, _projectile_directions[projectile])
+		var force: Vector3 = MobileAvoidance.steering(offset, relative_velocity, prediction.x, clearance, _projectile_directions[projectile])
 		# Garder la première menace si deux rafales demandent des corrections opposées.
 		if result.length_squared() > 0.01 and force.dot(result) < 0.0:
 			force *= 0.25
@@ -528,7 +535,7 @@ func _projectile_avoidance() -> Vector3:
 	return result.limit_length(3.0)
 
 
-func _forget_projectile(projectile: EnemyLaser) -> void:
+func _forget_projectile(projectile: Node3D) -> void:
 	_projectile_directions.erase(projectile)
 	_projectile_memory_until.erase(projectile)
 

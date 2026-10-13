@@ -22,6 +22,9 @@ var cinematic_shot: Shot = Shot.CHASE
 var shot_changes: int = 0
 var shot_history: Array[int] = []
 var group_velocity: Vector3 = Vector3.ZERO
+var capital_preparing: bool = false
+var capital_focus: Vector3 = Vector3.ZERO
+var _capital_composition: Vector3 = Vector3.ZERO
 var _demo_pace: float = 1.0
 var _cine_random: RandomNumberGenerator = RandomNumberGenerator.new()
 var _cine_time: float = 0.0
@@ -159,6 +162,14 @@ func _update_cinematic(delta: float) -> void:
 	var lead_lag: float = sin(_cine_time * 0.35) * 3.5 * clampf(-group_velocity.z / 10.5, 0.0, 1.2)
 	offset += Vector3(-group_velocity.x * 1.2, group_velocity.y * 0.7, lead_lag)
 	var target: Vector3 = _group_center + Vector3(group_velocity.x * 0.65, group_velocity.y * 0.5, -8.0)
+	var composition: Vector3 = Vector3.ZERO
+	if capital_preparing and _group_spread < 40 and not is_position_behind(capital_focus):
+		var screen: Vector2 = unproject_position(capital_focus)
+		var viewport_size: Vector2 = get_viewport().get_visible_rect().size
+		if Rect2(Vector2.ZERO, viewport_size).grow(-30).has_point(screen):
+			composition = (capital_focus - _group_center).limit_length(4)
+	_capital_composition = _capital_composition.lerp(composition, 1 - exp(-1.5 * delta))
+	target += _capital_composition
 	var direction: Vector3 = offset.normalized()
 	var desired_position: Vector3 = target + direction * maxf(offset.length(), _framing_distance(target, direction))
 	if cinematic_obstacle_avoidance:
@@ -174,7 +185,7 @@ func _update_cinematic(delta: float) -> void:
 		_cine_offset = position_candidate - _group_center
 	global_position = position_candidate
 	var desired_basis: Basis = Basis.looking_at((target - global_position).normalized(), Vector3.UP)
-	var roll: float = clampf(deg_to_rad(-group_velocity.x * 0.65) + sin(_cine_time * 0.11) * 0.018, deg_to_rad(-4.0), deg_to_rad(4.0))
+	var roll: float = clampf(deg_to_rad(-group_velocity.x * 0.65) + sin(_cine_time * 0.11) * (0.018 + _action_intensity * 0.008), deg_to_rad(-4.0), deg_to_rad(4.0))
 	desired_basis = desired_basis.rotated(-desired_basis.z, roll)
 	# Garder le barycentre dans l'axe pendant la translation déjà interpolée.
 	quaternion = quaternion.slerp(desired_basis.get_rotation_quaternion(), 1.0 - exp(-5.0 * delta))

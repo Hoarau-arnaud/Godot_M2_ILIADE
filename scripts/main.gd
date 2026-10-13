@@ -4,6 +4,7 @@ extends Node3D
 const SHIP_SCENE: PackedScene = preload("res://scenes/blue_ship.tscn")
 const DRONE_SCENE: PackedScene = preload("res://scenes/patrol_drone.tscn")
 const INTERCEPTOR_SCENE: PackedScene = preload("res://scenes/interceptor.tscn")
+const CAPITAL_SCENE: PackedScene = preload("res://scenes/capital_ship.tscn")
 const DEFAULT_DEMO_SPEED: float = 1.7
 const DEFAULT_MOVEMENT: float = 1.2
 const DIFFICULTY_NAMES: Array[String] = ["Facile", "Intermédiaire", "Difficile"]
@@ -16,6 +17,9 @@ const DIFFICULTY_NAMES: Array[String] = ["Facile", "Intermédiaire", "Difficile"
 @export var metrics_update_interval: float = 0.4
 @export_range(0, 3, 1) var manual_difficulty: int = 0
 @export var combat_enabled: bool = true
+@export var capital_ships_enabled: bool = true
+@export_range(-1, 1, 1) var manual_capital_count_override: int = -1
+@export var capital_replacement_delay: float = 25.0
 
 @export_category("Démonstration")
 @export_range(0.5, 2.5, 0.1) var simulation_speed_multiplier: float = DEFAULT_DEMO_SPEED
@@ -58,6 +62,15 @@ var isolated_agent_count: int = 0
 var ships: Array[BlueShip] = []
 var drones: Array[PatrolDrone] = []
 var interceptors: Array[Interceptor] = []
+var capitals: Array[CapitalShip] = []
+var capitals_destroyed: int = 0
+var capital_spawn_count: int = 0
+var capital_salvos: Array[int] = [0, 0, 0, 0, 0]
+var artillery_hits: int = 0
+var artillery_obstacle_hits: int = 0
+var maximum_artillery_projectiles: int = 0
+var _capital_random: RandomNumberGenerator = RandomNumberGenerator.new()
+var _capital_replacement_timer: float = 0
 var interceptor_death_count: int = 0
 var interceptor_retired_count: int = 0
 var interceptor_spawn_count: int = 0
@@ -95,6 +108,7 @@ var _engine_settings_owned: bool = false
 @onready var asteroid_container: ObstacleField = $Asteroids
 @onready var drone_container: Node3D = $PatrolDrones
 @onready var interceptor_container: Node3D = $Interceptors
+@onready var capital_container: Node3D = $CapitalShips
 @onready var projectile_container: Node3D = $Projectiles
 @onready var camera: SimulationCamera = $Camera3D
 @onready var space_decor: SpaceEnvironment = $SpaceDecor
@@ -114,6 +128,7 @@ func _ready() -> void:
 	_ship_spawn_random.seed = simulation_seed + 83003
 	_drone_random.seed = simulation_seed + 91003
 	_interceptor_random.seed = simulation_seed + 93037
+	_capital_random.seed = simulation_seed + 103049
 	_create_ships()
 	_last_center = _fleet_center()
 	_origin_z = _last_center.z
@@ -124,6 +139,7 @@ func _ready() -> void:
 		asteroid_container.advance(_last_center, z_bounds.x, z_bounds.y)
 	_maintain_drones(_last_center, 0.0)
 	_maintain_interceptors(_last_center, 0.0)
+	_maintain_capitals(_last_center, 0.0)
 	camera.follow_speed = camera_follow_speed
 	camera.initialize_view(_last_center, simulation_seed)
 	_measure_group(_last_center)
@@ -141,6 +157,8 @@ func _physics_process(delta: float) -> void:
 	_update_difficulty()
 	_maintain_drones(center, delta)
 	_maintain_interceptors(center, delta)
+	_maintain_capitals(center, delta)
+	maximum_artillery_projectiles = maxi(maximum_artillery_projectiles, get_tree().get_nodes_in_group("artillery_projectiles").size())
 	for ship: BlueShip in ships:
 		if ship.projectile_avoidance_active:
 			projectile_dodge_ticks += 1
@@ -155,6 +173,8 @@ func _physics_process(delta: float) -> void:
 			cleanup_rear = maxf(cleanup_rear, drone.global_position.z)
 		for interceptor: Interceptor in interceptors:
 			cleanup_rear = maxf(cleanup_rear, interceptor.global_position.z)
+		for capital: CapitalShip in capitals:
+			cleanup_rear = maxf(cleanup_rear, capital.global_position.z + 38)
 		asteroid_container.advance(center, z_bounds.x, cleanup_rear)
 	_measurement_timer += delta
 	if _measurement_timer >= maxf(metrics_update_interval, 0.1):
@@ -254,6 +274,9 @@ func _spawn_drone(center: Vector3, front_z: float) -> bool:
 		for other: Interceptor in interceptors:
 			if position_candidate.distance_to(other.global_position) < 12.0:
 				clear = false
+		for other: CapitalShip in capitals:
+			if position_candidate.distance_to(other.global_position) < CapitalShip.BODY_CLEARANCE + 8:
+				clear = false
 		if clear:
 			break
 	if not clear:
@@ -337,7 +360,7 @@ func _spawn_interceptor(center: Vector3, front_z: float) -> bool:
 				clear = false
 		for node: Node in get_tree().get_nodes_in_group("hostile_agents"):
 			var hostile: Node3D = node as Node3D
-			if candidate.distance_to(hostile.global_position) < 12.0:
+			if candidate.distance_to(hostile.global_position) < _hostile_spawn_clearance(hostile):
 				clear = false
 		if clear:
 			break
@@ -371,6 +394,75 @@ func _on_enemy_fired(projectile: EnemyLaser) -> void:
 	enemy_shots_fired += 1
 	projectile.hit_blue_ship.connect(_on_blue_ship_hit)
 	maximum_active_projectiles = maxi(maximum_active_projectiles, projectile_container.get_child_count())
+
+
+func target_capital_count() -> int:
+	if not capital_ships_enabled:
+		return 0
+	if manual_capital_count_override >= 0:
+		return clampi(manual_capital_count_override, 0, 1)
+	return 1 if difficulty_level == 3 else 0
+
+
+func set_capital_count_override(value: int) -> void:
+	manual_capital_count_override = clampi(value, 0, 1)
+	# Un override n'écourte pas le délai suivant une destruction.
+	demo_controls.refresh(self)
+
+
+func _maintain_capitals(center: Vector3, delta: float) -> void:
+	_capital_replacement_timer = maxf(_capital_replacement_timer - delta, 0)
+	while capitals.size() > target_capital_count():
+		var ship: CapitalShip = capitals.pop_back()
+		ship.retire()
+	if capitals.size() >= target_capital_count() or _capital_replacement_timer > 0 or ships.is_empty():
+		return
+	for _attempt: int in range(96):
+		var candidate: Vector3 = center + Vector3(_capital_random.randf_range(-60, 60), _capital_random.randf_range(-35, 40), -190)
+		var clear: bool = true
+		for node: Node in get_tree().get_nodes_in_group("asteroids"):
+			var obstacle: SpaceAsteroid = node as SpaceAsteroid
+			if candidate.distance_to(obstacle.global_position) < obstacle.avoidance_radius + CapitalShip.BODY_CLEARANCE + 8:
+				clear = false
+				break
+		for node: Node in get_tree().get_nodes_in_group("hostile_agents"):
+			if candidate.distance_to((node as Node3D).global_position) < 55:
+				clear = false
+		if not clear:
+			continue
+		var capital: CapitalShip = CAPITAL_SCENE.instantiate() as CapitalShip
+		capital.individual_seed = simulation_seed + 151003 + capital_spawn_count * 419
+		capital.combat_enabled = combat_enabled
+		capital.projectile_container = projectile_container
+		capital.position = capital_container.to_local(candidate)
+		capital.destroyed.connect(_on_capital_destroyed)
+		capital.salvo_started.connect(func(pattern: int) -> void: capital_salvos[pattern] += 1)
+		capital.fired.connect(_on_artillery_fired)
+		capital_container.add_child(capital)
+		capitals.append(capital)
+		capital_spawn_count += 1
+		return
+	_capital_replacement_timer = 1 # Volume encombré : réessayer sans apparition dangereuse.
+
+
+func _on_artillery_fired(projectile: ArtilleryProjectile) -> void:
+	enemy_shots_fired += 1
+	projectile.hit_blue_ship.connect(func(ship: BlueShip, amount: int) -> void:
+		artillery_hits += 1
+		_on_blue_ship_hit(ship, amount))
+	projectile.impacted.connect(func(obstacle: bool) -> void:
+		if obstacle:
+			artillery_obstacle_hits += 1)
+
+
+func _on_capital_destroyed(ship: CapitalShip) -> void:
+	if not capitals.has(ship):
+		return
+	capitals.erase(ship)
+	capitals_destroyed += 1
+	enemies_destroyed += 1
+	_capital_replacement_timer = maxf(capital_replacement_delay, 20)
+	_update_hud()
 
 
 func _on_blue_ship_hit(_ship: BlueShip, _amount: int) -> void:
@@ -497,9 +589,14 @@ func _runtime_ship_position_is_clear(candidate: Vector3) -> bool:
 			return false
 	for node: Node in get_tree().get_nodes_in_group("hostile_agents"):
 		var hostile: Node3D = node as Node3D
-		if candidate.distance_to(hostile.global_position) < 12.0:
+		if candidate.distance_to(hostile.global_position) < _hostile_spawn_clearance(hostile):
 			return false
 	return true
+
+
+func _hostile_spawn_clearance(hostile: Node3D) -> float:
+	var radius: Variant = hostile.get("body_clearance")
+	return maxf(12, float(radius) + 8) if radius != null else 12.0
 
 
 func set_drone_count_override(value: int) -> void:
@@ -517,6 +614,7 @@ func set_interceptor_count_override(value: int) -> void:
 func reset_population_overrides() -> void:
 	manual_drone_count_override = -1
 	manual_interceptor_count_override = -1
+	manual_capital_count_override = -1
 	demo_controls.refresh(self)
 
 
@@ -525,8 +623,10 @@ func apply_action_preset() -> void:
 	set_simulation_speed(DEFAULT_DEMO_SPEED)
 	set_movement_multiplier(1.3)
 	set_spacing_multiplier(1.0)
+	set_ship_count(15)
 	set_drone_count_override(5)
 	set_interceptor_count_override(4)
+	set_capital_count_override(1)
 	camera.set_mode(SimulationCamera.Mode.CINEMATIC)
 	demo_controls.refresh(self)
 
@@ -550,6 +650,11 @@ func _update_action_intensity(center: Vector3, delta: float) -> void:
 		if hostile.global_position.distance_to(center) < 70.0:
 			activity += 0.06
 	activity += get_tree().get_nodes_in_group("explosions").size() * 0.12
+	activity += get_tree().get_nodes_in_group("capital_explosions").size() * 0.16
+	for node: Node in get_tree().get_nodes_in_group("artillery_projectiles"):
+		var projectile: ArtilleryProjectile = node as ArtilleryProjectile
+		if projectile.global_position.distance_to(center) < 65:
+			activity += 0.10 if projectile.kind == ArtilleryProjectile.Kind.HEAVY_SHOT else 0.07 if projectile.kind == ArtilleryProjectile.Kind.SEEKER_SALVO else 0.025
 	action_intensity = lerpf(action_intensity, clampf(activity, 0.0, 1.0), 1.0 - exp(-3.0 * delta))
 
 
@@ -651,4 +756,9 @@ func _update_camera(center: Vector3, delta: float) -> void:
 			positions.append(ship.global_position)
 			mean_velocity += ship.velocity
 	mean_velocity /= maxf(positions.size(), 1.0)
+	camera.capital_preparing = false
+	for capital: CapitalShip in capitals:
+		if capital.state == CapitalShip.State.PREPARE and capital.selected_pattern == CapitalShip.ArtilleryPattern.HEAVY_SHOT:
+			camera.capital_preparing = true
+			camera.capital_focus = capital.global_position
 	camera.observe_group(center, spread, delta, positions, action_intensity, mean_velocity, simulation_speed_multiplier)
