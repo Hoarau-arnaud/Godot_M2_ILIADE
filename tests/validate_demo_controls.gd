@@ -63,6 +63,7 @@ func _dispose(sim: SpaceSimulation) -> void:
 
 func _empty(count: int = 10) -> SpaceSimulation:
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(sim)
 	HistoricalFixture.configure(sim, 1.5)
 	sim.simulation_speed_multiplier = 1.0
 	sim.ship_count = count
@@ -146,7 +147,9 @@ func _test_speed_and_camera() -> void:
 		_check(is_equal_approx(Engine.time_scale, speed) and Engine.physics_ticks_per_second >= 60 and Engine.physics_ticks_per_second % 60 == 0, "Slider vitesse ou fréquence physique incorrects.")
 		_check(Engine.time_scale / Engine.physics_ticks_per_second <= 1.0 / 60.0 + 0.00001, "Pas physique trop grand avec time_scale.")
 		var blue: BlueLaser = BLUE_LASER.instantiate() as BlueLaser
+		FlightTuning.legacy_actor(blue)
 		var red: EnemyLaser = ENEMY_LASER.instantiate() as EnemyLaser
+		FlightTuning.legacy_actor(red)
 		blue.position = Vector3(200, 200, -300)
 		red.position = Vector3(-200, 200, -300)
 		sim.projectile_container.add_child(blue)
@@ -206,6 +209,7 @@ func _on_runtime_birth(node: Node, sim: SpaceSimulation) -> void:
 func _test_blue_population() -> void:
 	var sim: SpaceSimulation = _empty()
 	var rock: SpaceAsteroid = ROCK.instantiate() as SpaceAsteroid
+	FlightTuning.legacy_actor(rock)
 	rock.position = sim._fleet_center() + Vector3(0, 0, 18)
 	rock.diameter = 7
 	rock.rotation_speed = 0
@@ -242,6 +246,7 @@ func _test_blue_population() -> void:
 
 func _test_enemy_overrides() -> void:
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(sim)
 	HistoricalFixture.configure(sim, 1.5)
 	sim.simulation_speed_multiplier = 1.0
 	sim.manual_difficulty = 3
@@ -295,6 +300,7 @@ func _test_spacing() -> void:
 
 func _movement_probe(value: float) -> Dictionary:
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(sim)
 	HistoricalFixture.configure(sim, 1.5)
 	sim.simulation_speed_multiplier = 1.0
 	sim.manual_difficulty = 3
@@ -316,6 +322,7 @@ func _movement_probe(value: float) -> Dictionary:
 
 func _test_run(intense: bool) -> void:
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(sim)
 	HistoricalFixture.configure(sim, 1.5)
 	sim.manual_difficulty = 3
 	root.add_child(sim)
@@ -396,6 +403,7 @@ func _test_run(intense: bool) -> void:
 
 func _capture() -> void:
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(sim)
 	HistoricalFixture.configure(sim, 1.5)
 	sim.manual_difficulty = 3
 	var suffix: String = "1_5"

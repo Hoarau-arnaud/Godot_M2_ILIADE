@@ -21,6 +21,17 @@ const DIFFICULTY_NAMES: Array[String] = ["Facile", "Intermédiaire", "Difficile"
 @export_range(-1, 1, 1) var manual_capital_count_override: int = -1
 @export var capital_replacement_delay: float = 25.0
 
+@export var auto_start_guided_demo: bool = true
+@export var guided_simulation_speed: float = 2.0
+var legacy_flight_profile: bool = false
+var evasive_boost_count: int = 0
+var critical_threat_count: int = 0
+var targeted_projectile_count: int = 0
+var suppression_projectile_count: int = 0
+var near_miss_count: int = 0
+var asteroid_near_miss_count: int = 0
+var combat_impacts: int = 0
+
 @export_category("Démonstration")
 @export_range(0.5, 2.5, 0.1) var simulation_speed_multiplier: float = DEFAULT_DEMO_SPEED
 @export_range(0.5, 2.0, 0.1) var movement_multiplier: float = DEFAULT_MOVEMENT
@@ -146,11 +157,17 @@ func _ready() -> void:
 	_maintain_capitals(_last_center, 0.0)
 	camera.follow_speed = camera_follow_speed
 	camera.initialize_view(_last_center, simulation_seed)
+	if not legacy_flight_profile:
+		CombatMeshCache.prepare_signatures()
 	_measure_group(_last_center)
 	_update_hud()
+	if auto_start_guided_demo:
+		demonstration.start.call_deferred()
 
 
 func _physics_process(delta: float) -> void:
+	if demonstration.game_over:
+		return
 	elapsed_simulation_time += delta
 	_maintain_requested_ships(delta)
 	if ships.is_empty():
@@ -295,7 +312,7 @@ func _spawn_drone(center: Vector3, front_z: float) -> bool:
 	var drone: PatrolDrone = DRONE_SCENE.instantiate() as PatrolDrone
 	drone.name = "PatrolDrone_%03d" % drone_spawn_count
 	drone.individual_seed = simulation_seed + 51001 + drone_spawn_count * 401
-	drone.forward_speed = 9.2 + float(drone_spawn_count % 2) * 0.6
+	drone.forward_speed = (9.2 if legacy_flight_profile else 13.0) + float(drone_spawn_count % 2) * 0.6
 	drone.patrol_anchor = Vector2(center.x, center.y)
 	drone.position = drone_container.to_local(position_candidate)
 	drone.died.connect(_on_drone_died)
@@ -303,6 +320,8 @@ func _spawn_drone(center: Vector3, front_z: float) -> bool:
 	drone.patrol_projectile_container = projectile_container
 	drone.fire_intensity = fire_intensity
 	drone.patrol_fired.connect(_on_enemy_fired)
+	if legacy_flight_profile:
+		FlightTuning.legacy_actor(drone)
 	drone_container.add_child(drone)
 	drones.append(drone)
 	drone_spawn_count += 1
@@ -390,6 +409,8 @@ func _spawn_interceptor(center: Vector3, front_z: float) -> bool:
 	interceptor.died.connect(_on_interceptor_died)
 	interceptor.destroyed.connect(_on_hostile_destroyed)
 	interceptor.fired.connect(_on_enemy_fired)
+	if legacy_flight_profile:
+		FlightTuning.legacy_actor(interceptor)
 	interceptor_container.add_child(interceptor)
 	interceptors.append(interceptor)
 	interceptor_spawn_count += 1
@@ -406,6 +427,7 @@ func _on_interceptor_died(hostile: PatrolDrone) -> void:
 
 
 func _on_enemy_fired(projectile: EnemyLaser) -> void:
+	_count_targeted_projectile(projectile.targeted)
 	enemy_shots_fired += 1
 	projectile.hit_blue_ship.connect(_on_blue_ship_hit)
 	maximum_active_projectiles = maxi(maximum_active_projectiles, projectile_container.get_child_count())
@@ -456,6 +478,8 @@ func _maintain_capitals(center: Vector3, delta: float) -> void:
 		capital.destroyed.connect(_on_capital_destroyed)
 		capital.salvo_started.connect(func(pattern: int) -> void: capital_salvos[pattern] += 1)
 		capital.fired.connect(_on_artillery_fired)
+		if legacy_flight_profile:
+			FlightTuning.legacy_actor(capital)
 		capital_container.add_child(capital)
 		capitals.append(capital)
 		capital_spawn_count += 1
@@ -464,6 +488,7 @@ func _maintain_capitals(center: Vector3, delta: float) -> void:
 
 
 func _on_artillery_fired(projectile: ArtilleryProjectile) -> void:
+	_count_targeted_projectile(projectile.targeted)
 	enemy_shots_fired += 1
 	projectile.hit_blue_ship.connect(func(ship: BlueShip, amount: int) -> void:
 		artillery_hits += 1
@@ -471,6 +496,13 @@ func _on_artillery_fired(projectile: ArtilleryProjectile) -> void:
 	projectile.impacted.connect(func(obstacle: bool) -> void:
 		if obstacle:
 			artillery_obstacle_hits += 1)
+
+
+func _count_targeted_projectile(targeted: bool) -> void:
+	if targeted:
+		targeted_projectile_count += 1
+	else:
+		suppression_projectile_count += 1
 
 
 func _on_capital_destroyed(ship: CapitalShip) -> void:
@@ -537,6 +569,16 @@ func _add_ship(local_position: Vector3) -> void:
 	ship.fired.connect(_on_ship_fired)
 	ship.projectile_dodge_started.connect(_on_projectile_dodge_started)
 	ship.moving_asteroid_dodge_started.connect(func() -> void: moving_asteroid_dodge_count += 1)
+	ship.evasive_boost_started.connect(func() -> void: evasive_boost_count += 1)
+	ship.critical_threat_detected.connect(func() -> void: critical_threat_count += 1)
+	ship.near_miss_recorded.connect(func(asteroid: bool) -> void:
+		if asteroid:
+			asteroid_near_miss_count += 1
+		else:
+			near_miss_count += 1)
+	ship.damage_received.connect(func(_amount: int) -> void: combat_impacts += 1)
+	if legacy_flight_profile:
+		FlightTuning.legacy_actor(ship)
 	ship_container.add_child(ship)
 	ships.append(ship)
 	ship_spawn_count += 1
@@ -545,9 +587,11 @@ func _add_ship(local_position: Vector3) -> void:
 
 func set_simulation_speed(value: float) -> void:
 	simulation_speed_multiplier = clampf(value, 0.5, 2.5)
-	# Multiples de 60 : petits pas physiques et cadence régulière sur une vue à 60 Hz.
+	# Au-delà de 2x, 150 Hz suffit pour 2,1/2,2x : pas < 1/60 s simulée.
+	# Éviter les 180 ticks superflus tout en conservant les profils historiques.
 	var base_rate: int = maxi(_previous_physics_rate, 60)
-	Engine.physics_ticks_per_second = maxi(base_rate, int(ceil(float(base_rate) * simulation_speed_multiplier / 60.0)) * 60)
+	var quantum: int = 30 if not legacy_flight_profile and simulation_speed_multiplier > 2 else 60
+	Engine.physics_ticks_per_second = maxi(base_rate, int(ceil(float(base_rate) * simulation_speed_multiplier / quantum)) * quantum)
 	Engine.time_scale = simulation_speed_multiplier
 	if is_instance_valid(demo_controls):
 		demo_controls.refresh(self)
@@ -760,6 +804,8 @@ func _on_ship_died(ship: BlueShip) -> void:
 	# Les pertes ne sont jamais remplacées automatiquement par la consigne du panneau.
 	target_ship_count = maxi(target_ship_count - 1, 0)
 	living_agent_count = ships.size()
+	if ships.is_empty() and demonstration.is_guided() and not legacy_flight_profile:
+		demonstration.end_squadron()
 	_measure_group(_fleet_center())
 	_update_hud()
 
@@ -796,4 +842,24 @@ func _update_camera(center: Vector3, delta: float) -> void:
 		if capital.state == CapitalShip.State.PREPARE and capital.selected_pattern == CapitalShip.ArtilleryPattern.HEAVY_SHOT:
 			camera.capital_preparing = true
 			camera.capital_focus = capital.global_position
+	var boosting: int = 0
+	for ship: BlueShip in ships:
+		if is_instance_valid(ship) and ship.alive and ship.evasive_boost_remaining > 0:
+			boosting += 1
+	camera.boost_fov_extra = minf(boosting / 3.0, 1) * 3 if demonstration.is_guided() else 0
+	space_decor.guided_speed_effect = 1.25 if demonstration.is_guided() and not legacy_flight_profile else 1
 	camera.observe_group(center, spread, delta, positions, action_intensity, mean_velocity, simulation_speed_multiplier)
+
+
+func reset_threat_metrics() -> void:
+	evasive_boost_count = 0
+	critical_threat_count = 0
+	targeted_projectile_count = 0
+	suppression_projectile_count = 0
+	near_miss_count = 0
+	asteroid_near_miss_count = 0
+	combat_impacts = 0
+
+
+func threat_metrics() -> Dictionary:
+	return {"boosts": evasive_boost_count, "critical_threats": critical_threat_count, "targeted": targeted_projectile_count, "suppression": suppression_projectile_count, "near_misses": near_miss_count, "asteroid_near_misses": asteroid_near_miss_count, "impacts": combat_impacts}

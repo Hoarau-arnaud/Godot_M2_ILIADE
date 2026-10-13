@@ -32,6 +32,7 @@ func dispose(sim: SpaceSimulation) -> void:
 
 func empty() -> SpaceSimulation:
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(sim)
 	sim.simulation_speed_multiplier = 1
 	sim.streaming_enabled = false
 	sim.drones_enabled = false
@@ -116,6 +117,7 @@ func benchmark_finale() -> void:
 	root.content_scale_size = Vector2i(1920, 1080)
 	root.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_KEEP
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(sim)
 	root.add_child(sim)
 	await frames(5)
 	sim.demonstration.start()
@@ -199,6 +201,7 @@ func free_parameters() -> void:
 		await frames(2)
 	check(counts[1] > counts[0], "Slider densité ne crée pas davantage de configurations")
 	var capital: CapitalShip = SpaceSimulation.CAPITAL_SCENE.instantiate() as CapitalShip
+	FlightTuning.legacy_actor(capital)
 	sim.capital_container.add_child(capital)
 	capital.set_physics_process(false)
 	capital.fire_intensity = 0.5
@@ -231,6 +234,7 @@ func fast_meteor_collision() -> void:
 	ship.velocity = Vector3.FORWARD * ship.forward_speed * ship._speed_factor
 	ship.set_physics_process(true)
 	var rock: SpaceAsteroid = ObstacleField.ASTEROID_SCENE.instantiate() as SpaceAsteroid
+	FlightTuning.legacy_actor(rock)
 	rock.motion_type = SpaceAsteroid.MotionType.LINEAR
 	rock.motion_velocity = Vector3(45, 0, 0)
 	rock.motion_duration = 20
@@ -276,6 +280,7 @@ func missiles() -> void:
 	for ship: BlueShip in sim.ships:
 		ship.set_physics_process(false)
 	var capital: CapitalShip = SpaceSimulation.CAPITAL_SCENE.instantiate() as CapitalShip
+	FlightTuning.legacy_actor(capital)
 	capital.spectacle_enabled = true
 	capital.projectile_container = sim.projectile_container
 	capital.position = Vector3(0, 0, -480)
@@ -312,6 +317,7 @@ func complete(native: bool) -> void:
 		root.content_scale_size = Vector2i(1920, 1080)
 		root.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_KEEP
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(sim)
 	root.add_child(sim)
 	await frames(5)
 	var original: BlueShip = sim.ships[0]

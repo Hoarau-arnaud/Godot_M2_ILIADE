@@ -18,6 +18,8 @@ const LAUNCHERS: Array[Vector3] = [Vector3(-23, 5.5, 18), Vector3(23, 5.5, 18)]
 @export var artillery_limit: int = 50
 @export var combat_enabled: bool = true
 @export var demonstration_cycle: bool = false
+@export var predictive_targeting: bool = true
+var _target_cursor: int = 0
 var spectacle_enabled: bool = false
 var fire_intensity: float = 1.0
 var fleet_offset: Vector2 = Vector2.ZERO
@@ -214,7 +216,7 @@ func _move(delta: float, correction: Vector3) -> void:
 	var desired: Vector3 = observed_center + Vector3(_drift.x + sin(_time * 0.12) * 6, _drift.y + sin(_time * 0.09) * 4, -ahead)
 	var offset: Vector3 = desired - global_position
 	var side: Vector2 = (Vector2(offset.x, offset.y) * 0.3).limit_length(3)
-	var cruise: float = clampf(observed_velocity.z, -14, -7)
+	var cruise: float = clampf(observed_velocity.z, -26 if predictive_targeting else -14, -7)
 	var wanted: Vector3 = Vector3(side.x, side.y, cruise + clampf(offset.z * 0.35, -6, 6)) + correction
 	velocity = velocity.move_toward(wanted, 4 * delta)
 	var contact: KinematicCollision3D = move_and_collide(velocity * delta, false, 0.02, true)
@@ -254,6 +256,8 @@ func _obstacle_correction() -> Vector3:
 
 func build_salvo(pattern: int) -> Array[Dictionary]:
 	var salvo: Array[Dictionary] = []
+	if predictive_targeting:
+		return _build_targeted_salvo(pattern)
 	if pattern >= ArtilleryPattern.RAPID_BARRAGE:
 		return _build_spectacle_salvo(pattern)
 	var count: int = [1, 5, 4, 6, 3][pattern]
@@ -282,24 +286,35 @@ func build_salvo(pattern: int) -> Array[Dictionary]:
 
 func _launch(spec: Dictionary) -> void:
 	var projectile: ArtilleryProjectile = ArtilleryProjectile.new()
+	projectile.batch_visuals_enabled = predictive_targeting
 	var origin: Vector3 = global_position + Vector3(spec["local_origin"])
+	var aim: Vector3 = spec.aim
+	var chosen: BlueShip = spec.target if is_instance_valid(spec.target) else null
+	projectile.targeted = bool(spec.get("targeted", false)) and chosen != null and chosen.alive
+	if projectile.targeted:
+		projectile.initial_target_position = chosen.global_position
+		projectile.initial_target_velocity = chosen.velocity
+		aim = CombatPrediction.aim(origin, chosen.global_position, chosen.velocity, spec.speed) + Vector3(spec.aim_error)
+	elif predictive_targeting:
+		aim = CombatPrediction.aim(origin, observed_center, observed_velocity, spec.speed) + Vector3(spec.aim_error)
 	projectile.kind = int(spec["pattern"]) as ArtilleryProjectile.Kind
 	projectile.projectile_speed = spec["speed"]
-	projectile.flight_direction = (Vector3(spec["aim"]) - origin).normalized()
+	projectile.flight_direction = (aim - origin).normalized()
 	projectile.damage = 2 if projectile.kind == ArtilleryProjectile.Kind.HEAVY_SHOT else 1
 	projectile.avoidance_radius = 10 if projectile.damage == 2 else 5 if projectile.kind == ArtilleryProjectile.Kind.SEEKER_SALVO else 4
-	projectile.lifetime = 22 if spectacle_enabled else 14
-	projectile.target = spec["target"] if is_instance_valid(spec["target"]) else null
+	projectile.lifetime = 18 if predictive_targeting else 22 if spectacle_enabled else 14
+	projectile.turn_rate_degrees = 12 if predictive_targeting else 6
+	projectile.target = chosen if projectile.kind in [ArtilleryProjectile.Kind.SEEKER_SALVO, ArtilleryProjectile.Kind.MISSILE_SWARM] else null
 	if projectile.kind == ArtilleryProjectile.Kind.BOMB_CLUSTER:
 		var zone: ArtilleryZone = ArtilleryZone.new()
 		zone.kind = ArtilleryZone.Kind.BOMB
-		zone.delay = origin.distance_to(Vector3(spec.aim)) / projectile.projectile_speed
+		zone.delay = origin.distance_to(aim) / projectile.projectile_speed
 		zone.warning_time = 5.0
-		zone.position = projectile_container.to_local(spec.aim)
+		zone.position = projectile_container.to_local(aim)
 		projectile_container.add_child(zone)
 		projectile.bomb_zone = zone
 		projectile.lifetime = zone.delay
-	projectile.arc_duration = maxf(Vector3(spec["aim"]).distance_to(origin) / projectile.projectile_speed, 0.1)
+	projectile.arc_duration = maxf(aim.distance_to(origin) / projectile.projectile_speed, 0.1)
 	projectile.arc_axis = Vector3.UP if int(spec["index"]) % 2 == 0 else Vector3.RIGHT
 	var container: Node3D = projectile_container if is_instance_valid(projectile_container) else get_parent() as Node3D
 	projectile.position = container.to_local(origin)
@@ -409,3 +424,44 @@ func _fire_spectacle() -> void:
 			_launch(spec)
 	if _pending.is_empty() and _state_time >= 1:
 		_transition(State.COOLDOWN)
+
+
+func _build_targeted_salvo(pattern: int) -> Array[Dictionary]:
+	var salvo: Array[Dictionary] = []
+	var counts: Array[int] = [1, 5, 4, 6, 3, 24, 3, 1, 1, 18]
+	var speeds: Array[float] = [52, 80, 62, 80, 65, 88, 48, 60, 60, 65]
+	var targets: Array[BlueShip] = []
+	for node: Node in get_tree().get_nodes_in_group("blue_ships"):
+		var blue: BlueShip = node as BlueShip
+		if blue.alive and not blue.is_queued_for_deletion():
+			targets.append(blue)
+	# L'ordre de création/seed répartit les cibles, sans RNG global.
+	for index: int in range(counts[pattern]):
+		var origin: Vector3 = global_position + LAUNCHERS[index % 2]
+		var targeted: bool = pattern not in [ArtilleryPattern.BOMB_CLUSTER, ArtilleryPattern.LASER_CURTAIN, ArtilleryPattern.LASER_GRID]
+		if pattern == ArtilleryPattern.RAPID_BARRAGE:
+			targeted = (index * 7) % 24 < 17 # 17/24 = 70,8 %, répartis dans la salve.
+		elif pattern == ArtilleryPattern.MISSILE_SWARM:
+			targeted = index % 4 != 3 and index != 17 # 13/18 = 72,2 %.
+		elif pattern == ArtilleryPattern.SPREAD:
+			targeted = index < 3
+		elif pattern == ArtilleryPattern.ARC_SALVO:
+			targeted = index < 2
+		elif pattern == ArtilleryPattern.CROSS_FIRE:
+			targeted = index < 4
+		var chosen: BlueShip = null
+		if targeted and not targets.is_empty():
+			chosen = targets[(_target_cursor + fleet_role * 3) % targets.size()]
+			_target_cursor += 1
+		else:
+			targeted = false
+		var speed: float = speeds[pattern]
+		var position_value: Vector3 = chosen.global_position if chosen != null else observed_center
+		var velocity_value: Vector3 = chosen.velocity if chosen != null else observed_velocity
+		var aim_error: Vector3 = Vector3(_random.randf_range(-1.8, 1.8), _random.randf_range(-1.8, 1.8), 0)
+		if not targeted:
+			aim_error = Vector3(_random.randf_range(-14, 14), _random.randf_range(-10, 10), 0)
+		var aim: Vector3 = CombatPrediction.aim(origin, position_value, velocity_value, speed) + aim_error
+		var travel: float = origin.distance_to(aim) / speed
+		salvo.append({"index": index, "delay": index * (0.085 if pattern == ArtilleryPattern.RAPID_BARRAGE else 0.06 if pattern == ArtilleryPattern.MISSILE_SWARM else 0.18), "origin": origin, "local_origin": origin - global_position, "aim": aim, "speed": speed, "travel": travel, "target": chosen, "targeted": targeted, "aim_error": aim_error, "pattern": pattern})
+	return salvo

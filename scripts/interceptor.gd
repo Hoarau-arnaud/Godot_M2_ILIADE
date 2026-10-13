@@ -20,7 +20,8 @@ enum InterceptorState { PATROL, PURSUIT, DISENGAGE, AVOIDING, DESTROYED }
 @export var burst_size: int = 3
 @export var burst_interval: float = 0.2
 @export var burst_cooldown: float = 1.6
-@export var shot_spread_angle: float = 2.0
+@export var shot_spread_angle: float = 0.75
+@export var pursuit_max_speed: float = 23.0
 
 var interceptor_state: InterceptorState = InterceptorState.PATROL
 var target: BlueShip = null
@@ -55,7 +56,7 @@ func _physics_process(delta: float) -> void:
 		var offset: Vector3 = target.global_position + target.velocity * target_prediction_time - global_position
 		# Correction locale limitée : conserver une distance de combat, sans coller la cible.
 		desired = target.velocity + offset.normalized() * clampf((offset.length() - pursuit_distance) * 0.6, -4.0, 7.0)
-		desired.z = clampf(desired.z, -18.0, -2.0)
+		desired.z = clampf(desired.z, -pursuit_max_speed, -2.0)
 	elif _mission_state == InterceptorState.DISENGAGE:
 		desired = _escape_direction * 5.0 + Vector3.FORWARD * (forward_speed + 3.0)
 	var collision_steering: Vector3 = _obstacle_avoidance() * avoidance_weight
@@ -171,13 +172,19 @@ func _update_fire(delta: float) -> void:
 		_burst_remaining = maxi(burst_size, 1)
 	# Une estimation imparfaite au départ ; le projectile garde ensuite sa direction.
 	var spread: Vector2 = Vector2(_fire_random.randf_range(-1.0, 1.0), _fire_random.randf_range(-1.0, 1.0)) * tan(deg_to_rad(shot_spread_angle))
-	var direction: Vector3 = (offset.normalized() + _muzzle.global_basis.x * spread.x + _muzzle.global_basis.y * spread.y).normalized()
+	var aim: Vector3 = CombatPrediction.aim(_muzzle.global_position, target.global_position, target.velocity, 85) if predictive_targeting else target.global_position
+	var direction: Vector3 = ((aim - _muzzle.global_position).normalized() + _muzzle.global_basis.x * spread.x + _muzzle.global_basis.y * spread.y).normalized()
 	if direction.dot(forward) < cos(deg_to_rad(firing_cone_angle)):
 		return
 	if ArtilleryZone.dangerous_count(get_tree()) >= dangerous_projectile_limit:
 		return
 	var projectile: EnemyLaser = ENEMY_LASER_SCENE.instantiate() as EnemyLaser
-	projectile.visual_variant = [EnemyLaser.VisualVariant.BOLT, EnemyLaser.VisualVariant.BOLT if burst_size >= 4 else EnemyLaser.VisualVariant.PULSE, EnemyLaser.VisualVariant.SPEAR][shots_fired % 3]
+	projectile.visual_variant = [EnemyLaser.VisualVariant.BOLT, EnemyLaser.VisualVariant.BOLT if predictive_targeting or burst_size >= 4 else EnemyLaser.VisualVariant.PULSE, EnemyLaser.VisualVariant.SPEAR][shots_fired % 3]
+	projectile.projectile_speed = 85 if predictive_targeting else 45
+	projectile.lifetime = 2.5 if predictive_targeting else 3.5
+	projectile.targeted = predictive_targeting
+	projectile.initial_target_position = target.global_position
+	projectile.initial_target_velocity = target.velocity
 	projectile.flight_direction = direction
 	var container: Node3D = projectile_container if is_instance_valid(projectile_container) else get_parent() as Node3D
 	container.add_child(projectile)

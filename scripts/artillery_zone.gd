@@ -1,6 +1,7 @@
 class_name ArtilleryZone
 extends Node3D
 
+signal damage_applied(ship: BlueShip, amount: int)
 signal activated
 signal detonated
 enum Kind { BOMB, CURTAIN, GRID }
@@ -151,6 +152,7 @@ func _physics_process(delta: float) -> void:
 					if body is BlueShip and (body as BlueShip).alive and not _hit_ids.has(body.get_instance_id()):
 						_hit_ids[body.get_instance_id()] = true
 						(body as BlueShip).take_damage(3)
+						damage_applied.emit(body as BlueShip, 3)
 						damage_events += 1
 	if age >= delay + active_time:
 		queue_free()
@@ -162,7 +164,9 @@ func _explode() -> void:
 		var ship: BlueShip = node as BlueShip
 		var distance: float = ship.global_position.distance_to(global_position)
 		if ship.alive and distance < radius:
-			ship.take_damage(3 if distance < radius * 0.35 else 2 if distance < radius * 0.7 else 1)
+			var amount: int = 3 if distance < radius * 0.35 else 2 if distance < radius * 0.7 else 1
+			ship.take_damage(amount)
+			damage_applied.emit(ship, amount)
 			damage_events += 1
 	detonated.emit()
 

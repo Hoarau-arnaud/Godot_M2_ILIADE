@@ -11,7 +11,7 @@ const BODY_CLEARANCE: float = 2.2
 enum PatrolState { PATROL, AVOIDING, CHANGING_WAYPOINT, DESTROYED }
 
 @export_category("Patrouille autonome")
-@export var forward_speed: float = 9.2
+@export var forward_speed: float = 13.0
 @export var max_side_speed: float = 7.0
 @export var acceleration: float = 10.0
 @export var segment_length: float = 55.0
@@ -22,6 +22,8 @@ enum PatrolState { PATROL, AVOIDING, CHANGING_WAYPOINT, DESTROYED }
 @export var individual_seed: int = 1
 @export var demonstration_route: bool = false
 @export var patrol_fire_enabled: bool = false
+@export var predictive_targeting: bool = true
+@export var patrol_firing_cone_degrees: float = 32
 var patrol_projectile_container: Node3D
 var route_waypoints: Array[Vector3] = []
 var route_index: int = 0
@@ -144,7 +146,9 @@ func _update_patrol_fire(delta: float) -> void:
 	var distance: float = 70
 	for node: Node in get_tree().get_nodes_in_group("blue_ships"):
 		var ship: BlueShip = node as BlueShip
-		if ship.alive and global_position.distance_to(ship.global_position) < distance:
+		var offset: Vector3 = ship.global_position - global_position
+		var in_cone: bool = not predictive_targeting or offset.normalized().dot(velocity.normalized()) >= cos(deg_to_rad(patrol_firing_cone_degrees))
+		if ship.alive and not ship.is_queued_for_deletion() and in_cone and offset.length() < distance:
 			chosen = ship
 			distance = global_position.distance_to(ship.global_position)
 	if chosen == null:
@@ -156,10 +160,16 @@ func _update_patrol_fire(delta: float) -> void:
 		return
 	var projectile: EnemyLaser = preload("res://scenes/enemy_laser.tscn").instantiate() as EnemyLaser
 	projectile.patrol_pulse = true
-	projectile.projectile_speed = 26
-	projectile.lifetime = 6
+	projectile.projectile_speed = 58 if predictive_targeting else 26
+	projectile.lifetime = 3 if predictive_targeting else 6
 	projectile.avoidance_radius = 5
-	projectile.flight_direction = (chosen.global_position + chosen.velocity * 0.5 - global_position).normalized()
+	var aim: Vector3 = CombatPrediction.aim(global_position, chosen.global_position, chosen.velocity, projectile.projectile_speed) if predictive_targeting else chosen.global_position + chosen.velocity * 0.5
+	if predictive_targeting:
+		aim += Vector3(_random.randf_range(-1.5, 1.5), _random.randf_range(-1.5, 1.5), 0)
+	projectile.flight_direction = (aim - global_position).normalized()
+	projectile.targeted = predictive_targeting
+	projectile.initial_target_position = chosen.global_position
+	projectile.initial_target_velocity = chosen.velocity
 	var container: Node3D = patrol_projectile_container if is_instance_valid(patrol_projectile_container) else get_parent() as Node3D
 	container.add_child(projectile)
 	var up: Vector3 = Vector3.RIGHT if absf(projectile.flight_direction.y) > 0.98 else Vector3.UP

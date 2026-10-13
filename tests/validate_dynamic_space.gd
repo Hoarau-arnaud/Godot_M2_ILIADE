@@ -50,6 +50,7 @@ func _advance(frames: int) -> void:
 
 func _empty(count: int = 1) -> SpaceSimulation:
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(sim)
 	sim.capital_ships_enabled = false
 	sim.ship_count = count
 	sim.simulation_speed_multiplier = 1.0
@@ -141,6 +142,7 @@ func _test_motion_types() -> void:
 		sim.set_physics_process(false)
 		sim.ships[0].set_physics_process(false)
 		var rock: SpaceAsteroid = ROCK.instantiate() as SpaceAsteroid
+		FlightTuning.legacy_actor(rock)
 		rock.position = Vector3(100, 40, -35)
 		rock.motion_type = motion as SpaceAsteroid.MotionType
 		rock.motion_velocity = Vector3(6, 2, -1) if motion != SpaceAsteroid.MotionType.VERTICAL_SWEEP else Vector3(0, 6, 0)
@@ -169,6 +171,7 @@ func _motion_signature(field: ObstacleField, seed_value: int, level: int) -> Arr
 	var signature: Array[String] = []
 	for index: int in range(1000):
 		var rock: SpaceAsteroid = ROCK.instantiate() as SpaceAsteroid
+		FlightTuning.legacy_actor(rock)
 		field._configure_motion(rock, level, seed_value + index * 97, 180)
 		signature.append(str([rock.motion_type, rock.motion_velocity, rock.motion_period, rock.motion_phase, rock.orbit_axis_u, rock.orbit_axis_v]))
 		rock.free()
@@ -276,6 +279,7 @@ func _test_predictive_avoidance(stress: bool) -> void:
 		ship.mobile_detection_radius = 0
 		ship.hostile_projectile_detection_radius = 0
 	var rock: SpaceAsteroid = ROCK.instantiate() as SpaceAsteroid
+	FlightTuning.legacy_actor(rock)
 	rock.motion_type = SpaceAsteroid.MotionType.LINEAR
 	rock.motion_velocity = Vector3(-7, 0, 0)
 	rock.motion_duration = 10
@@ -353,6 +357,7 @@ func _finish_record(sim: SpaceSimulation, record: Dictionary) -> Dictionary:
 
 func _test_run(seconds: int, cinematic: bool, spectacle: bool = false) -> void:
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(sim)
 	sim.capital_ships_enabled = false
 	if not spectacle:
 		sim.manual_difficulty = 3
@@ -416,6 +421,7 @@ func _capture_viewport(sim: SpaceSimulation, label: String) -> void:
 func _test_native() -> void:
 	_check(DisplayServer.get_name() != "headless", "Validation viewport sans rendu natif.")
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(sim)
 	sim.capital_ships_enabled = false
 	(sim.get_node("Asteroids") as ObstacleField).irregular_barrages = false
 	root.add_child(sim)
@@ -474,6 +480,7 @@ func _test_render_spectacle() -> void:
 	_check(DisplayServer.get_name() != "headless", "FPS demandé sans rendu.")
 	DisplayServer.window_set_size(Vector2i(1920,1080))
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(sim)
 	sim.capital_ships_enabled = false
 	(sim.get_node("Asteroids") as ObstacleField).irregular_barrages = false
 	root.add_child(sim)

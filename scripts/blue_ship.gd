@@ -1,6 +1,10 @@
 class_name BlueShip
 extends CharacterBody3D
 
+signal evasive_boost_started
+signal critical_threat_detected
+signal near_miss_recorded(asteroid: bool)
+signal damage_received(amount: int)
 signal died(ship: BlueShip)
 signal fired(projectile: BlueLaser)
 signal projectile_dodge_started
@@ -10,13 +14,13 @@ const EXPLOSION_SCENE: PackedScene = preload("res://scenes/explosion.tscn")
 const LASER_SCENE: PackedScene = preload("res://scenes/blue_laser.tscn")
 const SHIP_CLEARANCE: float = 2.5
 
-enum BehaviorState { NAVIGATION, AVOIDANCE, REGROUPING, DESTROYED }
+enum BehaviorState { NAVIGATION, AVOIDANCE, REGROUPING, DESTROYED, EVASIVE_BOOST }
 enum CombatState { NO_TARGET, TARGET_VISIBLE, COOLDOWN }
 
 @export_category("Vol permanent")
-@export var forward_speed: float = 10.5
-@export var max_side_speed: float = 9.0
-@export var acceleration: float = 12.0
+@export var forward_speed: float = 16.0
+@export var max_side_speed: float = 15.0
+@export var acceleration: float = 22.0
 @export var turn_speed: float = 3.2
 @export_category("Orientation visuelle")
 @export var visual_pitch_limit_degrees: float = 8.0
@@ -69,8 +73,8 @@ var _demo_spacing_current: float = 1.0
 
 @export_category("Survie aux tirs ennemis")
 @export var max_health: int = 3
-@export var hostile_projectile_detection_radius: float = 32.0
-@export var projectile_prediction_time: float = 2.0
+@export var hostile_projectile_detection_radius: float = 80.0
+@export var projectile_prediction_time: float = 4.0
 @export var projectile_safety_distance: float = 4.0
 @export var projectile_avoidance_weight: float = 8.0
 @export var projectile_direction_memory: float = 0.45
@@ -81,6 +85,30 @@ var _demo_spacing_current: float = 1.0
 @export var firing_range: float = 44.0
 @export var firing_cone_angle: float = 6.0 # Demi-angle en degrés autour du nez visuel.
 @export var fire_cooldown: float = 0.7
+
+@export_category("Boost local de survie")
+@export var evasive_boost_enabled: bool = true
+@export var evasive_boost_duration: float = 0.65 # Secondes simulées.
+@export var evasive_boost_cooldown: float = 1.1 # Après la fin du boost.
+@export var boost_forward_multiplier: float = 1.35
+@export var boost_lateral_multiplier: float = 1.9
+@export var boost_acceleration_multiplier: float = 2.2
+@export var boost_roll_degrees: float = 55
+@export var blue_laser_speed: float = 100
+var evasive_boost_remaining: float = 0
+var boost_cooldown_remaining: float = 0
+var boost_direction: Vector3 = Vector3.ZERO
+var evasive_boost_count: int = 0
+var critical_threat_count: int = 0
+var near_miss_count: int = 0
+var asteroid_near_miss_count: int = 0
+var _boost_blend: float = 0
+var _boost_threat_id: int = 0
+var _critical_candidate: Dictionary = {}
+var _critical_ids: Dictionary[int, WeakRef] = {}
+var _near_passes: Dictionary[int, Dictionary] = {}
+var _boost_streak: MeshInstance3D
+var _boost_material: StandardMaterial3D
 
 var alive: bool = true
 var health: int = 3
@@ -129,6 +157,7 @@ var _recovery: Vector3 = Vector3.ZERO
 
 func _ready() -> void:
 	health = maxi(max_health, 1)
+	_build_boost_visual()
 	_demo_movement_current = demo_movement_multiplier
 	_demo_spacing_current = demo_spacing_multiplier
 	var random: RandomNumberGenerator = RandomNumberGenerator.new()
@@ -164,10 +193,13 @@ func _physics_process(delta: float) -> void:
 	)
 	_environment_sample_in -= delta
 	if _environment_sample_in <= 0:
+		_critical_candidate.clear()
+		_cleanup_local_metrics()
 		_cached_rock_avoidance = _obstacle_avoidance()
 		_cached_mobile_avoidance = _mobile_avoidance()
 		_cached_projectile_avoidance = _projectile_avoidance()
 		_environment_sample_in = environment_perception_interval
+	_update_evasive_boost(delta)
 	var avoidance: Vector3 = _cached_rock_avoidance * avoidance_weight
 	avoidance += _cached_mobile_avoidance * mobile_avoidance_weight
 	var collision_priority: float = clampf(avoidance.length() / maxf(max_side_speed, 0.1), 0.0, 1.0)
@@ -183,12 +215,15 @@ func _physics_process(delta: float) -> void:
 	if projectile_avoidance_active:
 		separation_priority = (1.0 - projectile_priority) * (1.0 - collision_priority)
 	steering += _critical_separation * separation_weight * avoidance_priority * 0.75 * separation_priority
-	var side_velocity: Vector2 = Vector2(steering.x, steering.y).limit_length(maxf(max_side_speed, 0.0))
-	var base_speed: float = maxf(forward_speed * _speed_factor, 0.1)
+	var side_limit: float = max_side_speed * lerpf(1, boost_lateral_multiplier, _boost_blend)
+	var boost_steering: Vector3 = boost_direction * side_limit
+	steering = steering.lerp(boost_steering, _boost_blend)
+	var side_velocity: Vector2 = Vector2(steering.x, steering.y).limit_length(maxf(side_limit, 0.0))
+	var base_speed: float = maxf(forward_speed * _speed_factor, 0.1) * lerpf(1, boost_forward_multiplier, _boost_blend)
 	var variation_limit: float = maxf(max_forward_variation, 0.0)
 	var forward_variation: float = clampf(steering.z, -variation_limit, minf(variation_limit, base_speed * 0.6))
 	var desired_velocity: Vector3 = Vector3(side_velocity.x, side_velocity.y, -base_speed + forward_variation)
-	velocity = velocity.move_toward(desired_velocity, maxf(acceleration, 0.1) * delta)
+	velocity = velocity.move_toward(desired_velocity, maxf(acceleration, 0.1) * lerpf(1, boost_acceleration_multiplier, _boost_blend) * delta)
 	_update_orientation(delta)
 	_update_exhausts()
 	# Le balayage physique détecte le contact, même si le déplacement dépasse une petite roche.
@@ -254,11 +289,12 @@ func _update_combat(delta: float) -> void:
 	if not combat_target.tree_exiting.is_connected(callback):
 		combat_target.tree_exiting.connect(callback, CONNECT_ONE_SHOT)
 	# Le combat ne modifie aucune vitesse, force ou orientation de navigation.
-	if _fire_timer > 0.0 or behavior_state == BehaviorState.AVOIDANCE or projectile_avoidance_active or critical_separation_active:
+	if _fire_timer > 0.0 or behavior_state in [BehaviorState.AVOIDANCE, BehaviorState.EVASIVE_BOOST] or projectile_avoidance_active or critical_separation_active:
 		return
 	if _muzzle.global_position.distance_to(_combat_aim_position(combat_target)) > maxf(firing_range, 0.0):
 		return
 	var projectile: BlueLaser = LASER_SCENE.instantiate() as BlueLaser
+	projectile.projectile_speed = blue_laser_speed
 	# Estimation unique au départ, sans guidage du projectile ni rotation du chasseur.
 	var target_velocity: Vector3 = Vector3.ZERO
 	if combat_target is CharacterBody3D:
@@ -354,6 +390,9 @@ func _update_neighbor_rules() -> void:
 
 
 func _update_behavior_state(avoidance: Vector3) -> void:
+	if evasive_boost_remaining > 0:
+		behavior_state = BehaviorState.EVASIVE_BOOST
+		return
 	if avoidance.length_squared() > 0.001:
 		behavior_state = BehaviorState.AVOIDANCE
 	elif _recovery.length_squared() > 0.001 and recovery_weight > 0.0:
@@ -384,6 +423,10 @@ func _find_threats() -> void:
 		var offset: Vector3 = obstacle.global_position - global_position
 		if offset.length() > maxf(obstacle_detection_radius, 0.0):
 			continue
+		if evasive_boost_enabled:
+			var danger_radius: float = obstacle.avoidance_radius + SHIP_CLEARANCE + obstacle_clearance
+			_consider_boost(obstacle, offset, obstacle.velocity - velocity, danger_radius, 3, 1.4, true)
+			_track_near_pass(obstacle, offset, obstacle.velocity - velocity, danger_radius + 2, true)
 		var remembered: bool = _avoid_directions.has(obstacle)
 		var clearance: float = obstacle.avoidance_radius + SHIP_CLEARANCE + maxf(obstacle_clearance, 0.0)
 		if obstacle.motion_type != SpaceAsteroid.MotionType.STATIC:
@@ -514,6 +557,9 @@ func _projectile_avoidance() -> Vector3:
 		if offset.length() > maxf(hostile_projectile_detection_radius, 0.0) + maxf(clearance - projectile_safety_distance, 0):
 			continue
 		var relative_velocity: Vector3 = Vector3(projectile.get("velocity")) - velocity
+		if evasive_boost_enabled:
+			_consider_boost(projectile, offset, relative_velocity, clearance, projectile_prediction_time, 1.2 if projectile is ArtilleryProjectile else 1, false)
+			_track_near_pass(projectile, offset, relative_velocity, clearance + 2, false)
 		# Seuls les tirs entrants dont le passage prédit est trop proche comptent.
 		if offset.dot(relative_velocity) >= 0.0:
 			continue
@@ -538,7 +584,10 @@ func _projectile_avoidance() -> Vector3:
 		result += force
 		projectile_threat_count += 1
 	for node: Node in get_tree().get_nodes_in_group("combat_hazards"):
-		var force: Vector3 = (node as ArtilleryZone).avoidance_force(global_position, velocity)
+		var zone: ArtilleryZone = node as ArtilleryZone
+		var force: Vector3 = zone.avoidance_force(global_position, velocity)
+		if evasive_boost_enabled and not force.is_zero_approx() and zone.delay - zone.age <= 1.0:
+			_consider_zone_boost(zone, force)
 		if not force.is_zero_approx():
 			result = force # Zone télégraphiée prioritaire devant les petits bolts.
 			projectile_threat_count += 1
@@ -559,6 +608,7 @@ func _forget_projectile(projectile: Node3D) -> void:
 func take_damage(amount: int) -> void:
 	if not alive or amount <= 0:
 		return
+	damage_received.emit(amount)
 	health = maxi(health - amount, 0)
 	if health == 0:
 		_die()
@@ -630,7 +680,7 @@ func _update_orientation(delta: float) -> void:
 	var target: Vector3 = Vector3(
 		clampf(lateral.y, -1, 1) * deg_to_rad(visual_pitch_limit_degrees),
 		-clampf(lateral.x, -1, 1) * deg_to_rad(visual_yaw_limit_degrees),
-		-clampf(lateral.x, -1, 1) * deg_to_rad(visual_roll_limit_degrees)
+		-clampf(lateral.x, -1, 1) * deg_to_rad(boost_roll_degrees if evasive_boost_remaining > 0 else visual_roll_limit_degrees)
 	)
 	_visual_angles.x = lerpf(_visual_angles.x, target.x, 1.0 - exp(-turn_speed * 0.55 * delta))
 	_visual_angles.y = lerpf(_visual_angles.y, target.y, 1.0 - exp(-turn_speed * delta))
@@ -639,9 +689,13 @@ func _update_orientation(delta: float) -> void:
 
 
 func _update_exhausts() -> void:
+	var boost_scale: float = lerpf(1, 2.2, _boost_blend)
+	_boost_material.emission_energy_multiplier = lerpf(1.5, 5.0, _boost_blend)
+	_boost_streak.visible = _boost_blend > 0.15
+	_boost_streak.scale.z = lerpf(0.5, 1.3, _boost_blend)
 	var thrust: float = 0.65 + clampf(velocity.length() / maxf(forward_speed, 0.1), 0.4, 1.8) * 0.5
-	_right_exhaust.scale.y = thrust * (1.0 + 0.14 * sin(_time * 6.1 + _phases.x))
-	_left_exhaust.scale.y = thrust * (1.0 + 0.14 * sin(_time * 5.7 + _phases.y))
+	_right_exhaust.scale.y = thrust * boost_scale * (1.0 + 0.14 * sin(_time * 6.1 + _phases.x))
+	_left_exhaust.scale.y = thrust * boost_scale * (1.0 + 0.14 * sin(_time * 5.7 + _phases.y))
 
 
 func retire() -> void:
@@ -662,6 +716,10 @@ func _stop_navigation() -> void:
 	_drone_directions.clear()
 	_projectile_directions.clear()
 	_projectile_memory_until.clear()
+	_near_passes.clear()
+	_critical_ids.clear()
+	_critical_candidate.clear()
+	evasive_boost_remaining = 0
 	projectile_avoidance_active = false
 	velocity = Vector3.ZERO
 	set_physics_process(false)
@@ -682,3 +740,132 @@ func _die() -> void:
 	died.emit(self)
 	hide()
 	queue_free()
+
+
+func _build_boost_visual() -> void:
+	_boost_material = (_right_exhaust.mesh.surface_get_material(0) as StandardMaterial3D).duplicate() as StandardMaterial3D
+	_right_exhaust.material_override = _boost_material
+	_left_exhaust.material_override = _boost_material
+	_boost_streak = MeshInstance3D.new()
+	_boost_streak.name = "EmergencyCyanStreak"
+	var trail: BoxMesh = BoxMesh.new()
+	trail.size = Vector3(0.18, 0.18, 7)
+	_boost_streak.mesh = trail
+	_boost_streak.material_override = _boost_material
+	_boost_streak.position = Vector3(0, 0, 6)
+	_boost_streak.hide()
+	_visuals.add_child(_boost_streak)
+
+
+func _consider_boost(node: Node3D, offset: Vector3, relative: Vector3, clearance: float, horizon: float, weight: float, asteroid: bool) -> void:
+	var danger: Dictionary = CombatPrediction.threat(offset, relative, clearance, horizon, weight)
+	if danger.is_empty():
+		return
+	var urgent: bool = danger.impact_time <= 0.8 if asteroid else danger.time <= 1.0
+	if not urgent or danger.score < (0.8 if asteroid else 1.0):
+		return
+	danger.node = weakref(node)
+	danger.id = node.get_instance_id()
+	danger.offset = offset
+	danger.preferred = Vector3.ZERO
+	_register_critical(danger)
+
+
+func _consider_zone_boost(zone: ArtilleryZone, direction: Vector3) -> void:
+	_register_critical({"node": weakref(zone), "id": zone.get_instance_id(), "score": 4.0, "time": maxf(zone.delay - zone.age, 0), "miss": 0.0, "relative_velocity": Vector3.BACK, "offset": zone.global_position - global_position, "preferred": direction.normalized()})
+
+
+func _register_critical(danger: Dictionary) -> void:
+	var id: int = danger.id
+	if not _critical_ids.has(id):
+		_critical_ids[id] = danger.node
+		critical_threat_count += 1
+		critical_threat_detected.emit()
+	if _critical_candidate.is_empty() or danger.score > _critical_candidate.score:
+		_critical_candidate = danger
+
+
+func _update_evasive_boost(delta: float) -> void:
+	if not evasive_boost_enabled:
+		return
+	boost_cooldown_remaining = maxf(boost_cooldown_remaining - delta, 0)
+	var previous: float = evasive_boost_remaining
+	evasive_boost_remaining = maxf(evasive_boost_remaining - delta, 0)
+	if previous > 0 and evasive_boost_remaining == 0:
+		boost_cooldown_remaining = evasive_boost_cooldown
+	if evasive_boost_remaining <= 0 and not _critical_candidate.is_empty():
+		var danger_node: Object = (_critical_candidate.node as WeakRef).get_ref()
+		var lethal_override: bool = _critical_candidate.time < 0.25 and _critical_candidate.miss < 1.8 and int(_critical_candidate.id) != _boost_threat_id
+		if is_instance_valid(danger_node) and (boost_cooldown_remaining <= 0 or lethal_override):
+			boost_direction = _choose_boost_direction(_critical_candidate)
+			_boost_threat_id = _critical_candidate.id
+			evasive_boost_remaining = evasive_boost_duration
+			evasive_boost_count += 1
+			evasive_boost_started.emit()
+	_boost_blend = move_toward(_boost_blend, 1 if evasive_boost_remaining > 0 else 0, delta * (12 if evasive_boost_remaining > 0 else 2.8))
+
+
+func _choose_boost_direction(danger: Dictionary) -> Vector3:
+	var incoming: Vector3 = Vector3(danger.relative_velocity).normalized()
+	var preferred: Vector3 = danger.preferred
+	if preferred.is_zero_approx():
+		preferred = -Vector3(danger.offset) - Vector3(danger.relative_velocity) * float(danger.time)
+		preferred.z = 0
+		preferred = preferred.normalized() if preferred.length_squared() > 0.04 else _preferred_avoidance
+	var obstacles: Array[Node] = get_tree().get_nodes_in_group("asteroids")
+	var projectiles: Array[Node] = get_tree().get_nodes_in_group("hostile_projectiles")
+	var blues: Array[Node] = get_tree().get_nodes_in_group("blue_ships")
+	var best: Vector3 = preferred
+	var best_score: float = -INF
+	for index: int in range(8):
+		var direction: Vector3 = Vector3(cos(index * TAU / 8), sin(index * TAU / 8), 0)
+		var point: Vector3 = global_position + velocity * 0.4 + direction * 10
+		var score: float = direction.dot(preferred) * 2 - absf(direction.dot(incoming)) * 3
+		for other: Node in blues:
+			if other == self:
+				continue
+			var ship: BlueShip = other as BlueShip
+			score -= maxf(12 - point.distance_to(ship.global_position + ship.velocity * 0.4), 0) * 1.5
+		for other: Node in obstacles:
+			var rock: SpaceAsteroid = other as SpaceAsteroid
+			if rock.global_position.distance_squared_to(global_position) < 3600:
+				score -= maxf(rock.avoidance_radius + 6 - point.distance_to(rock.global_position + rock.velocity * 0.4), 0) * 2
+		for other: Node in projectiles:
+			var projectile: Node3D = other as Node3D
+			if projectile.is_queued_for_deletion() or projectile.global_position.distance_squared_to(global_position) > 6400:
+				continue
+			var closest: Vector2 = MobileAvoidance.approach(projectile.global_position - point, Vector3(projectile.get("velocity")) - velocity, 0.7)
+			score -= maxf(float(projectile.get("avoidance_radius")) + 2 - closest.y, 0)
+		if score > best_score:
+			best_score = score
+			best = direction
+	return best
+
+
+func _track_near_pass(node: Node3D, offset: Vector3, relative: Vector3, radius_value: float, asteroid: bool) -> void:
+	var id: int = node.get_instance_id()
+	if not _near_passes.has(id):
+		_near_passes[id] = {"node": weakref(node), "previous": offset, "minimum": offset.length(), "counted": false}
+	var pass_data: Dictionary = _near_passes[id]
+	var previous: Vector3 = pass_data.previous
+	var segment: Vector3 = offset - previous
+	var nearest: Vector3 = previous + segment * clampf(-previous.dot(segment) / maxf(segment.length_squared(), 0.00001), 0, 1)
+	pass_data.minimum = minf(pass_data.minimum, nearest.length())
+	pass_data.previous = offset
+	if not pass_data.counted and offset.dot(relative) > 0 and pass_data.minimum < radius_value:
+		pass_data.counted = true
+		if asteroid:
+			asteroid_near_miss_count += 1
+		else:
+			near_miss_count += 1
+		near_miss_recorded.emit(asteroid)
+
+
+func _cleanup_local_metrics() -> void:
+	for id: int in _near_passes.keys():
+		var object: Object = (_near_passes[id].node as WeakRef).get_ref()
+		if not is_instance_valid(object) or (object as Node3D).global_position.distance_squared_to(global_position) > 14400:
+			_near_passes.erase(id)
+	for id: int in _critical_ids.keys():
+		if not is_instance_valid(_critical_ids[id].get_ref()):
+			_critical_ids.erase(id)

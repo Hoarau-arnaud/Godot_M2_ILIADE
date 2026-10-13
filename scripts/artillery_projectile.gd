@@ -12,6 +12,10 @@ enum Kind { HEAVY_SHOT, SPREAD, ARC_SALVO, CROSS_FIRE, SEEKER_SALVO, RAPID_BARRA
 @export var damage: int = 2
 @export var avoidance_radius: float = 10.0
 @export var turn_rate_degrees: float = 6.0
+var targeted: bool = false
+var batch_visuals_enabled: bool = true
+var initial_target_position: Vector3
+var initial_target_velocity: Vector3
 var flight_direction: Vector3 = Vector3.BACK
 var target: BlueShip
 var arc_axis: Vector3 = Vector3.UP
@@ -53,35 +57,54 @@ func _material(color: Color) -> StandardMaterial3D:
 	return material
 
 
-func _mesh(mesh: Mesh, color: Color, offset: Vector3) -> void:
+func _mesh(mesh: Mesh, color: Color, offset: Vector3) -> MeshInstance3D:
 	var part: MeshInstance3D = MeshInstance3D.new()
 	part.mesh = mesh
 	part.material_override = _material(color)
 	part.position = offset
 	$Visual.add_child(part)
+	return part
 
 
 func _build_visual() -> void:
 	var visual: Node3D = Node3D.new()
 	visual.name = "Visual"
 	add_child(visual)
+	if batch_visuals_enabled and CombatMeshCache.has_signature(kind):
+		CombatMeshCache.merge_parts(visual, kind)
+		_update_visual()
+		return
 	var colors: Array[Color] = [Color(0.72, 0.16, 1), Color(1, 0.72, 0.08), Color(0.95, 0.08, 0.85), Color(1, 0.32, 0.06), Color(1, 0.08, 0.12), Color(1, 0.35, 0.08), Color(1, 0.6, 0.08), Color(1, 0.1, 0.05), Color(1, 0.1, 0.05), Color(0.1, 0.8, 1)]
 	var core: SphereMesh = SphereMesh.new()
 	core.radius = 2.3 if kind == Kind.BOMB_CLUSTER else 1.8 if kind == Kind.HEAVY_SHOT else 0.42
 	core.height = core.radius * 2
 	core.radial_segments = 12
 	core.rings = 6
-	_mesh(core, colors[kind], Vector3.ZERO)
+	if kind != Kind.HEAVY_SHOT:
+		_mesh(core, colors[kind], Vector3.ZERO)
 	var trail: BoxMesh = BoxMesh.new()
 	trail.size = Vector3(0.4, 0.4, 12) if kind == Kind.HEAVY_SHOT else Vector3(0.24, 0.24, 7 if kind == Kind.CROSS_FIRE else 3)
 	_mesh(trail, colors[kind] * Color(0.65, 0.65, 0.65), Vector3(0, 0, trail.size.z / 2))
 	if kind == Kind.HEAVY_SHOT:
+		var body: CapsuleMesh = CapsuleMesh.new()
+		body.radius = 1.25
+		body.height = 6.0
+		body.radial_segments = 12
+		body.rings = 4
+		_mesh(body, Color(0.32, 0.12, 0.48), Vector3.ZERO).rotation_degrees.x = 90
+		_add_fins(2.1, 1.4, colors[kind])
+		var engine: SphereMesh = SphereMesh.new()
+		engine.radius = 0.9
+		engine.height = 1.8
+		engine.radial_segments = 8
+		engine.rings = 4
+		_mesh(engine, Color(1, 0.35, 0.08), Vector3(0, 0, 2.8))
 		var inner: SphereMesh = SphereMesh.new()
-		inner.radius = 0.7
-		inner.height = 1.4
+		inner.radius = 1.15
+		inner.height = 2.3
 		inner.radial_segments = 10
 		inner.rings = 4
-		_mesh(inner, Color(1, 0.65, 0.12), Vector3(0, 0, -1.6))
+		_mesh(inner, Color(1, 0.65, 0.12), Vector3(0, 0, -2.8))
 	elif kind in [Kind.SEEKER_SALVO, Kind.MISSILE_SWARM]:
 		var hull: CapsuleMesh = CapsuleMesh.new()
 		hull.radius = 0.48
@@ -99,7 +122,30 @@ func _build_visual() -> void:
 		engine.height = 0.9
 		engine.radial_segments = 8
 		engine.rings = 4
-		_mesh(engine, Color(1, 0.55, 0.12), Vector3(0, 0, 1.5))
+		_mesh(engine, Color(1, 0.12, 0.08), Vector3(0, 0, 1.5))
+		_add_fins(0.9, 0.6, Color(0.65, 0.16, 0.18))
+		var nose: SphereMesh = SphereMesh.new()
+		nose.radius = 0.45
+		nose.height = 0.9
+		nose.radial_segments = 8
+		nose.rings = 4
+		_mesh(nose, Color(1, 0.3, 0.15), Vector3(0, 0, -1.6))
+	elif kind == Kind.ARC_SALVO:
+		var capsule: CapsuleMesh = CapsuleMesh.new()
+		capsule.radius = 0.65
+		capsule.height = 3.6
+		capsule.radial_segments = 10
+		capsule.rings = 4
+		_mesh(capsule, colors[kind], Vector3.ZERO).rotation_degrees.x = 90
+		for z: float in [-1.0, 1.0]:
+			var ring: TorusMesh = TorusMesh.new()
+			ring.inner_radius = 0.85
+			ring.outer_radius = 1.05
+			ring.rings = 16
+			ring.ring_segments = 6
+			_mesh(ring, Color(1, 0.5, 0.95), Vector3(0, 0, z)).rotation_degrees.x = 90
+	if batch_visuals_enabled:
+		CombatMeshCache.merge_parts(visual, kind)
 	_update_visual()
 
 
@@ -154,5 +200,16 @@ func trajectory_velocity(time: float) -> Vector3:
 
 
 func _update_visual() -> void:
+	if kind == Kind.BOMB_CLUSTER:
+		$Visual.scale = Vector3.ONE * (1 + sin(age * 8) * 0.12)
 	if velocity.length_squared() > 0.001:
 		$Visual.basis = Basis.looking_at(velocity.normalized(), Vector3.RIGHT if absf(velocity.normalized().y) > 0.98 else Vector3.UP)
+
+
+func _add_fins(width: float, z: float, color: Color) -> void:
+	for index: int in range(4):
+		var shape: BoxMesh = BoxMesh.new()
+		shape.size = Vector3(width, 0.12, 1.3)
+		var angle: float = index * PI / 2
+		var fin: MeshInstance3D = _mesh(shape, color, Vector3(cos(angle) * width * 0.7, sin(angle) * width * 0.7, z))
+		fin.rotation.z = angle

@@ -24,6 +24,7 @@ var shot_history: Array[int] = []
 var group_velocity: Vector3 = Vector3.ZERO
 var capital_preparing: bool = false
 var capital_focus: Vector3 = Vector3.ZERO
+var boost_fov_extra: float = 0
 var guided_spectacle: bool = false
 var guided_lock: bool = false
 var guided_shots: Array[int] = []
@@ -101,6 +102,8 @@ func set_mode(new_mode: Mode) -> void:
 		_last_effective_shot = -1
 		_shot_time = 0.0
 		shot_history.append(cinematic_shot)
+		if shot_history.size() > 64:
+			shot_history.pop_front()
 	else:
 		if previous_mode != Mode.CINEMATIC:
 			fov = _normal_fov
@@ -147,6 +150,8 @@ func _update_cinematic(delta: float) -> void:
 		_shot_duration = _cine_random.randf_range(3.5, 6.0) if guided_spectacle else _cine_random.randf_range(6.0, 12.0)
 		shot_changes += 1
 		shot_history.append(cinematic_shot)
+		if shot_history.size() > 64:
+			shot_history.pop_front()
 	var effective_shot: Shot = Shot.WIDE if _group_spread > 45.0 and not guided_spectacle else cinematic_shot
 	var offsets: Array[Vector3] = [Vector3(14, 18, 52), Vector3(-55, 16, 28), Vector3(55, 14, 28), Vector3(8, 52, 38), Vector3(-18, -6, 37), Vector3(10, 34, 78), Vector3(-8, 12, -62), Vector3(5, 8, 35), Vector3(12, 80, 48), Vector3(-10, -50, 48), Vector3(10, 25, 95), Vector3(-65, 12, 22)]
 	if effective_shot != _last_effective_shot:
@@ -159,7 +164,7 @@ func _update_cinematic(delta: float) -> void:
 	_current_shot_offset = _previous_shot_offset.lerp(offsets[effective_shot], eased)
 	var fields: Array[float] = [57.0, 60.0, 60.0, 58.0, 61.0, 65.0, 64.0, 62.0, 64.0, 62.0, 65.0, 63.0]
 	var side_speed: float = Vector2(group_velocity.x, group_velocity.y).length()
-	var desired_fov: float = clampf(fields[effective_shot] + _action_intensity * 3.0 + maxf(_demo_pace - 1.0, 0.0) * 1.7 + side_speed * 0.2 + sin(_cine_time * 0.13) * 0.7, 54, 68)
+	var desired_fov: float = clampf(fields[effective_shot] + _action_intensity * 3.0 + maxf(_demo_pace - 1.0, 0.0) * 1.7 + side_speed * 0.2 + sin(_cine_time * 0.13) * 0.7 + boost_fov_extra, 54, 71)
 	var blending: float = 1.0 - exp(-3.0 * delta / maxf(cinematic_transition_time, 0.5))
 	fov = lerpf(fov, desired_fov, blending)
 	var offset: Vector3 = _current_shot_offset * (1.0 - _action_intensity * 0.04)

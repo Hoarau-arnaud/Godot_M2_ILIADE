@@ -18,6 +18,7 @@ var _debris: MultiMeshInstance3D
 var _debris_points: PackedVector3Array = PackedVector3Array()
 var _debris_bases: Array[Basis] = []
 var _backdrop: Node3D
+var guided_speed_effect: float = 1
 var streak_length_multiplier: float = 1.0
 
 
@@ -86,7 +87,7 @@ func recycle_stars(center: Vector3, delta: float = 0.0, demo_pace: float = 1.0, 
 		for index: int in range(positions.size()):
 			var star_position: Vector3 = positions[index]
 			# Le proche défile plus vite ; le lointain garde sa parallaxe naturelle.
-			star_position.z += ([0.0, 4.0, 18.0][layer] as float) * delta
+			star_position.z += ([0.0, 4.0, 18.0][layer] as float) * guided_speed_effect * delta
 			var relative: Vector3 = star_position - center
 			if absf(relative.x) <= extent.x and absf(relative.y) <= extent.y and relative.z >= -extent.z and relative.z <= extent.z * 0.25:
 				if layer > 0 and delta > 0:
@@ -137,11 +138,11 @@ func _create_streaks() -> void:
 
 
 func _update_streaks(center: Vector3, delta: float, demo_pace: float, fleet_velocity: Vector3) -> void:
-	streak_length_multiplier = clampf(1.0 + maxf(demo_pace - 1.0, 0.0) * 0.75 + fleet_velocity.length() / 35.0, 1.0, 2.5)
+	streak_length_multiplier = clampf(1.0 + maxf(demo_pace - 1.0, 0.0) * 0.75 + fleet_velocity.length() / 35.0, 1.0, 2.5) * guided_speed_effect
 	var drift: Vector3 = -fleet_velocity.normalized() if fleet_velocity.length_squared() > 0.01 else Vector3.BACK
 	var alignment: Basis = Basis.looking_at(-drift, Vector3.UP)
 	for index: int in range(_streak_positions.size()):
-		var point: Vector3 = _streak_positions[index] + drift * (32.0 + fleet_velocity.length() * 0.8) * delta
+		var point: Vector3 = _streak_positions[index] + drift * (32.0 + fleet_velocity.length() * 0.8) * guided_speed_effect * delta
 		var relative: Vector3 = point - center
 		point = center + Vector3(wrapf(relative.x, -75, 75), wrapf(relative.y, -48, 48), wrapf(relative.z, -160, 60))
 		_streak_positions[index] = point

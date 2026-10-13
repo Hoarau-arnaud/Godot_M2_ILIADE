@@ -53,6 +53,7 @@ func _advance(frames: int) -> void:
 
 func _empty(count: int = 1) -> SpaceSimulation:
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(sim)
 	sim.ship_count = count
 	sim.streaming_enabled = false
 	sim.drones_enabled = false
@@ -73,6 +74,7 @@ func _dispose(sim: SpaceSimulation) -> void:
 
 func _capital(sim: SpaceSimulation) -> CapitalShip:
 	var ship: CapitalShip = CAPITAL.instantiate() as CapitalShip
+	FlightTuning.legacy_actor(ship)
 	ship.individual_seed = 20261012
 	ship.position = Vector3(0, 0, -190)
 	ship.projectile_container = sim.projectile_container
@@ -88,6 +90,7 @@ func _test_states() -> void:
 		_check(capital.state_history.has(state), "État non traversé : " + CapitalShip.State.keys()[state])
 	_check(capital.salvos_fired >= 2 and capital.observed_count == 1 and capital.group_distance > 120 and capital.group_distance < 250, "Cycle, perceptions ou distance invalide.")
 	var rock: SpaceAsteroid = ROCK.instantiate() as SpaceAsteroid
+	FlightTuning.legacy_actor(rock)
 	rock.diameter = 16
 	rock.motion_type = SpaceAsteroid.MotionType.LINEAR
 	rock.motion_velocity = Vector3.BACK * 20
@@ -216,6 +219,7 @@ func _test_flight_safety() -> void:
 	await _advance(30)
 	_check(not is_instance_valid(expiring), "Lifetime non nettoyée.")
 	var rock: SpaceAsteroid = ROCK.instantiate() as SpaceAsteroid
+	FlightTuning.legacy_actor(rock)
 	rock.position = Vector3(0, 0, 10)
 	sim.asteroid_container.add_child(rock)
 	var blocked: ArtilleryProjectile = ArtilleryProjectile.new()
@@ -281,6 +285,7 @@ func _test_damage_respawn() -> void:
 	sim.ships[0].set_physics_process(false)
 	sim.ships[0].global_position = Vector3.ZERO
 	var laser: BlueLaser = LASER.instantiate() as BlueLaser
+	FlightTuning.legacy_actor(laser)
 	laser.position = Vector3(0, 0, -20)
 	sim.projectile_container.add_child(laser)
 	await _advance(60)
@@ -392,6 +397,7 @@ func _capture_design() -> void:
 
 func _simulation_run(seconds: int, spectacle: bool) -> void:
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(sim)
 	sim.manual_difficulty = 3
 	root.add_child(sim)
 	if spectacle:
@@ -419,6 +425,7 @@ func _native_run(seconds: int, spectacle: bool) -> void:
 	DisplayServer.window_set_size(Vector2i(1920, 1080))
 	DisplayServer.window_set_position(Vector2i(180, 140))
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	FlightTuning.legacy_actor(sim)
 	sim.manual_difficulty = 3
 	root.add_child(sim)
 	if spectacle:
