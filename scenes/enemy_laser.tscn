@@ -4,18 +4,19 @@
 
 [sub_resource type="StandardMaterial3D" id="Orange"]
 shading_mode = 0
-albedo_color = Color(1, 0.22, 0.04, 1)
+transparency = 1
+albedo_color = Color(1, 0.22, 0.04, 0.32)
 emission_enabled = true
 emission = Color(1, 0.08, 0.015, 1)
 emission_energy_multiplier = 2.0
 
 [sub_resource type="BoxMesh" id="Bolt"]
 material = SubResource("Orange")
-size = Vector3(0.48, 0.48, 2.4)
+size = Vector3(0.55, 0.55, 7)
 
 [sub_resource type="BoxMesh" id="Spear"]
 material = SubResource("Orange")
-size = Vector3(0.22, 0.22, 4.2)
+size = Vector3(0.45, 0.45, 9)
 
 [sub_resource type="SphereMesh" id="Pulse"]
 material = SubResource("Orange")

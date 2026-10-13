@@ -1,84 +1,103 @@
-# Simulation SMA spatiale — milestone 11
+# Simulation SMA spatiale — milestone 12
 
-Projet pédagogique **Godot 4.7.2 / GDScript**, avec quatre agents : **BlueShip, PatrolDrone, Interceptor et Capital Artillery Ship**. M11 ajoute une **démonstration guidée de 100 secondes** au mode **Simulation libre** existant, un voisinage planétaire stylisé et des projectiles plus lisibles. Les astéroïdes restent l'environnement ; les missiles sont des objets de combat. Aucun cinquième agent, asset externe, bombe ou PowerPoint n'est ajouté.
+Projet pédagogique **Godot 4.7.2 / GDScript**, avec exactement quatre types d'agents : **BlueShip, PatrolDrone, Interceptor et Capital Artillery Ship**. Plusieurs Capital Ships sont plusieurs instances du même Agent 4. Rochers, bolts, bombes, faisceaux et missiles sont des éléments d'environnement/combat. M12 renforce la présentation et la difficulté de GUIDED ; FREE reste le mode initial avec ses réglages.
 
-## M11 — Simulation libre et démonstration guidée
+## M12 — Traversée d'une zone de guerre spatiale
 
-Le lancement reste en **Simulation libre (FREE)** : AUTO, dix BlueShip, vitesse 1,7×, mouvement 1,2, réglages runtime et Mode spectacle disponibles. La caméra Libre commandée par F est un **mode de caméra**, distinct du mode de simulation FREE.
+**D** ou **Démo guidée** démarre le parcours. D ou **Simulation libre** le termine ; **Recommencer démo** reprend la phase 1. TAB réaffiche le panneau, H l'aide, F11/Alt+Entrée le plein écran. La caméra Libre (F) reste distincte de la simulation FREE.
 
-**D** démarre la démo depuis FREE et l'arrête depuis GUIDED. Le panneau comporte **Simulation libre**, **Démo guidée** et **Recommencer démo**. D étant réservé au scénario, le déplacement caméra à droite utilise la flèche droite ; W/Z/S/A/Q et les autres commandes restent disponibles. TAB permet de réafficher le panneau pendant la démo, H l'aide et F11/Alt+Entrée le plein écran.
+Le séquenceur suspend les entités FREE dans leurs parents, avec leurs identités, HP, cibles, mémoires, timers, RNG, réglages et caméra. Il les restitue à la sortie automatique ou manuelle. Chaque phase repart avec **15 BlueShip à 3 HP** ; le reset retire les anciens sans compter de morts. Les collisions et dégâts restent réels. Les agents gardent leur navigation SMA locale, sans route commune ni force caméra.
 
-Le séquenceur `GuidedDemonstration`, qui n'est pas un agent, utilise `DemoMode.FREE/GUIDED`. Les entités libres restent dans leurs parents, cachées, avec traitement et collisions suspendus et groupes de perception retirés. Cela conserve leurs identités, cibles, mémoires, HP et timers. Les réglages, compteurs, RNG, streaming et caméra sont sauvegardés puis restaurés. La démo se termine automatiquement en FREE ; on peut aussi l'arrêter ou la recommencer à tout moment. Fermer directement en GUIDED libère les deux ensembles avec la scène.
-
-Chaque phase repart avec **15 BlueShip neufs et 3 HP**, autour du centre courant. Ce reset retire les précédents sans mort ni score ; seules les collisions et les dégâts réels incrémentent le compteur de la démo. Les projectiles et ennemis de la phase précédente sont supprimés. Les acteurs de la simulation libre restent préservés. Les collisions des BlueShip de démonstration sont toujours actives.
-
-| Phase | Durée réelle | Présentation et populations |
+| Phase | Durée réelle | Présentation |
 |---|---:|---|
-| 1 — Champ d'astéroïdes | 15 s | `DEMO_SLALOM_TUNNEL` : 130 rochers statiques, cinq rangées à passages gauche/haut/droite/bas/gauche ; cinq LINEAR à angles différents ; aucun ennemi |
-| 2 — Astéroïdes dynamiques | 15 s | 16 rochers : quatre DIAGONAL, quatre VERTICAL_SWEEP, quatre orbites inclinées CIRCULAR et quatre ARC ; aucun ennemi |
-| 3 — Drones de patrouille | 15 s | Quatre PatrolDrone, routes A/B/C/D puis nouvelle route, marqueurs verts sans collision, pulses verts ; trois rochers de décor |
-| 4 — Intercepteurs | 15 s | Quatre Interceptor placés près du groupe : acquisition rapide, poursuite, rafales, désengagement ; trois rochers de décor |
-| 5 — Artillerie capitale | 20 s | Un Capital à environ 230 m ; FSM active, ordre pédagogique Heavy → Spread → Arc → Cross → Seeker ; aucun autre ennemi ou rocher |
-| 6 — Confrontation finale | 20 s | Champ normal difficile/mobile, cinq PatrolDrone, quatre Interceptor, un Capital ; tous les tirs, vitesse 1,7×, mouvement 1,3, espacement 1,05 |
+| 1 — TEMPÊTE DE MÉTÉORES | 18 s | 180 rochers physiques mobiles LINEAR, positions XYZ et directions continues, aucun ennemi |
+| 2 — ASTÉROÏDES ORBITAUX | 18 s | 84 rochers physiques : diagonales, balayages verticaux, orbites inclinées et arcs |
+| 3 — DRONES DE PATROUILLE | 18 s | 4 PatrolDrone, routes A → B → C → D, marqueurs, pulses verts ; trois rochers physiques |
+| 4 — INTERCEPTEURS | 18 s | 5 Interceptor, rafales de cinq tirs, pauses plus courtes ; trois rochers physiques |
+| 5 — FLOTTE D'ARTILLERIE | 28 s | 5 Capital Ships en formation irrégulière, à 350–650 m ; bombardement et dangers télégraphiés |
+| 6 — ASSAUT FINAL | 30 s | 150 rochers physiques, 5 PatrolDrone, 5 Interceptor et 4 Capital Ships lointains |
 
-Deux chasseurs commencent la finale plus écartés, à portée de récupération locale de 50 m. Aucune force ni route commune n'est imposée : les règles existantes produisent leur retour. Les cinq dernières secondes offrent une respiration : les ennemis arrêtent les nouveaux tirs, tandis que leurs mouvements, les obstacles, les tirs déjà lancés et le combat bleu continuent.
+Le scénario dure **130 secondes réelles**, à **1,9×**. Movement vaut **1,5 / 1,5 / 1,35 / 1,35 / 1,5 / 1,6**. Les cinq dernières secondes de finale arrêtent les nouveaux tirs ennemis ; les tirs en vol et les règles de mouvement continuent. Deux chasseurs écartés commencent dans la portée de récupération de 50 m.
 
-Les durées sont exportées en **secondes réelles** : `demo_phase_duration=15`, `capital_phase_duration=20`, `finale_phase_duration=20`, `finale_relief_duration=5`. Elles restent indépendantes du rythme de simulation. La seed de scénario vaut `20261012` ; le restart reproduit les conditions initiales et l'ordre des attaques. En dehors de GUIDED, le Capital retrouve son choix et son rythme M10 habituels.
+### Meteor Storm et décor
 
-Un titre discret **PHASE X — NOM** apparaît sous les étoiles pendant GUIDED, puis disparaît en FREE. Le titre fait un fade de 0,7 s réelles ; les cadrages interpolent sur 0,8 s. CINEMATIC est automatique : CHASE/HIGH, SIDE/WIDE, SIDE/CHASE, CHASE, WIDE, puis cycle complet. Le groupe bleu reste prioritaire et la dispersion peut demander un plan plus large. Aide et panneau sont masqués au départ ; les réglages du scénario et la caméra sont verrouillés, les boutons de sortie/restart restent accessibles via TAB. Le HUD n'ajoute ni chrono, ni HP, ni compte de missiles.
+`DEMO_METEOR_STORM` utilise un RNG personnel dérivé de `simulation_seed` (seed de démonstration par défaut **20261012**). Une même graine reproduit la tempête initiale ; une autre la change. Les rochers naissent dans un volume **X ±70 m, Y ±45 m, 30–280 m devant le groupe**. Rejection sampling : pas d'apparition sur un chasseur, pas de chevauchement initial des enveloppes, au plus quatre voisins dans 18 m, et corridor sinueux conservé pour les grosses masses. Les petits météores peuvent le traverser. Le streaming remplace les rochers qui quittent le volume ; le budget reste **180**, ou **84** en phase 2.
 
-### Planète et projectiles
+Distribution nominale : **55 % de 0,6–2 m, 28 % de 2–5 m, 14 % de 5–10 m, 3 % de 10–16 m**. Les rejets peuvent modifier les proportions réellement acceptées. Les rochers de tempête utilisent une enveloppe convexe unique et conservative autour de leurs lobes. Leurs lobes sont rendus par quatre MultiMesh avec les transforms physiques exacts. FREE conserve ses formes convexes par lobe ; le diamètre est nominal. Vitesses initiales : **4–8, 8–16, 16–28 m/s**, quelques petits météores à **30–45 m/s**. Directions XYZ continues avec biais vers le volume observable ; rotations et plans orbitaux personnels. Le mouvement LINEAR reste rectiligne pendant la phase. Les trajectoires orbitales ont une vitesse instantanée variable.
 
-Le groupe vole dans un **champ orbital stylisé près d'une grande planète**, avec une courbure bleu/cyan occupant une partie du fond, une surface procédurale et une sphère atmosphérique légèrement plus grande. **360 débris distants dans une seule MultiMesh** suggèrent un anneau. Planète, halo et débris n'ont aucune collision ni perception d'agent. Le ciel utilise un [ProceduralSkyMaterial](https://docs.godotengine.org/en/stable/classes/class_proceduralskymaterial.html), avec des nuances très sombres de bleu, cyan et violet/magenta. Il s'agit d'un décor, sans modèle gravitationnel ou orbital astrophysique.
+Les barrages FREE reçoivent aussi un jitter XYZ, conservateur près des anciens passages. FREE normal conserve son plafond de 96 rochers. Le décor ajoute **1 000 rochers MultiMesh** autour/derrière/au loin, en plus des **360 débris de l'anneau**. Ces deux MultiMesh décoratives n'ont aucune collision, perception ou dégâts ; elles sont distinctes du rendu instancié des rochers physiques. La grande planète, son halo et les nébuleuses sont conservés.
 
-| Visuel | Avant M11 | M11 |
-|---|---:|---:|
-| BlueLaser — largeur du bolt | 0,12 m | **0,24 m** |
-| EnemyLaser — bolt orange | 0,24 m | **0,48 m** |
-| EnemyLaser — spear orange | 0,11 m | **0,22 m** |
-| EnemyLaser — diamètre pulse | 0,40 m | **0,80 m** |
-| Pulse Patrol — nouveau tir de démo | — | **diamètre 1,28 m**, trail largeur 0,48 m, 26 m/s, 1 HP, lifetime 6 s, intervalle 2,2 s |
-| Heavy — largeur de traînée | 0,20 m | **0,40 m**, noyau de 3,6 m inchangé |
-| Autres artilleries — traînée | 0,12 m | **0,24 m**, collisions inchangées |
+### Arsenal de la flotte
 
-Les raycasts BlueLaser/EnemyLaser et les sphères physiques d'artillerie restent inchangés. Le pulse de patrouille est activé en phases 3 et 6 ; le PatrolDrone libre conserve son comportement historique, avec un export optionnel `patrol_fire_enabled` désactivé par défaut.
+Les Capital Ships utilisent la même classe/FSM et restent lointains en GUIDED. Silhouettes, fenêtres, moteurs violets et flashes des batteries montrent l'origine des tirs. Les cinq attaques historiques restent disponibles.
 
-### Validation M11
+| Nouvelle attaque | Fonctionnement |
+|---|---|
+| RAPID_BARRAGE | Salve de 24 bolts, intervalle 0,085 s simulée ; environ 22 tirs/s réelles durant une rafale admise, sous budget partagé |
+| BOMB_CLUSTER | Trois bombes lumineuses visant des positions gelées autour du centre prédit ; zone 3D annoncée avant explosion |
+| LASER_CURTAIN | Quatre faisceaux parallèles, espaces ouverts, avertissement avant activation |
+| LASER_GRID | Quatre lignes verticales et deux horizontales ; grand passage central ouvert, warning rouge puis activation intense |
+| MISSILE_SWARM | Salve nominale de 18 missiles, certains visent un BlueShip, guidage limité à 6°/s simulée et poursuite abandonnée si cible morte |
 
-`tests/validate_guided_demonstration.gd` teste D/boutons/restart, pause et reprise des mêmes agents avec leur poursuite, réglages/RNG/compteurs/caméra, fermeture directe, largeur des tirs, passages physiques du tunnel, cinq directions LINEAR, collisions actives, six phases, routes, rafales, ordre réel des salves, récupération, budgets et retour automatique. Les sept suites historiques M1–M10 restent en FREE par défaut.
+Visée gelée : `observed_center + observed_velocity * travel`. Les nouveaux vols prennent environ **10,5–14 s simulées**, soit **5,5–7,4 s réelles à 1,9×** ; la vitesse est calculée depuis la distance réelle du lanceur à la zone prédite. Les beams sont précédés d'un paquet lumineux traversant cette distance, puis d'un warning local **1 s réelle**. Ils sont dangereux pendant **0,68 s réelle**, puis supprimés. Chaque ligne utilise un mesh et une `Area3D/BoxShape3D`, pas un essaim de CharacterBody.
+
+La bombe montre une sphère translucide et un anneau au point prévu pendant les **2,6 s réelles** finales. Explosion : sphère emissive croissante, anneau shockwave et 18 éclats MultiMesh. Rayon **13 m**, dégâts **3 / 2 / 1 HP** selon distance, zéro dehors. La grille inflige **3 HP** au contact actif, une fois par cible et attaque. Ces zones participent à la perception prioritaire des BlueShip pendant le warning. Les missiles et bolts gardent de vraies collisions ; les tracers ne font aucun dégât.
+
+Le plafond partagé est **90 unités dangereuses** en phase 5 et **60 en finale** : tirs physiques/raycast et lignes laser préparées/actives. Six places sont réservées aux grilles en finale ; les tirs ordinaires s’arrêtent à 54 unités. FREE garde ses plafonds plus bas. Les salves dépassant le budget sont partiellement refusées, sans accumulation de tirs retardés ; une salve réellement émise peut donc être plus petite que sa taille nominale. Le budget et les temps de vol empêchent de maintenir 20–40 tirs dangereux/s indéfiniment. Le MultiMesh de tracers fournit **90 traits/s réelles**, avec un pool de **768 instances et un seul Node**, pour renforcer le bombardement sans autant de corps physiques.
+
+### Projectiles, caméra et panneau
+
+Patrol : noyau vert sphérique **1,8 m**, halo **2 m**, petite traînée cylindrique. Interceptor : streaks orange/rouge **7 ou 9 m**, épaisseurs **0,55 ou 0,45 m**, noyau blanc/orange **0,18 m** ; raycasts inchangés. Missiles : capsule de **3,4 m**, nez arrondi, moteur et trois segments de traînée colorée, sans lumières dynamiques.
+
+Six plans supplémentaires : **FRONT_FLYBY, REAR_CLOSE, TOP_DOWN, UNDER_FLEET, WIDE_ARTILLERY, SIDE_FAST**. GUIDED change de cadrage toutes les **3,5–6 s réelles**, transition interpolée **0,8 s**, sans agir sur les agents. La perception des dangers en GUIDED est échantillonnée toutes les 0,05 s simulées (environ 30 Hz réelles avec le pas physique), avec steering conservé entre lectures ; les collisions restent au pas physique de 120 Hz. FREE garde ses lectures à chaque tick. FRONT_FLYBY est occasionnel ; le cadrage adapte sa distance à l'étendue du banc.
+
+FREE ajoute exactement deux sliders : **Densité rochers 0,5–2,5**, défaut **1**, modifie l'espacement de streaming des configurations ; **Intensité tirs 0,5–3**, défaut **1**, modifie les intervalles ennemis et la préparation/cooldown Capital, jamais les dégâts. Les deux paramètres sont restaurés après GUIDED. Le panneau conserve les contrôles précédents, avec des espacements plus compacts pour tenir dans 720p.
+
+### Validation M12
+
+`tests/validate_hazard_spectacle.gd` vérifie les graines, distributions, spawn sûr, budgets, grille télégraphiée, collision directe létale et passage sûr, réaction autonome, bombe/AoE/nettoyage, cible gelée, salve de 18 missiles/guidage/cible morte, flotte visible/distances/continuité, les six phases et la restitution FREE. Les fixtures M1–M11 peuvent garder les anciennes géométries et le scénario M11 ; elles conservent leurs contrôles physiques et SMA. Les assertions de présentation M11 acceptent les projectiles encore épaissis.
 
 ```powershell
 $godotExe = 'C:\Users\Sora\Desktop\Godot_v4.7.2-stable_win64.exe'
-Start-Process -FilePath $godotExe -ArgumentList '--headless','--path','.','--fixed-fps','60','--script','res://tests/validate_guided_demonstration.gd','--log-file','.godot/validate_guided_demonstration_m11_final.log' -WindowStyle Hidden -Wait
+Start-Process -FilePath $godotExe -ArgumentList '--headless','--path','.','--fixed-fps','60','--script','res://tests/validate_hazard_spectacle.gd','--log-file','.godot/m12_final.log' -WindowStyle Hidden -Wait
+# Pour le rendu réel, retirer --headless / --fixed-fps et ajouter -- --native.
 ```
 
-Pour la vidéo, retirer `--headless` et `--fixed-fps`, puis ajouter `-- --native-video`. Ce test met la fenêtre en plein écran et fixe **le rendu interne à 1920×1080** via le viewport du test, indépendamment du moniteur. Le projet conserve ses paramètres `canvas_items/expand` et le rendu natif responsive M9. Les captures sont de vrais pixels 1080p du moteur, sans redimensionnement après capture. `-- --capture` avec rendu et pas fixe produit aussi des vues rapides des six phases et du panneau FREE ; ce mode ne mesure pas des FPS réels.
+Le pilote natif vérifie un rendu interne **1920×1080** en plein écran, sans redimensionner les captures. Le projet conserve son viewport `canvas_items/expand`. Les mesures headless sont distinctes des FPS graphiques. Le benchmark `-- --native` n’écrit aucune PNG pendant la mesure ; `-- --native --capture` produit séparément les captures et mesure aussi le coût de leur lecture GPU/compression/écriture. Les métriques/captures restent dans `.godot/`, ignoré par Git.
 
-Validation finale **Godot 4.7.2, seed 20261012, Intel Arc Graphics, Compatibility OpenGL et MSAA 4×** : huit suites M1–M11 passent, sans erreur ni warning dans les journaux finaux. Le parcours headless suit **100,01 s de scénario** avec un coût moyen de **1,06 ms/tick** (simulation et instrumentation, pas des FPS). Les nœuds reviennent de **412 à 412** après restitution du mode libre ; les mêmes agents, leurs cibles, timers, réglages, caméra, RNG et compteurs sont conservés.
+Validation de référence **Godot 4.7.2, Intel Arc Graphics, Compatibility OpenGL, MSAA 4×, VSync, seed 20261012** : les **neuf suites M1–M12 passent**, sans erreur/warning Godot dans les journaux d'acceptation. Le rendu complet mesure **97.06 FPS moyens**, minimum sur une seconde **70.12 FPS**, pendant **130.26 s réelles** pour **130.01 s de scénario**. Le rendu interne est vérifié à **1920×1080**, dans une fenêtre plein écran de (3840, 2400). La compression/écriture des PNG est séparée du benchmark ; les captures ont été contrôlées visuellement. L'écriture d'une capture durant une finale chargée peut faire chuter momentanément les FPS, sans représenter le coût du rendu normal.
 
-Le rendu complet prend **101,05 s réelles**, pour **100,04 s de phases**, à **98,10 FPS moyens**, minimum sur une fenêtre d'une seconde **76,04 FPS**. Le test est réellement en plein écran sur une surface **4096×2304**, avec un rendu interne vérifié de **1920×1080**. Ce choix appartient au test vidéo ; le projet conserve son viewport natif responsive. Six captures PNG 1080p sont incluses dans la mesure, sans redimensionnement après capture. L'objectif >60 FPS est atteint sur cette machine.
+| Phase, rendu réel | Blue vivants / morts | Verts / rouges / Capital à la fin | Rochers physiques max | Tirs dangereux max, hors beams | Budget total observé, beams inclus |
+|---|---:|---:|---:|---:|---:|
+| 1 — TEMPÊTE DE MÉTÉORES | 15 / 0 | 0 / 0 / 0 | 180 | 0 | 0 |
+| 2 — ASTÉROÏDES ORBITAUX | 15 / 0 | 0 / 0 / 0 | 84 | 0 | 0 |
+| 3 — DRONES DE PATROUILLE | 15 / 0 | 4 / 0 / 0 | 3 | 12 | 12 |
+| 4 — INTERCEPTEURS | 15 / 0 | 0 / 5 / 0 | 3 | 50 | 50 |
+| 5 — FLOTTE D'ARTILLERIE | 15 / 0 | 0 / 0 / 5 | 0 | 84 | 90 |
+| 6 — ASSAUT FINAL | 15 / 0 | 4 / 5 / 4 | 150 | 54 | 58 |
 
-| Phase, rendu réel | Blue vivants / morts | Ennemis verts / rouges / Capital | Astéroïdes max | Projectiles max | Esquives de projectiles | Regroupements locaux |
-|---|---:|---:|---:|---:|---:|---:|
-| 1 — CHAMP D'ASTÉROÏDES | 15 / 0 | 0 / 0 / 0 | 135 | 0 | 0 | 18 |
-| 2 — ASTÉROÏDES DYNAMIQUES | 15 / 0 | 0 / 0 / 0 | 16 | 0 | 0 | 0 |
-| 3 — DRONES DE PATROUILLE | 15 / 0 | 4 / 0 / 0 | 3 | 12 | 43 | 0 |
-| 4 — INTERCEPTEURS | 15 / 0 | 0 / 4 / 0 | 3 | 24 | 45 | 0 |
-| 5 — ARTILLERIE CAPITALE | 15 / 0 | 0 / 0 / 1 | 0 | 19 | 20 | 0 |
-| 6 — CONFRONTATION FINALE | 14 / 1 | 4 / 4 / 1 | 72 | 43 | 84 | 2 |
+Phase 1 : **180 mobiles simultanés**, **4.04–44.83 m/s** en vitesse initiale, quatre tranches de taille, directions continues, excursion XY individuelle maximale **26.08 m**. La tempête initiale de 180 rochers accepte **89 petits / 60 moyens / 28 grands / 3 très grands**, 180 directions distinctes, vitesse **4,06–41,31 m/s** ; le streaming élargit ensuite cette plage. Phase 2 : **84 simultanés**, quatre familles complexes représentées, excursion XY **30.72 m**, 15 survivants.
 
-Phase 1 : **130 statiques + cinq LINEAR**, cinq angles et passages physiquement ouverts, translations latérales individuelles jusqu'à **51,33 m**, **15/15 survivants**. Phase 2 : **quatre représentants de chacune des familles DIAGONAL, VERTICAL_SWEEP, CIRCULAR et ARC**, sans ennemi. Phase 3 : **4 routes A/B/C/D terminées**, **32 waypoints sélectionnés**, **45 pulses verts**, avec réaction bleue. Phase 4 : **12 poursuites**, **8 désengagements**, **92 tirs rouges**. Phase 5 : ordre réel vérifié **Heavy → Spread → Arc → Cross → Seeker**, une salve de chaque famille et **20 épisodes d'esquive**.
+Phase 3 : **7 routes complètes**, **38 waypoints**, **61 pulses verts**. Phase 4 : **15 poursuites**, **15 désengagements**, **207 tirs rouges**. Phase 5 : les **5 Capital** sont tous observés dans le cadre et avec flash de batterie, entre **406.48 et 636.98 m** ; leur déplacement maximal entre deux frames observées vaut **0.79 m**. **163 tirs d'artillerie** atteignent la zone de 65 m autour du banc. Les cinq nouvelles familles sont exercées : **8 tentatives de Rapid Barrage**, **7 explosions de bombe**, **2 activations Curtain**, **3 Grid**, **38 missiles émis**. Les compteurs de salves indiquent des tentatives sous budget, pas la garantie d'une salve entière admise.
 
-Finale réelle : **14 survivants, 1 mort(s)**, **10 tirs bleus / 155 tirs hostiles**, **2 activations du regroupement**, dispersion maximale **49,95 m**, finale **36,34 m**. Les nœuds culminent à **2704**, en comptant les entités libres suspendues et le chevauchement bref des suppressions différées. Les projectiles culminent à **43**, les astéroïdes actifs à **135** ; les **360 débris décoratifs** utilisent une seule MultiMesh sans collision.
+Finale de **30 s** : **15 survivants / 0 morts**, **150 rochers**, **54 tirs dangereux simultanés** et **58 unités avec beams**, **2 explosions**, **3 grilles actives**, **24 missiles**, **352 tirs ennemis / 10 tirs bleus**, **334 épisodes d'esquive**, **52 entrées en regroupement**. Dispersion maximale **62.93 m**, finale **60.13 m** : le regroupement local n'est pas toujours complet. Les **1 360 débris décoratifs**, les **90 tracers/s**, et le maximum de **522 tracers actifs** renforcent la densité sans dégâts supplémentaires.
 
-Le headless termine la finale avec **14 survivants / 1 mort(s)**, tandis que le rendu réel donne les valeurs ci-dessus. Les resets de phase ne sont pas des morts ; ces chiffres ne désignent pas la survie d'un même banc pendant cent secondes continues. Les activations de regroupement et d'esquive décrivent les états des agents, sans prouver un impact certainement évité ni un regroupement complet.
+Maximum global : **3224 nœuds**, **180 rochers physiques**, **84 tirs dangereux hors beams**, **90 unités beams inclus**. Restitution FREE : **421 → 421 nœuds**, mêmes entités, réglages, caméra, compteurs et RNG. Le parcours headless termine la finale avec **14 / 1**, **3 grilles**, et **3 explosions** ; il mesure **130.05 s de scénario**, ses FPS artificiels ne sont pas des FPS graphiques. Le stress de petit météore à **45 m/s** conserve une collision réelle unique ; la grille produit une mort à contact direct ; la bombe vérifie le gradient **3/2/1/0 HP**, les missiles une salve de 18, le virage limité et une cible morte sans référence invalide. Les sliders de densité produisent **4 contre 12 configurations initiales** dans le test contrôlé, et l'intensité conserve les dégâts.
 
-Les six titres et transitions automatiques, l'ordre Capital, D, les boutons, le restart, la reprise d'une poursuite libre en cours et la fermeture directe en GUIDED sont vérifiés. Logs et captures : `.godot/validate_*_m11_final.log`, `.godot/m11_video_final.log`, `.godot/validation/m11_phase_*_video.png` ; ces fichiers restent ignorés par Git. Une seule graine et un parcours de cent secondes ne constituent pas une étude multi-graines ou de plusieurs heures.
+Journaux d'acceptation : `.godot/validate_*_m12_final.log`, `.godot/m12_render_benchmark_verified.log`. Métriques : `.godot/m12_metrics.json`, `.godot/m12_native.json`, `.godot/m12_suite_results.json`. Captures : `.godot/validation/m12_phase_*.png`, `m12_streaks_verified.png`, `m12_free_panel.png`. Ces fichiers restent ignorés par Git.
 
 
-Limites : le scénario est calibré sur une graine ; la survie et la dispersion peuvent varier entre rendu réel et headless. Les agents peuvent contourner les parois à l'extérieur des ouvertures, sans route forcée. Une récupération locale n'assure pas un regroupement complet. Le reset de phase sert la présentation et ne constitue pas une survie continue de cent secondes. Les nœuds libres suspendus et les suppressions différées restent inclus dans les comptes de nœuds ; le pic de transition est borné. La mesure FPS concerne le rendu interne 1080p, pas un rendu 4K natif.
+Limites : un seul parcours de référence n'est pas une étude multi-graines. Les dégâts restent réels ; aucun taux de survie n'est garanti. Les épisodes d'esquive/regroupement ne prouvent pas une collision évitée ni un regroupement complet. Les phases réinitialisent le banc ; leur total de morts n'est pas la survie continue des mêmes quinze agents. Les objets libres suspendus et les suppressions différées restent inclus dans le maximum de nœuds. Un budget plein peut réduire les salves. La mesure 1080p n'est pas un benchmark 4K natif. Aucun PowerPoint, PR ou merge n'est créé dans M12.
 
-La démonstration guidée servira de support au PowerPoint et à l'oral final. **Le PowerPoint n'est pas généré dans ce travail.** Les résultats M10 ci-dessous restent des références historiques du mode libre avant la présentation M11.
+
+### Fichiers M12
+
+| État | Fichiers |
+|---|---|
+| Créés | `scripts/artillery_zone.gd`, `scripts/artillery_zone.gd.uid`, `scripts/battle_tracers.gd`, `scripts/battle_tracers.gd.uid`, `scripts/meteor_storm.gd`, `scripts/meteor_storm.gd.uid`, `scripts/storm_rock_visuals.gd`, `scripts/storm_rock_visuals.gd.uid`, `tests/validate_hazard_spectacle.gd`, `tests/validate_hazard_spectacle.gd.uid` |
+| Modifiés | `RAPPORT.md`, `README.md`, `project.godot`, `scenes/enemy_laser.tscn`, `scripts/artillery_projectile.gd`, `scripts/asteroid.gd`, `scripts/blue_ship.gd`, `scripts/camera_controller.gd`, `scripts/capital_ship.gd`, `scripts/demo_controls.gd`, `scripts/enemy_laser.gd`, `scripts/guided_demonstration.gd`, `scripts/interceptor.gd`, `scripts/main.gd`, `scripts/obstacle_field.gd`, `scripts/patrol_drone.gd`, `scripts/space_environment.gd`, `tests/historical_fixture.gd`, `tests/validate_cinematic.gd`, `tests/validate_dynamic_space.gd`, `tests/validate_guided_demonstration.gd` |
+
+M11 reste une référence historique : son ancien parcours de 100 secondes et ses sept prédécesseurs sont exercés par les tests dédiés.
 
 ## M10 — Capital Artillery Ship
 
@@ -812,4 +831,4 @@ Références API : [PrismMesh](https://docs.godotengine.org/en/stable/classes/cl
 
 ## Hors de ce milestone et perspectives
 
-M1–M11 sont implémentés. La démo guidée prépare la présentation orale autour des quatre agents et du phénomène émergent. Le PowerPoint, une étude de plusieurs graines et les bombes BlueShip restent hors de ce travail.
+M1–M12 sont implémentés. La démo guidée prépare la présentation orale autour des quatre agents et du phénomène émergent. Le PowerPoint, une étude de plusieurs graines et les bombes BlueShip restent hors de ce travail.

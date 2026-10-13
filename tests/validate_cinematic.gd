@@ -62,6 +62,7 @@ func _empty(count: int = 10) -> SpaceSimulation:
 	sim.drones_enabled = false
 	sim.interceptors_enabled = false
 	(sim.get_node("Asteroids") as ObstacleField).moving_asteroids_enabled = false
+	(sim.get_node("Asteroids") as ObstacleField).irregular_barrages = false
 	root.add_child(sim)
 	return sim
 
@@ -284,6 +285,7 @@ func _test_run(action: bool) -> void:
 	sim.capital_ships_enabled = false
 	(sim.get_node("Asteroids") as ObstacleField).moving_asteroids_enabled = false
 	sim.manual_difficulty = 3
+	(sim.get_node("Asteroids") as ObstacleField).irregular_barrages = false
 	root.add_child(sim)
 	var seconds: int = 60 if action else 90
 	if action:
@@ -351,6 +353,7 @@ func _native_capture() -> void:
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
 	sim.capital_ships_enabled = false
 	sim.manual_difficulty = 3
+	(sim.get_node("Asteroids") as ObstacleField).irregular_barrages = false
 	root.add_child(sim)
 	sim.apply_action_preset()
 	await _advance(360)
@@ -424,6 +427,7 @@ func _capture_pace() -> void:
 		sim.manual_difficulty = 3
 		sim.simulation_speed_multiplier = speed
 		sim.movement_multiplier = 1.25
+		(sim.get_node("Asteroids") as ObstacleField).irregular_barrages = false
 		root.add_child(sim)
 		sim.camera.set_mode(SimulationCamera.Mode.CINEMATIC)
 		sim.demo_controls.toggle_help()
@@ -443,6 +447,7 @@ func _capture_action() -> void:
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
 	sim.capital_ships_enabled = false
 	sim.manual_difficulty = 3
+	(sim.get_node("Asteroids") as ObstacleField).irregular_barrages = false
 	root.add_child(sim)
 	sim.apply_action_preset()
 	sim.demo_controls.toggle_help()
@@ -462,6 +467,7 @@ func _render_benchmark() -> void:
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
 	sim.capital_ships_enabled = false
 	sim.manual_difficulty = 3
+	(sim.get_node("Asteroids") as ObstacleField).irregular_barrages = false
 	root.add_child(sim)
 	sim.apply_action_preset()
 	sim.demo_controls.toggle_help()

@@ -6,7 +6,7 @@ signal salvo_started(pattern: int)
 signal fired(projectile: ArtilleryProjectile)
 
 enum State { ENTRY, OBSERVE, PREPARE, FIRE, COOLDOWN, REPOSITION, AVOIDING, DESTROYED }
-enum ArtilleryPattern { HEAVY_SHOT, SPREAD, ARC_SALVO, CROSS_FIRE, SEEKER_SALVO }
+enum ArtilleryPattern { HEAVY_SHOT, SPREAD, ARC_SALVO, CROSS_FIRE, SEEKER_SALVO, RAPID_BARRAGE, BOMB_CLUSTER, LASER_CURTAIN, LASER_GRID, MISSILE_SWARM }
 const EXPLOSION: PackedScene = preload("res://scenes/explosion.tscn")
 const BODY_CLEARANCE: float = 38.0
 const LAUNCHERS: Array[Vector3] = [Vector3(-23, 5.5, 18), Vector3(23, 5.5, 18)]
@@ -18,6 +18,11 @@ const LAUNCHERS: Array[Vector3] = [Vector3(-23, 5.5, 18), Vector3(23, 5.5, 18)]
 @export var artillery_limit: int = 50
 @export var combat_enabled: bool = true
 @export var demonstration_cycle: bool = false
+var spectacle_enabled: bool = false
+var fire_intensity: float = 1.0
+var fleet_offset: Vector2 = Vector2.ZERO
+var fleet_role: int = 0
+var _flash_time: float = 0
 var demonstration_attack_order: Array[int] = []
 var projectile_container: Node3D
 var health: int = 24
@@ -57,7 +62,7 @@ var _explosion_index: int = 0
 func _ready() -> void:
 	health = max_health
 	_random.seed = individual_seed
-	_drift = Vector2(_random.randf_range(-24, 24), _random.randf_range(-10, 14))
+	_drift = fleet_offset if spectacle_enabled else Vector2(_random.randf_range(-24, 24), _random.randf_range(-10, 14))
 	observe_group()
 	velocity = observed_velocity
 
@@ -92,18 +97,22 @@ func _transition(next: State) -> void:
 		state_history.pop_front()
 	if next == State.PREPARE:
 		selected_pattern = _choose_pattern()
-		prepare_duration = 0.9 if demonstration_cycle else _random.randf_range(0.8, 1.8)
+		prepare_duration = (1.2 if spectacle_enabled else 0.9 if demonstration_cycle else _random.randf_range(0.8, 1.8)) / fire_intensity
 	elif next == State.FIRE:
 		_pending = build_salvo(selected_pattern)
 	elif next == State.COOLDOWN:
-		cooldown_duration = 0.7 if demonstration_cycle else _random.randf_range(3, 6)
+		cooldown_duration = (3.2 if spectacle_enabled else 0.7 if demonstration_cycle else _random.randf_range(3, 6)) / fire_intensity
 	elif next == State.REPOSITION:
-		vulnerable = not demonstration_cycle and salvos_fired > 0 and salvos_fired % 3 == 0
+		vulnerable = not spectacle_enabled and not demonstration_cycle and salvos_fired > 0 and salvos_fired % 3 == 0
 		_vulnerability_time = 0
-		_drift = Vector2.ZERO if vulnerable else Vector2(_random.randf_range(-30, 30), _random.randf_range(-14, 18))
+		_drift = fleet_offset if spectacle_enabled else Vector2.ZERO if vulnerable else Vector2(_random.randf_range(-30, 30), _random.randf_range(-14, 18))
 
 
 func _choose_pattern() -> ArtilleryPattern:
+	if spectacle_enabled:
+		var orders: Array[Array] = [[5, 0, 5], [6, 2], [7, 5], [8, 1], [9, 4]]
+		var order: Array = orders[fleet_role % orders.size()]
+		return int(order[salvos_fired % order.size()]) as ArtilleryPattern
 	if demonstration_cycle and not demonstration_attack_order.is_empty():
 		return demonstration_attack_order.pop_front() as ArtilleryPattern
 	if _patterns.is_empty():
@@ -148,7 +157,8 @@ func _physics_process(delta: float) -> void:
 		_update_state(delta)
 	_move(delta, correction)
 	var charge: float = clampf(_state_time / prepare_duration, 0, 1) if state == State.PREPARE else 0.0
-	$Visuals.show_charge(charge, _time, alive)
+	_flash_time = maxf(_flash_time - delta, 0)
+	$Visuals.show_charge(maxf(charge, 1.5 if _flash_time > 0 else 0), _time, alive)
 	while state_history.size() > 64:
 		state_history.pop_front()
 
@@ -167,6 +177,9 @@ func _update_state(delta: float) -> void:
 			if _state_time >= prepare_duration:
 				_transition(State.FIRE)
 		State.FIRE:
+			if spectacle_enabled:
+				_fire_spectacle()
+				return
 			if not _pending.is_empty() and _state_time >= float(_pending[0]["delay"]):
 				# Réserver la salve entière ; ne jamais dépasser le plafond partagé.
 				if get_tree().get_nodes_in_group("artillery_projectiles").size() + _pending.size() > artillery_limit:
@@ -192,7 +205,7 @@ func _update_state(delta: float) -> void:
 				if _vulnerability_time >= 10 or _state_time > 38:
 					vulnerable = false
 					_transition(State.OBSERVE)
-			elif _state_time >= (0.5 if demonstration_cycle else 3.0) and absf(observed_center.z - global_position.z - normal_distance) < 18:
+			elif _state_time >= (0.7 if spectacle_enabled else 0.5 if demonstration_cycle else 3.0) and absf(observed_center.z - global_position.z - normal_distance) < 18:
 				_transition(State.OBSERVE)
 
 
@@ -241,6 +254,8 @@ func _obstacle_correction() -> Vector3:
 
 func build_salvo(pattern: int) -> Array[Dictionary]:
 	var salvo: Array[Dictionary] = []
+	if pattern >= ArtilleryPattern.RAPID_BARRAGE:
+		return _build_spectacle_salvo(pattern)
 	var count: int = [1, 5, 4, 6, 3][pattern]
 	for index: int in range(count):
 		var origin: Vector3 = global_position + (Vector3(0, 4, 35) if pattern == ArtilleryPattern.HEAVY_SHOT else LAUNCHERS[index % 2])
@@ -273,14 +288,24 @@ func _launch(spec: Dictionary) -> void:
 	projectile.flight_direction = (Vector3(spec["aim"]) - origin).normalized()
 	projectile.damage = 2 if projectile.kind == ArtilleryProjectile.Kind.HEAVY_SHOT else 1
 	projectile.avoidance_radius = 10 if projectile.damage == 2 else 5 if projectile.kind == ArtilleryProjectile.Kind.SEEKER_SALVO else 4
-	projectile.lifetime = 14
+	projectile.lifetime = 22 if spectacle_enabled else 14
 	projectile.target = spec["target"] if is_instance_valid(spec["target"]) else null
+	if projectile.kind == ArtilleryProjectile.Kind.BOMB_CLUSTER:
+		var zone: ArtilleryZone = ArtilleryZone.new()
+		zone.kind = ArtilleryZone.Kind.BOMB
+		zone.delay = origin.distance_to(Vector3(spec.aim)) / projectile.projectile_speed
+		zone.warning_time = 5.0
+		zone.position = projectile_container.to_local(spec.aim)
+		projectile_container.add_child(zone)
+		projectile.bomb_zone = zone
+		projectile.lifetime = zone.delay
 	projectile.arc_duration = maxf(Vector3(spec["aim"]).distance_to(origin) / projectile.projectile_speed, 0.1)
 	projectile.arc_axis = Vector3.UP if int(spec["index"]) % 2 == 0 else Vector3.RIGHT
 	var container: Node3D = projectile_container if is_instance_valid(projectile_container) else get_parent() as Node3D
 	projectile.position = container.to_local(origin)
 	container.add_child(projectile)
 	shots_fired += 1
+	_flash_time = 0.25
 	fired.emit(projectile)
 
 
@@ -332,3 +357,55 @@ func retire() -> void:
 	remove_from_group("hostile_agents")
 	remove_from_group("capital_ships")
 	queue_free()
+
+
+func _build_spectacle_salvo(pattern: int) -> Array[Dictionary]:
+	var salvo: Array[Dictionary] = []
+	var count: int = 24 if pattern == ArtilleryPattern.RAPID_BARRAGE else 3 if pattern == ArtilleryPattern.BOMB_CLUSTER else 18 if pattern == ArtilleryPattern.MISSILE_SWARM else 1
+	for index: int in range(count):
+		var origin: Vector3 = global_position + LAUNCHERS[index % 2]
+		# Temps en secondes SIMULÉES : environ 5–8 secondes réelles à 1,9x.
+		var travel: float = 10.5 if pattern == ArtilleryPattern.RAPID_BARRAGE else 14.0 if pattern == ArtilleryPattern.BOMB_CLUSTER else 12.0
+		var aim: Vector3 = observed_center + observed_velocity * travel
+		if pattern in [ArtilleryPattern.RAPID_BARRAGE, ArtilleryPattern.MISSILE_SWARM]:
+			aim += Vector3(_random.randf_range(-35, 35), _random.randf_range(-24, 24), _random.randf_range(-8, 8))
+		elif pattern == ArtilleryPattern.BOMB_CLUSTER:
+			aim += Vector3((index - 1) * 27, _random.randf_range(-12, 12), _random.randf_range(-7, 7))
+		var chosen: BlueShip = null
+		var targets: Array[Node] = get_tree().get_nodes_in_group("blue_ships")
+		if pattern == ArtilleryPattern.MISSILE_SWARM and index % 3 == 0 and not targets.is_empty():
+			chosen = targets[index % targets.size()] as BlueShip
+		var speed: float = origin.distance_to(aim) / travel
+		salvo.append({"index": index, "delay": index * (0.085 if pattern == ArtilleryPattern.RAPID_BARRAGE else 0.06 if pattern == ArtilleryPattern.MISSILE_SWARM else 0.3), "origin": origin, "local_origin": origin - global_position, "aim": aim, "speed": speed, "travel": travel, "target": chosen, "pattern": pattern})
+	return salvo
+
+
+func _fire_spectacle() -> void:
+	while not _pending.is_empty() and _state_time >= float(_pending[0].delay):
+		var spec: Dictionary = _pending.pop_front()
+		var pattern: int = spec.pattern
+		if int(spec.index) == 0:
+			salvos_fired += 1
+			pattern_history.append(pattern)
+			if pattern_history.size() > 64:
+				pattern_history.pop_front()
+			salvo_started.emit(pattern)
+		var needed: int = 6 if pattern == ArtilleryPattern.LASER_GRID else 4 if pattern == ArtilleryPattern.LASER_CURTAIN else 1
+		# Réserver six places aux beams en finale, même pendant les rafales locales.
+		var limit: int = artillery_limit - 6 if artillery_limit <= 60 and pattern not in [ArtilleryPattern.LASER_GRID, ArtilleryPattern.LASER_CURTAIN] else artillery_limit
+		if ArtilleryZone.dangerous_count(get_tree()) + needed > limit:
+			continue # Plafond global ; aucune file d'attente retardée sans limite.
+		if pattern in [ArtilleryPattern.LASER_CURTAIN, ArtilleryPattern.LASER_GRID]:
+			if get_tree().get_nodes_in_group("combat_hazards").size() >= 6:
+				continue
+			var zone: ArtilleryZone = ArtilleryZone.new()
+			zone.kind = ArtilleryZone.Kind.GRID if pattern == ArtilleryPattern.LASER_GRID else ArtilleryZone.Kind.CURTAIN
+			zone.delay = spec.travel
+			zone.source = global_position + Vector3(spec.local_origin)
+			zone.position = projectile_container.to_local(spec.aim)
+			projectile_container.add_child(zone)
+			_flash_time = 0.4
+		else:
+			_launch(spec)
+	if _pending.is_empty() and _state_time >= 1:
+		_transition(State.COOLDOWN)

@@ -14,6 +14,9 @@ var _star_sizes: Array[PackedFloat32Array] = []
 var _streaks: MultiMeshInstance3D
 var _streak_positions: PackedVector3Array = PackedVector3Array()
 var _streak_lengths: PackedFloat32Array = PackedFloat32Array()
+var _debris: MultiMeshInstance3D
+var _debris_points: PackedVector3Array = PackedVector3Array()
+var _debris_bases: Array[Basis] = []
 var _backdrop: Node3D
 var streak_length_multiplier: float = 1.0
 
@@ -38,6 +41,7 @@ func _ready() -> void:
 	_create_nebula("GalaxyBand", Vector3(0, 1100, -14000), Vector2(13000, 1500), Color(0.08, 0.1, 0.19), Color(0.24, 0.09, 0.26), 0.25)
 	_create_distant_stars()
 	_create_orbital_debris()
+	_create_near_debris()
 
 
 func _create_star_layer(layer: int, count: int) -> void:
@@ -99,6 +103,11 @@ func recycle_stars(center: Vector3, delta: float = 0.0, demo_pace: float = 1.0, 
 			_star_layers[layer].multimesh.set_instance_transform(index, Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * _star_sizes[layer][index]), star_position))
 		_star_positions[layer] = positions
 	_update_streaks(center, delta, demo_pace, fleet_velocity)
+	for index: int in range(_debris_points.size()):
+		var relative: Vector3 = _debris_points[index] - center
+		var point: Vector3 = center + Vector3(wrapf(relative.x, -200, 200), wrapf(relative.y, -135, 135), wrapf(relative.z + delta * 3, -600, 140))
+		_debris_points[index] = point
+		_debris.multimesh.set_instance_transform(index, Transform3D(_debris_bases[index], point))
 	# Ciel lointain sans collision : profondeur constante, légère parallaxe X/Y.
 	_backdrop.position = Vector3(center.x * 0.08, center.y * 0.08, center.z)
 
@@ -263,3 +272,32 @@ func _create_distant_stars() -> void:
 	sun.position = Vector3(-1700, -850, -8500)
 	sun.name = "DistantSun"
 	_backdrop.add_child(sun)
+
+
+func _create_near_debris() -> void:
+	_debris = MultiMeshInstance3D.new()
+	_debris.name = "SurroundingOrbitalDebris"
+	_debris.multimesh = MultiMesh.new()
+	_debris.multimesh.transform_format = MultiMesh.TRANSFORM_3D
+	var rock: SphereMesh = SphereMesh.new()
+	rock.radius = 1
+	rock.height = 2
+	rock.radial_segments = 6
+	rock.rings = 3
+	var material: StandardMaterial3D = StandardMaterial3D.new()
+	material.albedo_color = Color(0.4, 0.38, 0.48)
+	material.roughness = 1
+	rock.material = material
+	_debris.multimesh.mesh = rock
+	_debris.multimesh.instance_count = 1000
+	add_child(_debris)
+	for index: int in range(1000):
+		var point: Vector3 = Vector3(_random.randf_range(-200, 200), _random.randf_range(-135, 135), _random.randf_range(-600, 140))
+		# Éviter que le décor sans collision masque la simulation proche.
+		if absf(point.x) < 65 and absf(point.y) < 45:
+			point.x += 95 if point.x > 0 else -95
+		var size_value: float = _random.randf_range(0.3, 3.5)
+		var orientation: Basis = Basis.from_euler(Vector3(_random.randf(), _random.randf(), _random.randf()) * TAU).scaled(Vector3(size_value, size_value * 0.6, size_value * 0.8))
+		_debris_points.append(point)
+		_debris_bases.append(orientation)
+		_debris.multimesh.set_instance_transform(index, Transform3D(orientation, point))

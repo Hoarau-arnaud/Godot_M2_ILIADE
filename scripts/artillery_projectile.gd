@@ -4,7 +4,7 @@ extends CharacterBody3D
 signal hit_blue_ship(target: BlueShip, amount: int)
 signal impacted(obstacle: bool)
 
-enum Kind { HEAVY_SHOT, SPREAD, ARC_SALVO, CROSS_FIRE, SEEKER_SALVO }
+enum Kind { HEAVY_SHOT, SPREAD, ARC_SALVO, CROSS_FIRE, SEEKER_SALVO, RAPID_BARRAGE, BOMB_CLUSTER, LASER_CURTAIN, LASER_GRID, MISSILE_SWARM }
 
 @export var kind: Kind = Kind.HEAVY_SHOT
 @export var projectile_speed: float = 27.0
@@ -19,6 +19,7 @@ var arc_amplitude: float = 24.0
 var arc_duration: float = 5.0
 var age: float = 0.0
 var spent: bool = false
+var bomb_zone: ArtilleryZone
 var _origin: Vector3
 var _shape: SphereShape3D
 
@@ -27,7 +28,7 @@ func _ready() -> void:
 	add_to_group("hostile_projectiles")
 	add_to_group("artillery_projectiles")
 	collision_layer = 0
-	collision_mask = 3 # BlueShip et astéroïdes ; jamais le lanceur ou ses alliés.
+	collision_mask = 0 if kind == Kind.BOMB_CLUSTER else 3 # BlueShip et astéroïdes ; jamais le lanceur ou ses alliés.
 	motion_mode = CharacterBody3D.MOTION_MODE_FLOATING
 	flight_direction = flight_direction.normalized()
 	if flight_direction.is_zero_approx():
@@ -64,9 +65,9 @@ func _build_visual() -> void:
 	var visual: Node3D = Node3D.new()
 	visual.name = "Visual"
 	add_child(visual)
-	var colors: Array[Color] = [Color(0.72, 0.16, 1), Color(1, 0.72, 0.08), Color(0.95, 0.08, 0.85), Color(1, 0.32, 0.06), Color(1, 0.08, 0.12)]
+	var colors: Array[Color] = [Color(0.72, 0.16, 1), Color(1, 0.72, 0.08), Color(0.95, 0.08, 0.85), Color(1, 0.32, 0.06), Color(1, 0.08, 0.12), Color(1, 0.35, 0.08), Color(1, 0.6, 0.08), Color(1, 0.1, 0.05), Color(1, 0.1, 0.05), Color(0.1, 0.8, 1)]
 	var core: SphereMesh = SphereMesh.new()
-	core.radius = 1.8 if kind == Kind.HEAVY_SHOT else 0.42
+	core.radius = 2.3 if kind == Kind.BOMB_CLUSTER else 1.8 if kind == Kind.HEAVY_SHOT else 0.42
 	core.height = core.radius * 2
 	core.radial_segments = 12
 	core.rings = 6
@@ -81,10 +82,18 @@ func _build_visual() -> void:
 		inner.radial_segments = 10
 		inner.rings = 4
 		_mesh(inner, Color(1, 0.65, 0.12), Vector3(0, 0, -1.6))
-	elif kind == Kind.SEEKER_SALVO:
-		var hull: BoxMesh = BoxMesh.new()
-		hull.size = Vector3(0.6, 0.55, 2.6)
+	elif kind in [Kind.SEEKER_SALVO, Kind.MISSILE_SWARM]:
+		var hull: CapsuleMesh = CapsuleMesh.new()
+		hull.radius = 0.48
+		hull.height = 3.4
+		hull.radial_segments = 8
+		hull.rings = 3
 		_mesh(hull, Color(0.48, 0.08, 0.12), Vector3.ZERO)
+		($Visual.get_child($Visual.get_child_count() - 1) as MeshInstance3D).rotation_degrees.x = 90
+		for segment: int in range(3):
+			var flame: BoxMesh = BoxMesh.new()
+			flame.size = Vector3(0.45 - segment * 0.1, 0.45 - segment * 0.1, 3.5)
+			_mesh(flame, colors[kind], Vector3(0, 0, 3.2 + segment * 3.2))
 		var engine: SphereMesh = SphereMesh.new()
 		engine.radius = 0.45
 		engine.height = 0.9
@@ -99,7 +108,7 @@ func _physics_process(delta: float) -> void:
 		return
 	var step: float = minf(delta, maxf(lifetime - age, 0))
 	var destination: Vector3
-	if kind == Kind.SEEKER_SALVO:
+	if kind in [Kind.SEEKER_SALVO, Kind.MISSILE_SWARM]:
 		if is_instance_valid(target) and target.alive and not target.is_queued_for_deletion():
 			var desired: Vector3 = (target.global_position - global_position).normalized()
 			var angle: float = flight_direction.angle_to(desired)

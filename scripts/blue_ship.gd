@@ -26,6 +26,11 @@ enum CombatState { NO_TARGET, TARGET_VISIBLE, COOLDOWN }
 @export var individual_seed: int = 1
 var demo_movement_multiplier: float = 1.0
 var demo_spacing_multiplier: float = 1.0
+var environment_perception_interval: float = 0
+var _environment_sample_in: float = 0
+var _cached_rock_avoidance: Vector3 = Vector3.ZERO
+var _cached_mobile_avoidance: Vector3 = Vector3.ZERO
+var _cached_projectile_avoidance: Vector3 = Vector3.ZERO
 var _demo_movement_current: float = 1.0
 var _demo_spacing_current: float = 1.0
 
@@ -157,10 +162,16 @@ func _physics_process(delta: float) -> void:
 		+ _alignment * alignment_weight
 		+ _recovery * recovery_weight
 	)
-	var avoidance: Vector3 = _obstacle_avoidance() * avoidance_weight
-	avoidance += _mobile_avoidance() * mobile_avoidance_weight
+	_environment_sample_in -= delta
+	if _environment_sample_in <= 0:
+		_cached_rock_avoidance = _obstacle_avoidance()
+		_cached_mobile_avoidance = _mobile_avoidance()
+		_cached_projectile_avoidance = _projectile_avoidance()
+		_environment_sample_in = environment_perception_interval
+	var avoidance: Vector3 = _cached_rock_avoidance * avoidance_weight
+	avoidance += _cached_mobile_avoidance * mobile_avoidance_weight
 	var collision_priority: float = clampf(avoidance.length() / maxf(max_side_speed, 0.1), 0.0, 1.0)
-	var projectile_steering: Vector3 = _projectile_avoidance() * projectile_avoidance_weight
+	var projectile_steering: Vector3 = _cached_projectile_avoidance * projectile_avoidance_weight
 	var projectile_priority: float = clampf(projectile_steering.length() / maxf(max_side_speed, 0.1), 0.0, 1.0)
 	avoidance += projectile_steering * (1.0 - collision_priority)
 	_update_behavior_state(avoidance)
@@ -526,6 +537,11 @@ func _projectile_avoidance() -> Vector3:
 			force *= 0.25
 		result += force
 		projectile_threat_count += 1
+	for node: Node in get_tree().get_nodes_in_group("combat_hazards"):
+		var force: Vector3 = (node as ArtilleryZone).avoidance_force(global_position, velocity)
+		if not force.is_zero_approx():
+			result = force # Zone télégraphiée prioritaire devant les petits bolts.
+			projectile_threat_count += 1
 	projectile_avoidance_active = projectile_threat_count > 0
 	if projectile_avoidance_active:
 		projectile_dodge_ticks += 1
