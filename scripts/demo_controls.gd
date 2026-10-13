@@ -12,6 +12,12 @@ var fullscreen_button: Button
 var cinematic_button: Button
 var action_button: Button
 var normal_button: Button
+var free_button: Button
+var guided_button: Button
+var restart_demo_button: Button
+var phase_panel: PanelContainer
+var phase_label: Label
+var _phase_fade: Tween
 var _speed_value: Label
 var _movement_value: Label
 var _spacing_value: Label
@@ -26,6 +32,7 @@ func _ready() -> void:
 	_build_stars()
 	_build_panel()
 	_build_help()
+	_build_phase_label()
 	update_level(1)
 
 
@@ -72,12 +79,25 @@ func _build_panel() -> void:
 	add_child(panel)
 	var layout: VBoxContainer = VBoxContainer.new()
 	layout.name = "Layout"
-	layout.add_theme_constant_override("separation", 10)
+	layout.add_theme_constant_override("separation", 8)
 	panel.add_child(layout)
 	var heading: Label = _label("Contrôles")
 	heading.add_theme_font_size_override("font_size", 20)
 	heading.add_theme_color_override("font_color", Color(0.45, 0.87, 1.0))
 	layout.add_child(heading)
+	var modes: HBoxContainer = HBoxContainer.new()
+	free_button = _button("Simulation libre")
+	free_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	free_button.pressed.connect(func() -> void: _simulation().demonstration.stop())
+	modes.add_child(free_button)
+	guided_button = _button("Démo guidée")
+	guided_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	guided_button.pressed.connect(func() -> void: _simulation().demonstration.start())
+	modes.add_child(guided_button)
+	layout.add_child(modes)
+	restart_demo_button = _button("Recommencer démo")
+	restart_demo_button.pressed.connect(func() -> void: _simulation().demonstration.restart())
+	layout.add_child(restart_demo_button)
 	_speed_value = _slider_heading(layout, "Vitesse")
 	speed_slider = _slider(layout, "Speed", 0.5, 2.5, 1.5)
 	speed_slider.value_changed.connect(func(value: float) -> void: _simulation().set_simulation_speed(value))
@@ -126,7 +146,7 @@ func _build_help() -> void:
 	help_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	help_panel.add_theme_stylebox_override("panel", _box(Color(0.012, 0.025, 0.065, 0.75), 10))
 	add_child(help_panel)
-	var label: Label = _label("F : Suivi / Libre    C : Cinématique\nClic droit + souris : Orbite (Libre)\nMolette : Zoom (Libre)\nFlèches / ZQSD / WASD : Déplacer\nPageUp / E : Monter · PageDown : Descendre\nG / Home : Recentrer\nF11 / Alt+Entrée : Plein écran\nTAB : Réglages    H : Aide")
+	var label: Label = _label("D : Démarrer / arrêter la démo guidée\nF : Suivi / Libre    C : Cinématique\nClic droit + souris : Orbite (Libre)\nMolette : Zoom (Libre)\nFlèches / W / Z / S / A / Q : Déplacer\nPageUp / E : Monter · PageDown : Descendre\nG / Home : Recentrer\nF11 / Alt+Entrée : Plein écran\nTAB : Réglages    H : Aide")
 	label.add_theme_font_size_override("font_size", 13)
 	help_panel.add_child(label)
 
@@ -139,6 +159,36 @@ func _box(color: Color, margin: int = 6) -> StyleBoxFlat:
 	style.set_border_width_all(1)
 	style.border_color = Color(0.15, 0.55, 0.72, 0.55)
 	return style
+
+
+func _build_phase_label() -> void:
+	phase_panel = PanelContainer.new()
+	phase_panel.name = "GuidedPhase"
+	phase_panel.anchor_left = 0.5
+	phase_panel.anchor_right = 0.5
+	phase_panel.offset_left = -280
+	phase_panel.offset_right = 280
+	phase_panel.offset_top = 60
+	phase_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	phase_panel.add_theme_stylebox_override("panel", _box(Color(0.015, 0.025, 0.055, 0.65), 8))
+	phase_label = _label("")
+	phase_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	phase_label.add_theme_font_size_override("font_size", 16)
+	phase_panel.add_child(phase_label)
+	add_child(phase_panel)
+	phase_panel.hide()
+
+
+func set_phase(index: int, title: String) -> void:
+	if is_instance_valid(_phase_fade):
+		_phase_fade.kill()
+	phase_panel.visible = index >= 0
+	phase_label.text = "PHASE %d — %s" % [index + 1, title] if index >= 0 else ""
+	phase_panel.modulate.a = 0 if index >= 0 else 1
+	if index >= 0:
+		_phase_fade = create_tween()
+		_phase_fade.set_ignore_time_scale(true)
+		_phase_fade.tween_property(phase_panel, "modulate:a", 1.0, 0.7)
 
 
 func _label(value: String) -> Label:
@@ -258,6 +308,22 @@ func refresh(simulation: SpaceSimulation) -> void:
 	_set_count("Capital Ship", simulation.target_capital_count(), 0, 1)
 	cinematic_button.set_pressed_no_signal(simulation.camera.mode == SimulationCamera.Mode.CINEMATIC)
 	fullscreen_button.set_pressed_no_signal(simulation.presentation_window.is_fullscreen())
+	var guided: bool = simulation.demonstration.is_guided()
+	free_button.disabled = not guided
+	guided_button.disabled = guided
+	restart_demo_button.disabled = not guided
+	speed_slider.editable = not guided
+	movement_slider.editable = not guided
+	spacing_slider.editable = not guided
+	reset_button.disabled = guided
+	action_button.disabled = guided
+	normal_button.disabled = guided
+	cinematic_button.disabled = guided
+	if guided:
+		for button: Button in minus_buttons.values():
+			button.disabled = true
+		for button: Button in plus_buttons.values():
+			button.disabled = true
 
 
 func _set_count(kind: String, value: int, minimum: int, maximum: int) -> void:

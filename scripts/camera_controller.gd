@@ -24,6 +24,8 @@ var shot_history: Array[int] = []
 var group_velocity: Vector3 = Vector3.ZERO
 var capital_preparing: bool = false
 var capital_focus: Vector3 = Vector3.ZERO
+var guided_lock: bool = false
+var guided_shots: Array[int] = []
 var _capital_composition: Vector3 = Vector3.ZERO
 var _demo_pace: float = 1.0
 var _cine_random: RandomNumberGenerator = RandomNumberGenerator.new()
@@ -136,6 +138,8 @@ func _update_cinematic(delta: float) -> void:
 	_shot_time += delta
 	if _shot_time >= _shot_duration:
 		var sequence: Array[int] = [Shot.CHASE, Shot.SIDE_LEFT, Shot.HIGH, Shot.SIDE_RIGHT, Shot.LOW_CLOSE, Shot.WIDE]
+		if not guided_shots.is_empty():
+			sequence = guided_shots
 		_sequence_index = (_sequence_index + 1) % sequence.size()
 		cinematic_shot = sequence[_sequence_index] as Shot
 		_shot_time = 0.0
@@ -248,6 +252,8 @@ func _input(event: InputEvent) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if guided_lock:
+		return
 	if event is InputEventKey and event.echo:
 		return
 	if event.is_action_pressed("camera_toggle"):

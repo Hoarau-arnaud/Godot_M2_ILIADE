@@ -115,6 +115,7 @@ var _engine_settings_owned: bool = false
 @onready var statistics: Label = $HUD/Panel/Statistics
 @onready var presentation_window: PresentationWindow = $PresentationWindow
 @onready var demo_controls: DemoControls = $DemoControls
+@onready var demonstration: GuidedDemonstration = $GuidedDemonstration
 
 
 func _ready() -> void:
@@ -155,9 +156,10 @@ func _physics_process(delta: float) -> void:
 	# La progression ne recule pas si la perte d'un survivant déplace légèrement le barycentre.
 	distance_travelled = maxf(distance_travelled, _origin_z - center.z)
 	_update_difficulty()
-	_maintain_drones(center, delta)
-	_maintain_interceptors(center, delta)
-	_maintain_capitals(center, delta)
+	if not demonstration.is_guided():
+		_maintain_drones(center, delta)
+		_maintain_interceptors(center, delta)
+		_maintain_capitals(center, delta)
 	maximum_artillery_projectiles = maxi(maximum_artillery_projectiles, get_tree().get_nodes_in_group("artillery_projectiles").size())
 	for ship: BlueShip in ships:
 		if ship.projectile_avoidance_active:
@@ -186,6 +188,10 @@ func _physics_process(delta: float) -> void:
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.echo:
 		return
+	if event.is_action_pressed("guided_demo_toggle"):
+		demonstration.toggle()
+		get_viewport().set_input_as_handled()
+		return
 	# Les raccourcis de démonstration restent disponibles quand un contrôle est utilisé.
 	if event.is_action_pressed("demo_panel_toggle"):
 		demo_controls.toggle_panel()
@@ -199,6 +205,8 @@ func _input(event: InputEvent) -> void:
 	if event.is_action_pressed("presentation_fullscreen"):
 		presentation_window.toggle_fullscreen()
 		get_viewport().set_input_as_handled()
+		return
+	if demonstration.is_guided():
 		return
 	var actions: Array[String] = ["difficulty_auto", "difficulty_easy", "difficulty_medium", "difficulty_hard"]
 	for level: int in range(actions.size()):
@@ -289,6 +297,8 @@ func _spawn_drone(center: Vector3, front_z: float) -> bool:
 	drone.position = drone_container.to_local(position_candidate)
 	drone.died.connect(_on_drone_died)
 	drone.destroyed.connect(_on_hostile_destroyed)
+	drone.patrol_projectile_container = projectile_container
+	drone.patrol_fired.connect(_on_enemy_fired)
 	drone_container.add_child(drone)
 	drones.append(drone)
 	drone_spawn_count += 1

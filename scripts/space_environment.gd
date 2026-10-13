@@ -29,14 +29,15 @@ func _ready() -> void:
 	_backdrop = Node3D.new()
 	_backdrop.name = "DistantBackdrop"
 	add_child(_backdrop)
-	_add_planet(Vector3(-1200, 700, -7600), 740, Color(0.07, 0.15, 0.29))
-	_add_planet(Vector3(2100, -900, -11000), 540, Color(0.28, 0.12, 0.065))
+	_add_planet(Vector3(4500, -4700, -10500), 4800, Color(0.07, 0.15, 0.29))
+	_add_planet(Vector3(-1900, 850, -9800), 160, Color(0.28, 0.12, 0.065))
 	_add_planet(Vector3(2000, 950, -9300), 440, Color(0.18, 0.1, 0.29))
 	_add_planet(Vector3(-400, 950, -7200), 100, Color(0.3, 0.33, 0.4))
 	_create_nebula("VioletNebula", Vector3(2000, 650, -10000), Vector2(7000, 3500), Color(0.08, 0.05, 0.22), Color(0.28, 0.06, 0.3), 0.3)
 	_create_nebula("CyanNebula", Vector3(-1900, -500, -8500), Vector2(5200, 2800), Color(0.015, 0.07, 0.16), Color(0.04, 0.2, 0.26), 0.24)
 	_create_nebula("GalaxyBand", Vector3(0, 1100, -14000), Vector2(13000, 1500), Color(0.08, 0.1, 0.19), Color(0.24, 0.09, 0.26), 0.25)
 	_create_distant_stars()
+	_create_orbital_debris()
 
 
 func _create_star_layer(layer: int, count: int) -> void:
@@ -152,6 +153,11 @@ func _add_planet(planet_position: Vector3, radius: float, color: Color) -> void:
 	planet.material_override = material
 	planet.position = planet_position
 	planet.name = "DecorativePlanet"
+	if radius > 1000:
+		planet.name = "NearbyPlanet"
+		var surface: ShaderMaterial = ShaderMaterial.new()
+		surface.shader = preload("res://materials/planet_surface.gdshader")
+		planet.material_override = surface
 	_backdrop.add_child(planet)
 	if radius > 50.0:
 		var atmosphere: MeshInstance3D = MeshInstance3D.new()
@@ -163,6 +169,38 @@ func _add_planet(planet_position: Vector3, radius: float, color: Color) -> void:
 		haze.albedo_color = Color(color.r * 1.3, color.g * 1.3, color.b * 1.3, 0.1)
 		atmosphere.material_override = haze
 		planet.add_child(atmosphere)
+		if radius > 1000:
+			atmosphere.name = "AtmosphericHalo"
+			haze.albedo_color = Color(0.12, 0.42, 0.68, 0.085)
+			haze.emission_enabled = true
+			haze.emission = Color(0.015, 0.07, 0.12)
+
+
+func _create_orbital_debris() -> void:
+	# Une seule MultiMesh : anneau décoratif sans body, perception ou collision.
+	var debris: MultiMeshInstance3D = MultiMeshInstance3D.new()
+	debris.name = "OrbitalDebrisBand"
+	var rock: SphereMesh = SphereMesh.new()
+	rock.radius = 1
+	rock.height = 2
+	rock.radial_segments = 6
+	rock.rings = 3
+	var material: StandardMaterial3D = StandardMaterial3D.new()
+	material.albedo_color = Color(0.22, 0.27, 0.34)
+	material.roughness = 1
+	rock.material = material
+	debris.multimesh = MultiMesh.new()
+	debris.multimesh.transform_format = MultiMesh.TRANSFORM_3D
+	debris.multimesh.mesh = rock
+	debris.multimesh.instance_count = 360
+	_backdrop.add_child(debris)
+	for index: int in range(360):
+		var angle: float = _random.randf_range(-1.25, 1.1)
+		var radius: float = _random.randf_range(5500, 6000)
+		var point: Vector3 = Vector3(4500, -4700, -10500) + Vector3(sin(angle) * radius, cos(angle) * radius * 0.72, cos(angle) * radius * 0.45)
+		point += Vector3(_random.randf_range(-100, 100), _random.randf_range(-100, 100), _random.randf_range(-120, 120))
+		var size_value: float = _random.randf_range(7, 25)
+		debris.multimesh.set_instance_transform(index, Transform3D(Basis.IDENTITY.scaled(Vector3(size_value, size_value * 0.7, size_value * 0.85)), point))
 
 
 func _create_nebula(label: String, point: Vector3, dimensions: Vector2, first: Color, second: Color, alpha: float) -> void:

@@ -3,7 +3,7 @@ extends Node3D
 
 const ASTEROID_SCENE: PackedScene = preload("res://scenes/asteroid.tscn")
 
-enum Pattern { SINGLE, OFFSET_PAIR, HORIZONTAL_PAIR, VERTICAL_PAIR, STAGGERED_CLUSTER, LARGE_WITH_COMPANIONS, ASTEROID_GATE, OFFSET_GATE, DIAGONAL_BARRAGE, DOUBLE_CURTAIN, DIVE, ASTEROID_CANYON }
+enum Pattern { SINGLE, OFFSET_PAIR, HORIZONTAL_PAIR, VERTICAL_PAIR, STAGGERED_CLUSTER, LARGE_WITH_COMPANIONS, ASTEROID_GATE, OFFSET_GATE, DIAGONAL_BARRAGE, DOUBLE_CURTAIN, DIVE, ASTEROID_CANYON, DEMO_SLALOM_TUNNEL }
 
 @export_category("Streaming")
 @export var spawn_ahead_distance: float = 320.0
@@ -227,6 +227,8 @@ func _configure_motion(asteroid: SpaceAsteroid, level: int, seed_value: int, dis
 
 func pattern_offsets(pattern: int, gap: float) -> Array[Vector3]:
 	match pattern:
+		Pattern.DEMO_SLALOM_TUNNEL:
+			return _demo_tunnel_offsets()
 		Pattern.SINGLE:
 			return [Vector3.ZERO]
 		Pattern.OFFSET_PAIR:
@@ -286,6 +288,83 @@ func passage_points(pattern: int, inverted: bool = false) -> Array[Vector3]:
 		Pattern.DIVE: return [Vector3(0, 18 if inverted else -18, 0)]
 		Pattern.ASTEROID_CANYON: return [Vector3(0, 0, 0), Vector3(0, 0, -28)]
 	return []
+
+
+func _demo_tunnel_offsets() -> Array[Vector3]:
+	var points: Array[Vector3] = []
+	var openings: Array[Vector2] = [Vector2(-12, 0), Vector2(0, 12), Vector2(12, 0), Vector2(0, -12), Vector2(-12, 0)]
+	for row: int in range(openings.size()):
+		for x: int in [-36, -24, -12, 0, 12, 24, 36]:
+			for y: int in [-24, -12, 0, 12, 24]:
+				if absf(x - openings[row].x) <= 18 and absf(y - openings[row].y) <= 18:
+					continue
+				points.append(Vector3(x, y, -55 - row * 48))
+	return points
+
+
+func create_demonstration_field(phase: int, center: Vector3, seed_value: int) -> void:
+	var configuration: Node3D = Node3D.new()
+	configuration.name = "DemonstrationField"
+	configuration.position = center
+	configuration.set_meta("pattern", Pattern.DEMO_SLALOM_TUNNEL if phase == 0 else -1)
+	configuration.set_meta("difficulty", 3)
+	configuration.set_meta("passages", [Vector3(-12, 0, -55), Vector3(0, 12, -103), Vector3(12, 0, -151), Vector3(0, -12, -199), Vector3(-12, 0, -247)] if phase == 0 else [])
+	add_child(configuration)
+	configurations.append(configuration)
+	var index: int = 0
+	if phase == 0:
+		for point: Vector3 in _demo_tunnel_offsets():
+			_add_demonstration_rock(configuration, point, 4.8, SpaceAsteroid.MotionType.STATIC, Vector3.ZERO, seed_value + index * 67)
+			index += 1
+		var angles: Array[Vector3] = [Vector3.RIGHT, Vector3.LEFT, Vector3.DOWN, Vector3.UP, Vector3(1, -1, 0).normalized()]
+		for direction: Vector3 in angles:
+			var point: Vector3 = -direction * 35 + Vector3(0, 0, -65 - index % 5 * 42)
+			_add_demonstration_rock(configuration, point, 5.5, SpaceAsteroid.MotionType.LINEAR, direction * 5, seed_value + index * 67)
+			index += 1
+	elif phase == 1:
+		var types: Array[int] = [SpaceAsteroid.MotionType.DIAGONAL, SpaceAsteroid.MotionType.VERTICAL_SWEEP, SpaceAsteroid.MotionType.CIRCULAR, SpaceAsteroid.MotionType.ARC]
+		for row: int in range(4):
+			for column: int in range(4):
+				var motion: int = types[column]
+				var side: float = -1 if row % 2 == 0 else 1
+				var point: Vector3 = Vector3((-1.5 + column) * 22, side * 25, -65 - row * 55)
+				var travel: Vector3 = Vector3(side * 5, -side * 4, 0) if motion == SpaceAsteroid.MotionType.DIAGONAL else Vector3(0, -side * 5, 0) if motion == SpaceAsteroid.MotionType.VERTICAL_SWEEP else Vector3(side * 5, -side, 0)
+				_add_demonstration_rock(configuration, point, 7 if column == 0 else 5.5, motion, travel, seed_value + index * 67)
+				index += 1
+	else:
+		for point: Vector3 in [Vector3(-55, 28, -90), Vector3(55, -26, -150), Vector3(-52, -28, -220)]:
+			_add_demonstration_rock(configuration, point, 5, SpaceAsteroid.MotionType.STATIC, Vector3.ZERO, seed_value + index * 67)
+			index += 1
+	var cleanup_z: float = center.z
+	for child: Node in configuration.get_children():
+		var rock: SpaceAsteroid = child as SpaceAsteroid
+		cleanup_z = minf(cleanup_z, center.z + rock.motion_center.z - rock.avoidance_radius - rock.motion_depth_margin())
+	configuration.set_meta("cleanup_z", cleanup_z)
+	generated_configuration_count += 1
+	maximum_active_observed = maxi(maximum_active_observed, active_asteroid_count)
+	maximum_mobile_observed = maxi(maximum_mobile_observed, active_mobile_count)
+	if phase == 0:
+		patterns_generated[Pattern.DEMO_SLALOM_TUNNEL] = 1
+
+
+func _add_demonstration_rock(parent: Node3D, initial_position: Vector3, diameter: float, motion: int, travel: Vector3, seed_value: int) -> void:
+	var rock: SpaceAsteroid = ASTEROID_SCENE.instantiate() as SpaceAsteroid
+	rock.diameter = diameter
+	rock.size_category = _size_category(diameter)
+	rock.shape_seed = seed_value
+	rock.motion_type = motion as SpaceAsteroid.MotionType
+	rock.motion_velocity = travel
+	rock.motion_duration = 16
+	rock.motion_period = 16
+	rock.motion_amplitude = Vector2(18, 12)
+	rock.orbit_axis_u = Vector3(1, 0, 0.35).normalized()
+	rock.orbit_axis_v = Vector3(0, 1, 0.25).normalized()
+	rock.position = initial_position - rock.trajectory_offset(0)
+	parent.add_child(rock)
+	active_asteroid_count += 1
+	if motion != SpaceAsteroid.MotionType.STATIC:
+		active_mobile_count += 1
+	motions_generated[motion] = motions_generated.get(motion, 0) + 1
 
 
 func _diameter_for_pattern(pattern: int, level: int, index: int) -> float:
