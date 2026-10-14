@@ -47,6 +47,7 @@ var observed_dispersion: float = 0
 var observed_count: int = 0
 var group_distance: float = 190
 var vulnerable: bool = false
+var presentation_salvo_counts: Dictionary = {}
 var prepare_duration: float = 1.3
 var cooldown_duration: float = 4.5
 var _time: float = 0
@@ -508,6 +509,8 @@ func _grid_exists() -> bool:
 func _build_readable_salvo(pattern: int) -> Array[Dictionary]:
 	var salvo: Array[Dictionary] = []
 	var counts: Array[int] = [3, 5, 4, 6, 6, 10, 2, 1, 1, 10]
+	for pattern_id: int in presentation_salvo_counts:
+		counts[pattern_id] = int(presentation_salvo_counts[pattern_id])
 	var speeds: Array[float] = [72, 80, 62, 80, 65, 88, 48, 60, 60, 65]
 	var targets: Array[BlueShip] = []
 	for node: Node in get_tree().get_nodes_in_group("blue_ships"):
@@ -516,6 +519,8 @@ func _build_readable_salvo(pattern: int) -> Array[Dictionary]:
 			targets.append(blue)
 	for index: int in range(counts[pattern]):
 		var category_value: int = ThreatPattern.Category.ZONE if pattern in [6, 7, 8] else ThreatPattern.Category.TARGETED if pattern in [0, 4] else ThreatPattern.category(_category_cursor)
+		if not presentation_salvo_counts.is_empty() and pattern == ArtilleryPattern.MISSILE_SWARM:
+			category_value = ThreatPattern.Category.TARGETED
 		if pattern not in [0, 4, 6, 7, 8]:
 			_category_cursor += 1
 		var chosen: BlueShip = null

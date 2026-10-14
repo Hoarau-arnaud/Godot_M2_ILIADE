@@ -5,7 +5,7 @@ signal mode_changed(mode: int)
 signal phase_changed(index: int)
 signal completed
 
-enum DemoMode { FREE, GUIDED }
+enum DemoMode { FREE, GUIDED, PRESENTATION }
 const TITLES: Array[String] = ["TEMPÊTE DE MÉTÉORES", "ASTÉROÏDES ORBITAUX", "DRONES DE PATROUILLE", "INTERCEPTEURS", "FLOTTE D'ARTILLERIE", "ASSAUT FINAL"]
 const GAME_GROUPS: Array[String] = ["blue_ships", "asteroids", "patrol_drones", "interceptors", "capital_ships", "hostile_agents", "blue_lasers", "hostile_projectiles", "artillery_projectiles", "explosions", "capital_explosions", "combat_hazards"]
 
@@ -55,6 +55,7 @@ var _patrol_replacement_serial: int = 0
 var _interceptor_replacement_serial: int = 0
 var _ui_visibility: Vector2i
 var _camera_transform: Transform3D
+var _stage_profile: Dictionary = {}
 var _camera_fov: float
 
 @onready var simulation: SpaceSimulation = get_parent() as SpaceSimulation
@@ -68,8 +69,12 @@ func is_guided() -> bool:
 	return mode == DemoMode.GUIDED
 
 
+func is_staged() -> bool:
+	return mode != DemoMode.FREE
+
+
 func toggle() -> void:
-	if is_guided():
+	if is_staged():
 		stop()
 	else:
 		start()
@@ -87,13 +92,12 @@ func phase_duration(index: int) -> float:
 	return maxf(capital_phase_duration if index == 4 else finale_phase_duration if index == 5 else demo_phase_duration, 1)
 
 
-func start() -> void:
+func start(profile: Dictionary = {}) -> void:
+	if is_staged():
+		stop()
 	simulation.set_presentation_paused(false)
-	if is_guided():
-		restart()
-		return
 	_save_free_scene()
-	mode = DemoMode.GUIDED
+	mode = DemoMode.PRESENTATION if not profile.is_empty() else DemoMode.GUIDED
 	game_over = false
 	simulation.demo_controls.show_game_over(false)
 	phase_results.clear()
@@ -128,18 +132,18 @@ func start() -> void:
 	simulation.camera.initialize_view(Vector3.ZERO, demonstration_seed)
 	simulation.demo_controls.panel.hide()
 	simulation.demo_controls.help_panel.hide()
-	_begin_phase(0, Vector3.ZERO)
+	_begin_phase(0, Vector3.ZERO, true, profile)
 	mode_changed.emit(mode)
 
 
 func restart() -> void:
-	if is_guided():
+	if is_staged():
 		stop()
 	start()
 
 
 func stop() -> void:
-	if not is_guided():
+	if not is_staged():
 		return
 	simulation.set_presentation_paused(false)
 	game_over = false
@@ -312,7 +316,8 @@ func jump_to_phase(index: int) -> bool:
 	return true
 
 
-func _begin_phase(index: int, center: Vector3, preserve_blues: bool = true) -> void:
+func _begin_phase(index: int, center: Vector3, preserve_blues: bool = true, profile: Dictionary = {}) -> void:
+	_stage_profile = profile
 	_clear_stage(preserve_blues and choreographed() and index > 0)
 	phase_index = index
 	phase_elapsed = 0
@@ -329,6 +334,11 @@ func _begin_phase(index: int, center: Vector3, preserve_blues: bool = true) -> v
 	simulation.manual_drone_count_override = (4 if choreographed() else 5) if index == 5 else 4 if index == 2 else 0
 	simulation.manual_interceptor_count_override = (4 if choreographed() else 5 if spectacle() else 4) if index in [3, 5] else 0
 	simulation.manual_capital_count_override = (3 if choreographed() else 5 if index == 4 else 4) if spectacle() and index in [4, 5] else 1 if index in [4, 5] else 0
+	if not profile.is_empty():
+		simulation.manual_drone_count_override = int(profile.get("patrols", 0))
+		simulation.manual_interceptor_count_override = int(profile.get("interceptors", 0))
+		simulation.manual_capital_count_override = int(profile.get("capitals", 0))
+		simulation.streaming_enabled = bool(profile.get("storm", false))
 	for ship_index: int in range(15 - simulation.ships.size() if index == 0 or not choreographed() or not preserve_blues else 0):
 		var offset: Vector3 = Vector3((ship_index % 3 - 1) * 9.5, (ship_index / 3 % 3 - 1) * 9.5, (ship_index / 9) * 12 + (ship_index % 3) * 2)
 		if index == 5 and ship_index >= 13:
@@ -352,6 +362,11 @@ func _begin_phase(index: int, center: Vector3, preserve_blues: bool = true) -> v
 	field.storm_enabled = spectacle() and index in [0, 1, 5]
 	field.storm_complex = index == 1
 	field.storm_target = (46 if index == 1 else 60 if index == 0 else 62) if choreographed() else 84 if index == 1 else (150 if simulation.legacy_flight_profile else 110) if index == 5 else 180
+	if not profile.is_empty():
+		field.max_active_asteroids = int(profile.get("rocks_max", 35))
+		field.storm_enabled = bool(profile.get("storm", false))
+		field.storm_complex = false
+		field.storm_target = int(profile.get("rocks", 0))
 	_next_mega = 3
 	_mega_cursor = 0
 	_fast_meteors_shown = false
@@ -376,7 +391,7 @@ func _begin_phase(index: int, center: Vector3, preserve_blues: bool = true) -> v
 	field.difficulty_override = 3
 	if field.storm_enabled or index == 5:
 		field.advance(center, simulation._fleet_z_bounds().x, simulation._fleet_z_bounds().y)
-	elif index != 4:
+	elif index != 4 and profile.is_empty():
 		field.create_demonstration_field(index, center, demonstration_seed + index * 1091)
 	for count: int in range(simulation.manual_drone_count_override):
 		_spawn_patrol(center, count, index == 2)
@@ -392,10 +407,12 @@ func _begin_phase(index: int, center: Vector3, preserve_blues: bool = true) -> v
 			tracers.background_only = choreographed()
 			simulation.projectile_container.add_child(tracers)
 	_set_camera_phase(index)
+	if not profile.is_empty():
+		simulation._update_difficulty()
 	simulation._measure_group(simulation._fleet_center())
 	simulation._update_hud()
 	if not simulation.legacy_flight_profile:
-		simulation.set_fire_intensity(1.2 if index == 5 else 1.0)
+		simulation.set_fire_intensity(float(profile.get("fire_intensity", 1.2 if index == 5 else 1.0)))
 	var title: String = phase_title(index)
 	simulation.demo_controls.set_phase(index, title)
 	_phase_sample = {"phase": index + 1, "title": title, "nodes_max": get_tree().get_node_count(), "projectiles_max": 0, "asteroids_max": field.active_asteroid_count, "dispersion_max": 0.0, "regroup_episodes": 0, "regrouping": {}, "lateral_excursion": 0.0, "origin": center, "green_shots": 0, "waypoints": 0, "routes": 0, "pursuits": 0, "disengagements": 0, "dodges_start": simulation.projectile_dodge_count, "blue_shots_start": simulation.blue_shots_fired, "enemy_shots_start": simulation.enemy_shots_fired, "salvos_start": simulation.capital_salvos.duplicate()}
@@ -437,6 +454,15 @@ func _spawn_patrol(center: Vector3, index: int, markers: bool, replacement: bool
 		offset = starts[index]
 		if replacement:
 			offset = Vector3((index - 1.5) * 40, -20 if index % 2 == 0 else 20, -100)
+	if not _stage_profile.is_empty():
+		drone.dangerous_projectile_limit = 29
+		if phase_index == 2:
+			offset = Vector3((index - 1) * 9, 0, 28)
+			drone.patrol_anchor = Vector2(center.x + (index - 1) * 9, center.y)
+			drone.forward_speed = 15.8
+			drone._patrol_fire_timer = 4.4 + index * 0.4
+		else:
+			offset.z = 30
 	drone.position = simulation.drone_container.to_local(_safe_position(center + offset, 3))
 	drone.died.connect(simulation._on_drone_died)
 	drone.destroyed.connect(simulation._on_hostile_destroyed)
@@ -478,6 +504,8 @@ func _spawn_interceptor(center: Vector3, index: int, replacement: bool = false) 
 	var offset: Vector3 = Vector3((index - 1.5) * 12, -6 if index % 2 == 0 else 6, 42)
 	if replacement:
 		offset = Vector3((index - 1.5) * 32, -18 if index % 2 == 0 else 18, 35)
+	if not _stage_profile.is_empty():
+		hostile.dangerous_projectile_limit = 29
 	hostile.position = simulation.interceptor_container.to_local(_safe_position(center + offset, 3))
 	hostile.died.connect(simulation._on_interceptor_died)
 	hostile.destroyed.connect(simulation._on_hostile_destroyed)
@@ -492,6 +520,9 @@ func _spawn_capital(center: Vector3, teaching: bool, index: int = 0) -> void:
 	var hostile: CapitalShip = SpaceSimulation.CAPITAL_SCENE.instantiate() as CapitalShip
 	hostile.individual_seed = demonstration_seed + phase_index * 1091 + index * 431
 	var positions: Array[Vector3] = [Vector3(-120, 35, -390), Vector3(-40, -58, -460), Vector3(58, 66, -515), Vector3(145, -12, -580), Vector3(12, 8, -630)]
+	if not _stage_profile.is_empty():
+		positions = [Vector3(-110, 35, -430), Vector3(-32, -54, -510), Vector3(64, 54, -600)]
+		hostile.presentation_salvo_counts = {4: 5, 9: 7}
 	hostile.normal_distance = -positions[index].z if spectacle() else 230
 	hostile.spectacle_enabled = spectacle()
 	hostile.fleet_role = index if choreographed() or phase_index == 4 else [0, 1, 3, 4][index]
@@ -500,6 +531,8 @@ func _spawn_capital(center: Vector3, teaching: bool, index: int = 0) -> void:
 	hostile.choreographed = choreographed()
 	hostile.fleet_offset = Vector2(positions[index].x, positions[index].y)
 	hostile.artillery_limit = 40 if choreographed() else (60 if phase_index == 5 else 90) if spectacle() else 50
+	if not _stage_profile.is_empty():
+		hostile.artillery_limit = 35
 	hostile.demonstration_cycle = teaching and not spectacle()
 	if teaching:
 		hostile.demonstration_attack_order.assign([0, 1, 2, 3, 4])
@@ -586,6 +619,21 @@ func _process(delta: float) -> void:
 			hostile.combat_enabled = false
 		for hostile: CapitalShip in simulation.capitals:
 			hostile.combat_enabled = false
+	_register_hazards()
+	_sample_phase()
+	if phase_index in [0, 1, 2, 3] and not simulation.asteroid_container.storm_enabled:
+		simulation.asteroid_container._cleanup_passed(simulation._fleet_z_bounds().y)
+	_update_markers()
+	if phase_elapsed >= phase_duration(phase_index) and (phase_index < 5 or simulation.legacy_flight_profile):
+		_finish_phase()
+		if phase_index == 5:
+			stop()
+			completed.emit()
+		else:
+			_begin_phase(phase_index + 1, simulation._fleet_center())
+
+
+func _register_hazards() -> void:
 	for node: Node in get_tree().get_nodes_in_group("combat_hazards"):
 		if node.has_meta("sampled"):
 			continue
@@ -613,17 +661,6 @@ func _process(delta: float) -> void:
 				curtain_activations += 1
 		)
 		zone.detonated.connect(func() -> void: bomb_explosions += 1)
-	_sample_phase()
-	if phase_index in [0, 1, 2, 3] and not simulation.asteroid_container.storm_enabled:
-		simulation.asteroid_container._cleanup_passed(simulation._fleet_z_bounds().y)
-	_update_markers()
-	if phase_elapsed >= phase_duration(phase_index) and (phase_index < 5 or simulation.legacy_flight_profile):
-		_finish_phase()
-		if phase_index == 5:
-			stop()
-			completed.emit()
-		else:
-			_begin_phase(phase_index + 1, simulation._fleet_center())
 
 
 func _update_markers() -> void:

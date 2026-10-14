@@ -53,6 +53,7 @@ var group_velocity: Vector3 = Vector3.ZERO
 var capital_preparing: bool = false
 var capital_focus: Vector3 = Vector3.ZERO
 var boost_fov_extra: float = 0
+var presentation_shots: bool = false
 var guided_spectacle: bool = false
 var guided_lock: bool = false
 var guided_shots: Array[int] = []
@@ -86,7 +87,7 @@ func initialize_view(center: Vector3, seed_value: int = 1) -> void:
 	_group_center = center
 	_normal_fov = fov
 	_cine_random.seed = seed_value + 124091
-	_shot_duration = _cine_random.randf_range(3.5, 6.0) if guided_spectacle else _cine_random.randf_range(6.0, 12.0)
+	_shot_duration = _cine_random.randf_range(3.5, 5.5) if presentation_shots else _cine_random.randf_range(3.5, 6.0) if guided_spectacle else _cine_random.randf_range(6.0, 12.0)
 	global_position = center + Vector3(10.0, 16.0, 42.0)
 	look_at(center + Vector3.FORWARD * 8.0, Vector3.UP)
 
@@ -175,7 +176,7 @@ func _update_cinematic(delta: float) -> void:
 		_sequence_index = (_sequence_index + 1) % sequence.size()
 		cinematic_shot = sequence[_sequence_index] as Shot
 		_shot_time = 0.0
-		_shot_duration = _cine_random.randf_range(3.5, 6.0) if guided_spectacle else _cine_random.randf_range(6.0, 12.0)
+		_shot_duration = _cine_random.randf_range(3.5, 5.5) if presentation_shots else _cine_random.randf_range(3.5, 6.0) if guided_spectacle else _cine_random.randf_range(6.0, 12.0)
 		shot_changes += 1
 		shot_history.append(cinematic_shot)
 		if shot_history.size() > 64:

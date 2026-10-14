@@ -1,6 +1,14 @@
 class_name DemoControls
 extends CanvasLayer
 
+var presentation_panel: Control
+var presentation_title: Label
+var presentation_detail: Label
+var presentation_keys: Label
+var presentation_start: Button
+var presentation_replay: Button
+var presentation_free: Button
+var presentation_button: Button
 var game_over_panel: Control
 var replay_button: Button
 var panel: PanelContainer
@@ -44,6 +52,7 @@ func _ready() -> void:
 	_build_phase_label()
 	_build_game_over()
 	_build_pause_label()
+	_build_presentation()
 	get_viewport().size_changed.connect(_fit_panel)
 	_fit_panel()
 	update_level(1)
@@ -80,9 +89,20 @@ func _input(event: InputEvent) -> void:
 	var key: int = event.keycode if event.keycode != 0 else event.physical_keycode
 	var sim: SpaceSimulation = _simulation()
 	if key >= KEY_F1 and key <= KEY_F6:
-		sim.demonstration.jump_to_phase(key - KEY_F1)
+		sim.presentation.guided_phase(key - KEY_F1)
+	elif key == KEY_F7:
+		sim.presentation.prepare()
+	elif sim.presentation.active() and key == KEY_SPACE:
+		sim.presentation.start_or_next()
+	elif sim.presentation.active() and key == KEY_R:
+		sim.presentation.prepare()
+	elif sim.presentation.active() and key in [KEY_D, KEY_ESCAPE]:
+		sim.presentation.leave()
 	elif key in [KEY_P, KEY_PAUSE]:
-		sim.set_presentation_paused(not get_tree().paused)
+		if sim.presentation.active():
+			sim.presentation.toggle_pause()
+		else:
+			sim.set_presentation_paused(not get_tree().paused)
 	elif get_tree().paused and event.is_action_pressed("guided_demo_toggle"):
 		sim.demonstration.toggle()
 	elif get_tree().paused and event.is_action_pressed("demo_panel_toggle"):
@@ -156,8 +176,16 @@ func _build_panel() -> void:
 	guided_button.pressed.connect(func() -> void: _simulation().demonstration.start())
 	modes.add_child(guided_button)
 	layout.add_child(modes)
+	presentation_button = _button("Démo soutenance — F7")
+	presentation_button.pressed.connect(func() -> void: _simulation().presentation.prepare())
+	layout.add_child(presentation_button)
 	restart_demo_button = _button("Recommencer démo")
-	restart_demo_button.pressed.connect(func() -> void: _simulation().demonstration.restart())
+	restart_demo_button.pressed.connect(func() -> void:
+		if _simulation().presentation.active():
+			_simulation().presentation.prepare()
+		else:
+			_simulation().demonstration.restart()
+	)
 	layout.add_child(restart_demo_button)
 	layout.add_child(_label("Phases démo"))
 	var phases: HBoxContainer = HBoxContainer.new()
@@ -165,7 +193,7 @@ func _build_panel() -> void:
 		var phase: Button = _button("P%d" % (index + 1))
 		phase.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		phase.tooltip_text = "F%d — %s" % [index + 1, ["Obstacles", "Astéroïdes dynamiques", "PatrolDrone", "Interceptor", "Capital / artillerie", "Assaut final"][index]]
-		phase.pressed.connect(func() -> void: _simulation().demonstration.jump_to_phase(index))
+		phase.pressed.connect(func() -> void: _simulation().presentation.guided_phase(index))
 		phases.add_child(phase)
 		phase_buttons.append(phase)
 	layout.add_child(phases)
@@ -223,7 +251,7 @@ func _build_help() -> void:
 	help_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	help_panel.add_theme_stylebox_override("panel", _box(Color(0.012, 0.025, 0.065, 0.75), 10))
 	add_child(help_panel)
-	var label: Label = _label("D : Démarrer / arrêter la démo guidée\nF1–F6 : Phases    P / Pause : Pause\nF : Suivi / Libre    C : Cinématique\nClic droit + souris : Orbite (Libre)\nMolette : Zoom (Libre)\nFlèches / W / Z / S / A / Q : Déplacer\nPageUp / E : Monter · PageDown : Descendre\nG / Home : Recentrer\nF11 / Alt+Entrée : Plein écran\nTAB : Réglages    H : Aide")
+	var label: Label = _label("D : Démo guidée / retour libre\nF7 : Démo soutenance · ESPACE : Départ / Suite\nR : Recommencer · Échap : Retour libre\nF1–F6 : Phases    P / Pause : Pause\nF : Suivi / Libre    C : Cinématique\nClic droit + souris : Orbite (Libre)\nMolette : Zoom (Libre)\nFlèches / W / Z / S / A / Q : Déplacer\nPageUp / E : Monter · PageDown : Descendre\nG / Home : Recentrer\nF11 / Alt+Entrée : Plein écran\nTAB : Réglages    H : Aide")
 	label.add_theme_font_size_override("font_size", 13)
 	help_panel.add_child(label)
 
@@ -256,7 +284,7 @@ func _build_phase_label() -> void:
 	phase_panel.hide()
 
 
-func set_phase(index: int, title: String) -> void:
+func set_phase(index: int, title: String, hold_seconds: float = 0) -> void:
 	if is_instance_valid(_phase_fade):
 		_phase_fade.kill()
 	phase_panel.visible = index >= 0
@@ -265,7 +293,11 @@ func set_phase(index: int, title: String) -> void:
 	if index >= 0:
 		_phase_fade = create_tween()
 		_phase_fade.set_ignore_time_scale(true)
-		_phase_fade.tween_property(phase_panel, "modulate:a", 1.0, 0.7)
+		_phase_fade.tween_property(phase_panel, "modulate:a", 1.0, 0.2 if hold_seconds > 0 else 0.7)
+		if hold_seconds > 0:
+			_phase_fade.tween_interval(hold_seconds - 0.7)
+			_phase_fade.tween_property(phase_panel, "modulate:a", 0.0, 0.5)
+			_phase_fade.tween_callback(phase_panel.hide)
 
 
 func _label(value: String) -> Label:
@@ -389,9 +421,9 @@ func refresh(simulation: SpaceSimulation) -> void:
 	_set_count("Capital Ship", simulation.target_capital_count(), 0, 1)
 	cinematic_button.set_pressed_no_signal(simulation.camera.mode == SimulationCamera.Mode.CINEMATIC)
 	fullscreen_button.set_pressed_no_signal(simulation.presentation_window.is_fullscreen())
-	var guided: bool = simulation.demonstration.is_guided()
+	var guided: bool = simulation.demonstration.is_staged()
 	free_button.disabled = not guided
-	guided_button.disabled = guided
+	guided_button.disabled = simulation.demonstration.is_guided()
 	restart_demo_button.disabled = not guided
 	speed_slider.editable = not guided
 	movement_slider.editable = not guided
@@ -410,7 +442,7 @@ func refresh(simulation: SpaceSimulation) -> void:
 
 
 func _set_count(kind: String, value: int, minimum: int, maximum: int) -> void:
-	_counts[kind].text = "%d/1" % value if kind == "Capital Ship" and not _simulation().demonstration.is_guided() else str(value)
+	_counts[kind].text = "%d/1" % value if kind == "Capital Ship" and not _simulation().demonstration.is_staged() else str(value)
 	minus_buttons[kind].disabled = value <= minimum
 	plus_buttons[kind].disabled = value >= maximum
 
@@ -463,3 +495,61 @@ func show_game_over(enabled: bool) -> void:
 		help_panel.hide()
 		phase_panel.hide()
 		replay_button.grab_focus()
+
+
+func _build_presentation() -> void:
+	presentation_panel = Control.new()
+	presentation_panel.name = "PresentationScreen"
+	add_child(presentation_panel)
+	presentation_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var shade: ColorRect = ColorRect.new()
+	shade.color = Color(0.005, 0.015, 0.04, 0.72)
+	presentation_panel.add_child(shade)
+	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var center: CenterContainer = CenterContainer.new()
+	presentation_panel.add_child(center)
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var layout: VBoxContainer = VBoxContainer.new()
+	layout.add_theme_constant_override("separation", 22)
+	center.add_child(layout)
+	presentation_title = _label("")
+	presentation_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	presentation_title.add_theme_font_size_override("font_size", 34)
+	layout.add_child(presentation_title)
+	presentation_detail = _label("")
+	presentation_detail.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	presentation_detail.add_theme_font_size_override("font_size", 22)
+	layout.add_child(presentation_detail)
+	presentation_start = _button("ESPACE — Démarrer")
+	presentation_start.custom_minimum_size = Vector2(440, 58)
+	presentation_start.add_theme_font_size_override("font_size", 24)
+	presentation_start.pressed.connect(func() -> void: _simulation().presentation.start_or_next())
+	layout.add_child(presentation_start)
+	presentation_replay = _button("REJOUER — R")
+	presentation_replay.custom_minimum_size.y = 58
+	presentation_replay.add_theme_font_size_override("font_size", 24)
+	presentation_replay.pressed.connect(func() -> void: _simulation().presentation.prepare())
+	layout.add_child(presentation_replay)
+	presentation_free = _button("SIMULATION LIBRE — D / Échap")
+	presentation_free.custom_minimum_size.y = 42
+	presentation_free.pressed.connect(func() -> void: _simulation().presentation.leave())
+	layout.add_child(presentation_free)
+	presentation_keys = _label("")
+	presentation_keys.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	layout.add_child(presentation_keys)
+	presentation_panel.hide()
+
+
+func show_presentation(state: int) -> void:
+	var ready: bool = state == PresentationDemonstration.State.READY
+	var finished: bool = state == PresentationDemonstration.State.FINISHED
+	presentation_panel.visible = ready or finished
+	presentation_start.visible = ready
+	presentation_replay.visible = finished
+	presentation_keys.text = "P : pause   ·   ESPACE : phase suivante   ·   R : recommencer" if ready else "R : rejouer   ·   D / Échap : simulation libre"
+	presentation_title.text = "DÉMO SOUTENANCE" if ready else "FIN DE LA DÉMONSTRATION"
+	presentation_detail.text = "Durée : ~4 minutes\nAppuyer sur ESPACE pour démarrer" if ready else "Vaisseaux bleus détruits : %d" % _simulation().death_count
+	if ready or finished:
+		panel.hide()
+		help_panel.hide()
+		phase_panel.hide()
