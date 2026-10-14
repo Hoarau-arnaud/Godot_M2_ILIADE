@@ -27,6 +27,8 @@ var readable_threats: bool = false
 @export var patrol_firing_cone_degrees: float = 32
 var patrol_projectile_container: Node3D
 var route_waypoints: Array[Vector3] = []
+# Facultatif : les routes historiques gardent leur géométrie par défaut.
+var demonstration_route_offsets: Array[Vector3] = []
 var route_index: int = 0
 var routes_completed: int = 0
 var fire_intensity: float = 1.0
@@ -88,6 +90,10 @@ func _choose_waypoint() -> void:
 				Vector3(patrol_anchor.x + 18, patrol_anchor.y + 9, global_position.z - 59),
 				Vector3(patrol_anchor.x + 18, patrol_anchor.y - 9, global_position.z - 94),
 				Vector3(patrol_anchor.x - 18, patrol_anchor.y + 6, global_position.z - 129)])
+			if not demonstration_route_offsets.is_empty():
+				route_waypoints.clear()
+				for offset: Vector3 in demonstration_route_offsets:
+					route_waypoints.append(Vector3(patrol_anchor.x, patrol_anchor.y, global_position.z) + offset)
 			route_index = 0
 		waypoint = route_waypoints[route_index]
 		route_index += 1

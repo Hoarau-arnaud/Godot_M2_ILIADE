@@ -28,13 +28,18 @@ func presentation_controls() -> void:
 	var death_before: int = sim.death_count
 	presentation_key(KEY_SPACE)
 	await frames(3)
-	check(sim.presentation.phase_index == 1 and sim.drones.size() == 3 and sim.demo_controls.phase_label.text == "PHASE 2 — PATROUILLE AUTONOME", "ESPACE skip")
+	check(sim.presentation.phase_index == 1 and sim.drones.size() == 15 and sim.demo_controls.phase_label.text == "PHASE 2 — PATROUILLE AUTONOME", "ESPACE skip")
 	check(sim.death_count == death_before and get_nodes_in_group("asteroids").is_empty(), "Skip résidus / fausses morts")
 	presentation_key(KEY_SPACE)
 	await frames(3)
-	check(sim.presentation.phase_index == 2 and sim.interceptors.size() == 3 and not is_instance_valid(sim.demonstration._markers), "Skip Interceptor / marqueurs")
+	check(sim.presentation.phase_index == 2 and sim.interceptors.size() == 15 and not is_instance_valid(sim.demonstration._markers), "Skip Interceptor / marqueurs")
+	for hostile: Interceptor in sim.interceptors.slice(0, 3):
+		hostile.take_damage(20)
+	await frames(3)
+	check(sim.interceptors.size() == 15, "P3 remplacement de trois destructions simultanées")
 	presentation_key(KEY_SPACE)
 	await frames(30)
+	check(sim.capitals.size() == 6, "Six Capital en présentation")
 	check(not get_nodes_in_group("artillery_projectiles").is_empty(), "Pause sans projectiles")
 	while sim.presentation.phase_elapsed < 15.0:
 		await process_frame
@@ -96,6 +101,47 @@ func presentation_controls() -> void:
 	await dispose(sim)
 
 
+func population_snapshot(sim: SpaceSimulation) -> Dictionary:
+	var data: Dictionary = {"frames": 0, "seconds": 0.0, "fps_windows": [], "window_frames": 0, "window_started": Time.get_ticks_usec(), "patrol_min": sim.drones.size(), "patrol_max": sim.drones.size(), "interceptor_min": sim.interceptors.size(), "interceptor_max": sim.interceptors.size(), "capital_min": sim.capitals.size(), "capital_max": sim.capitals.size(), "capital_distance_min": INF, "capital_distance_max": 0.0, "pursued_targets": {}, "capital_attacks": {}, "spawn_offsets": [], "route_geometries": [], "individual_seeds": [], "marker_routes": sim.demonstration._marker_drones.size()}
+	var center: Vector3 = sim._fleet_center()
+	for actor: Node3D in sim.drones + sim.interceptors + sim.capitals:
+		data.spawn_offsets.append(actor.global_position - center)
+		data.individual_seeds.append(actor.individual_seed)
+	for drone: PatrolDrone in sim.drones:
+		data.route_geometries.append(drone.demonstration_route_offsets.duplicate())
+	for index: int in range(sim.capitals.size()):
+		var capital: CapitalShip = sim.capitals[index]
+		var role: int = index
+		capital.salvo_started.connect(func(pattern: int) -> void:
+			if not data.capital_attacks.has(role):
+				data.capital_attacks[role] = []
+			data.capital_attacks[role].append(pattern)
+		)
+	return data
+
+
+func population_sample(sim: SpaceSimulation, data: Dictionary, seconds: float) -> void:
+	data.frames += 1
+	data.seconds += seconds
+	data.window_frames += 1
+	for family: String in ["patrol", "interceptor", "capital"]:
+		var count: int = sim.drones.size() if family == "patrol" else sim.interceptors.size() if family == "interceptor" else sim.capitals.size()
+		data[family + "_min"] = mini(data[family + "_min"], count)
+		data[family + "_max"] = maxi(data[family + "_max"], count)
+	for hostile: Interceptor in sim.interceptors:
+		if is_instance_valid(hostile.target):
+			data.pursued_targets[hostile.target.individual_seed] = true
+	for capital: CapitalShip in sim.capitals:
+		var distance: float = capital.global_position.distance_to(sim._fleet_center())
+		data.capital_distance_min = minf(data.capital_distance_min, distance)
+		data.capital_distance_max = maxf(data.capital_distance_max, distance)
+	var now: int = Time.get_ticks_usec()
+	if now - int(data.window_started) >= 1000000:
+		data.fps_windows.append(float(data.window_frames) * 1000000 / (now - int(data.window_started)))
+		data.window_started = now
+		data.window_frames = 0
+
+
 func complete_presentation(seed_value: int, native: bool) -> void:
 	var sim: SpaceSimulation = modern()
 	sim.presentation.presentation_seed = seed_value
@@ -128,11 +174,14 @@ func complete_presentation(seed_value: int, native: bool) -> void:
 	var fps_windows: Array[float] = []
 	var logged_phase: int = -1
 	var arrivals: Dictionary = {}
+	var populations: Array[Dictionary] = []
+	var sampled_at: int = started
 	var starting_window: Vector2i = DisplayServer.window_get_size() if native else Vector2i.ZERO
 	while sim.presentation.state != PresentationDemonstration.State.FINISHED:
 		await process_frame
 		if sim.presentation.phase_index != logged_phase:
 			logged_phase = sim.presentation.phase_index
+			populations.append(population_snapshot(sim))
 			print("M17 seed=%d phase=%d elapsed=%.3f" % [seed_value, logged_phase + 1, sim.presentation.elapsed_real])
 		if sim.presentation.phase_index == 3:
 			for node: Node in get_nodes_in_group("artillery_projectiles"):
@@ -141,6 +190,9 @@ func complete_presentation(seed_value: int, native: bool) -> void:
 					arrivals[family] = sim.presentation.phase_elapsed
 			if sim.demonstration.bomb_explosions > 0 and not arrivals.has("Bomb detonation"):
 				arrivals["Bomb detonation"] = sim.presentation.phase_elapsed
+		if sim.presentation.state == PresentationDemonstration.State.RUNNING:
+			population_sample(sim, populations[logged_phase], float(Time.get_ticks_usec() - sampled_at) / 1000000)
+		sampled_at = Time.get_ticks_usec()
 		counted += 1
 		window_count += 1
 		var now: int = Time.get_ticks_usec()
@@ -159,13 +211,40 @@ func complete_presentation(seed_value: int, native: bool) -> void:
 	record.window_pixels_end = DisplayServer.window_get_size() if native else Vector2i.ZERO
 	record.msaa_3d = root.msaa_3d
 	record.artillery_arrival_seconds = arrivals
+	for data: Dictionary in populations:
+		data.fps_mean = float(data.frames) / maxf(float(data.seconds), 0.000001)
+		data.fps_min_1s = data.fps_windows.min() if not data.fps_windows.is_empty() else 0.0
+		if int(data.capital_max) == 0:
+			data.capital_distance_min = null
+		data.erase("window_started")
+		data.erase("window_frames")
+	record.populations = populations
+	var expected: Array[Array] = [[0, 0, 0], [15, 0, 0], [0, 15, 0], [0, 0, 6], [4, 4, 3]]
+	for index: int in range(populations.size()):
+		var data: Dictionary = populations[index]
+		check([data.patrol_max, data.interceptor_max, data.capital_max] == expected[index], "Population P%d" % (index + 1))
+		if index < phases.size():
+			check(phases[index].projectiles_max <= 35, "Budget global P%d" % (index + 1))
+		if index == 1:
+			check(data.patrol_min == 15 and data.route_geometries.size() == 15 and data.marker_routes >= 3 and data.marker_routes <= 5, "P2 routes / marqueurs / population active")
+			var unique: Dictionary = {}
+			for route: Array in data.route_geometries:
+				unique[str(route)] = true
+			check(unique.size() == 15, "P2 géométries identiques")
+		if index == 2:
+			check(data.interceptor_min == 15, "P3 population active après destruction")
+			check(data.pursued_targets.size() >= 3, "P3 cibles non réparties")
+		if index == 3:
+			check(data.capital_min == 6 and data.capital_distance_min >= 380 and data.capital_distance_max <= 720 and data.capital_attacks.size() == 6, "P4 distances / six tireurs")
+		if native and index in [1, 2, 3]:
+			check(data.fps_min_1s > 60, "FPS phase %d sous 60" % (index + 1))
 	check(phases.size() == 5 and sim.demo_controls.presentation_panel.visible and paused, "Cinq phases / FIN figée")
 	check(sim.presentation.elapsed_real >= 230 and sim.presentation.elapsed_real <= 245, "Durée programmée")
 	check(not sim.demonstration.game_over, "Game Over en présentation")
 	if phases.size() == 5:
 		check(phases[0].megas >= 1 and phases[0].colossals == 1 and phases[0].first_events.get("obstacle", 100) < 3, "P1 dangers immédiats")
 		check(phases[0].dispersion_end < phases[0].dispersion_peak and phases[0].blue_alive == 15, "P1 récupération / population")
-		check(phases[1].first_events.get("pulse", 100) < 4 and phases[1].first_events.get("waypoint", 100) < 4 and phases[1].green_shots >= 10 and phases[1].green_shots <= 18, "P2 waypoints / 10–18 pulses utiles")
+		check(phases[1].first_events.get("pulse", 100) < 4 and phases[1].first_events.get("waypoint", 100) < 4 and phases[1].green_shots > 18, "P2 waypoints / pulses de quinze patrouilles")
 		check(phases[2].first_events.get("pursuit", 100) < 2 and phases[2].first_events.get("burst", 100) < 4 and phases[2].boosts > 0 and phases[2].first_events.has("disengage"), "P3 poursuite / boost / désengagement")
 		check(phases[3].first_events.get("flash", 100) < 1 and phases[3].first_events.get("heavy", 100) < 2, "P4 Heavy immédiat")
 		check(phases[3].gate_crossings.has("Gate") and phases[3].gate_crossings.has("Grid"), "Gate / Grid ne traversent pas")
@@ -247,7 +326,7 @@ func _run() -> void:
 	else:
 		await presentation_controls()
 	var suffix: String = "native_%d" % seed_value if args.has("--native") else "capture" if args.has("--capture") else "complete_%d" % seed_value if args.has("--complete") else "controls"
-	var file: FileAccess = FileAccess.open("res://.godot/m17_" + suffix + ".json", FileAccess.WRITE)
+	var file: FileAccess = FileAccess.open("res://.godot/presentation_counts_m17_" + suffix + ".json", FileAccess.WRITE)
 	file.store_string(JSON.stringify(records, "\t"))
 	print("PASS M17 : présentation soutenance." if failures == 0 else "FAIL M17 : présentation soutenance.")
 	quit(0 if failures == 0 else 1)

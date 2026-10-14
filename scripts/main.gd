@@ -271,7 +271,7 @@ func target_drone_count() -> int:
 	if not drones_enabled:
 		return 0
 	if manual_drone_count_override >= 0:
-		return clampi(manual_drone_count_override, 0, 8)
+		return clampi(manual_drone_count_override, 0, 15 if demonstration.mode == GuidedDemonstration.DemoMode.PRESENTATION else 8)
 	var counts: Array[int] = [easy_drone_count, intermediate_drone_count, hard_drone_count]
 	return clampi(counts[difficulty_level - 1], 0, 3)
 
@@ -362,7 +362,7 @@ func target_interceptor_count() -> int:
 	if not interceptors_enabled:
 		return 0
 	if manual_interceptor_count_override >= 0:
-		return clampi(manual_interceptor_count_override, 0, 8)
+		return clampi(manual_interceptor_count_override, 0, 15 if demonstration.mode == GuidedDemonstration.DemoMode.PRESENTATION else 8)
 	var counts: Array[int] = [easy_interceptor_count, intermediate_interceptor_count, hard_interceptor_count]
 	return clampi(counts[difficulty_level - 1], 0, 2)
 

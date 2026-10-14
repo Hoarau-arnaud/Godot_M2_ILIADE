@@ -307,11 +307,11 @@ M1–M3 ont établi le vol collectif ; M4–M6 les quatre agents et le combat ; 
 
 | Phase | Durée | Ce que je montre |
 |---|---:|---|
-| 1 | 35 s | Évitement collectif |
-| 2 | 30 s | PatrolDrone |
-| 3 | 35 s | Interceptor |
-| 4 | 55 s | Capital Ship |
-| 5 | 75 s | Tous les agents |
+| 1 | 35 s | Évitement collectif : 15 BlueShip, aucun ennemi |
+| 2 | 30 s | 15 PatrolDrone |
+| 3 | 35 s | 15 Interceptor |
+| 4 | 55 s | 6 Capital Ships |
+| 5 | 75 s | 15 BlueShip actifs, 4 PatrolDrone + 4 Interceptor + 3 Capital Ships |
 
 1. « Les BlueShip ne possèdent pas de leader : ils détectent individuellement l’obstacle, se dispersent puis se regroupent grâce aux règles locales. »
 2. « Le PatrolDrone suit sa propre suite de waypoints et ne poursuit pas les chasseurs. »

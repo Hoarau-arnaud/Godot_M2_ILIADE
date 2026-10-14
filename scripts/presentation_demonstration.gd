@@ -35,7 +35,7 @@ func active() -> bool:
 
 
 func _profile(index: int) -> Dictionary:
-	return {"storm": index in [0, 4], "rocks": 38 if index == 4 else 0, "rocks_max": 50 if index == 4 else 35, "patrols": 3 if index == 1 else 4 if index == 4 else 0, "interceptors": 3 if index == 2 else 4 if index == 4 else 0, "capitals": 3 if index in [3, 4] else 0, "fire_intensity": 0.5 if index == 1 else 1.0}
+	return {"storm": index in [0, 4], "rocks": 38 if index == 4 else 0, "rocks_max": 50 if index == 4 else 35, "patrols": 15 if index == 1 else 4 if index == 4 else 0, "interceptors": 15 if index == 2 else 4 if index == 4 else 0, "capitals": 6 if index == 3 else 3 if index == 4 else 0, "fire_intensity": 0.5 if index == 1 else 1.0}
 
 
 func prepare() -> void:
@@ -170,13 +170,6 @@ func _choreograph() -> void:
 			_sample.events.append({"time": phase_elapsed, "kind": event[1], "pattern": event[2]})
 		_cursor += 1
 	_update_camera()
-	if phase_index == 1:
-		var pulses: int = 0
-		for drone: PatrolDrone in simulation.drones:
-			pulses += drone.patrol_shots_fired
-		if pulses >= 18:
-			for drone: PatrolDrone in simulation.drones:
-				drone.patrol_fire_enabled = false
 
 
 func _event(kind: String, pattern: int) -> bool:
@@ -192,6 +185,8 @@ func _event(kind: String, pattern: int) -> bool:
 		"fast": field.spawn_fast_crossing(center, true)
 		"capital":
 			var role: int = 2 if pattern in [7, 8, 2] else 1 if pattern in [6, 9] else 0
+			if phase_index == 3:
+				role = {0: 0, 4: 1, 7: 2, 6: 3, 8: 4, 9: 5, 2: 5}[pattern]
 			if role >= simulation.capitals.size():
 				return false
 			var capital: CapitalShip = simulation.capitals[role]
@@ -210,11 +205,11 @@ func _update_camera() -> void:
 		0:
 			segment = 2 if phase_elapsed >= 27 else 1 if phase_elapsed >= 8 else 0
 			shots.assign([[1, 0, 11], [5, 8, 5], [5, 3]][segment])
-		1: shots = [1, 0, 5]
-		2: shots = [7, 0, 11]
+		1: shots = [5, 1, 2]
+		2: shots = [0, 11, 5]
 		3:
 			segment = 5 if phase_elapsed >= 52 else 4 if phase_elapsed >= 44 else 3 if phase_elapsed >= 32 else 2 if phase_elapsed >= 25 else 1 if phase_elapsed >= 14 else 0
-			shots.assign([[0, 1], [5, 7], [8, 5], [5, 7], [7, 11], [10]][segment])
+			shots.assign([[10, 0, 10], [5, 10], [8, 10], [5, 10], [7, 10], [10]][segment])
 		4: shots = [7, 5, 11, 8, 10]
 	if segment == _camera_segment:
 		return

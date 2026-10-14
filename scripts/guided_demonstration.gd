@@ -457,8 +457,16 @@ func _spawn_patrol(center: Vector3, index: int, markers: bool, replacement: bool
 	if not _stage_profile.is_empty():
 		drone.dangerous_projectile_limit = 29
 		if phase_index == 2:
-			offset = Vector3((index - 1) * 9, 0, 28)
-			drone.patrol_anchor = Vector2(center.x + (index - 1) * 9, center.y)
+			var route_random: RandomNumberGenerator = RandomNumberGenerator.new()
+			route_random.seed = drone.individual_seed
+			# Cinq bandes latérales, trois hauteurs et une profondeur propre à chaque drone.
+			offset = Vector3((index % 5 - 2) * 14 + route_random.randf_range(-3, 3), (index / 5 - 1) * 16 + route_random.randf_range(-3, 3), route_random.randf_range(22, 48))
+			drone.patrol_anchor = Vector2(center.x + offset.x * 0.7, center.y + offset.y * 0.7)
+			var width: float = route_random.randf_range(12, 23)
+			var height: float = route_random.randf_range(5, 12)
+			var step: float = route_random.randf_range(27, 38)
+			var direction: float = -1 if index % 2 == 0 else 1
+			drone.demonstration_route_offsets.assign([Vector3(-width * direction, -height, -24), Vector3(width * direction, height, -24 - step), Vector3(width * direction, -height, -24 - 2 * step), Vector3(-width * direction, height, -24 - 3 * step)])
 			drone.forward_speed = 15.8
 			drone._patrol_fire_timer = 4.4 + index * 0.4
 		else:
@@ -471,7 +479,7 @@ func _spawn_patrol(center: Vector3, index: int, markers: bool, replacement: bool
 		FlightTuning.legacy_actor(drone)
 	simulation.drone_container.add_child(drone)
 	simulation.drones.append(drone)
-	if markers:
+	if markers and (_stage_profile.is_empty() or phase_index != 2 or index in [0, 4, 10, 14]):
 		_add_route_markers(drone)
 
 
@@ -486,7 +494,16 @@ func _maintain_arcade_interceptors() -> void:
 	if simulation.interceptors.size() >= simulation.manual_interceptor_count_override:
 		return
 	_interceptor_replacement_serial += 1
-	_spawn_interceptor(simulation._fleet_center(), _interceptor_replacement_serial % 4, true)
+	var slots: int = 15 if not _stage_profile.is_empty() and phase_index == 3 else 4
+	_spawn_interceptor(simulation._fleet_center(), _interceptor_replacement_serial % slots, true)
+
+
+func _restore_presentation_interceptors() -> void:
+	# Après la physique, avant le rendu ; les remplacements GUIDED/P5 restent inchangés.
+	if mode != DemoMode.PRESENTATION or phase_index != 3:
+		return
+	while simulation.interceptors.size() < simulation.manual_interceptor_count_override:
+		_maintain_arcade_interceptors()
 
 
 func _spawn_interceptor(center: Vector3, index: int, replacement: bool = false) -> void:
@@ -506,8 +523,13 @@ func _spawn_interceptor(center: Vector3, index: int, replacement: bool = false) 
 		offset = Vector3((index - 1.5) * 32, -18 if index % 2 == 0 else 18, 35)
 	if not _stage_profile.is_empty():
 		hostile.dangerous_projectile_limit = 29
+		if phase_index == 3:
+			var starts: Array[Vector3] = [Vector3(-35, 16, -30), Vector3(29, -21, -39), Vector3(-12, 28, -45), Vector3(15, -29, -26), Vector3(-44, -8, -12), Vector3(40, 11, -20), Vector3(-28, -23, 18), Vector3(33, 24, 10), Vector3(-16, 9, 38), Vector3(20, -11, 44), Vector3(-48, 26, 5), Vector3(47, -18, 26), Vector3(-4, 36, 22), Vector3(8, -34, 6), Vector3(3, 14, -52)]
+			offset = starts[index]
 	hostile.position = simulation.interceptor_container.to_local(_safe_position(center + offset, 3))
 	hostile.died.connect(simulation._on_interceptor_died)
+	if not _stage_profile.is_empty() and phase_index == 3:
+		hostile.died.connect(func(_dead: PatrolDrone) -> void: _restore_presentation_interceptors.call_deferred())
 	hostile.destroyed.connect(simulation._on_hostile_destroyed)
 	hostile.fired.connect(simulation._on_enemy_fired)
 	if simulation.legacy_flight_profile:
@@ -522,6 +544,8 @@ func _spawn_capital(center: Vector3, teaching: bool, index: int = 0) -> void:
 	var positions: Array[Vector3] = [Vector3(-120, 35, -390), Vector3(-40, -58, -460), Vector3(58, 66, -515), Vector3(145, -12, -580), Vector3(12, 8, -630)]
 	if not _stage_profile.is_empty():
 		positions = [Vector3(-110, 35, -430), Vector3(-32, -54, -510), Vector3(64, 54, -600)]
+		if phase_index == 4:
+			positions = [Vector3(-140, 48, -410), Vector3(-96, -62, -460), Vector3(-12, 76, -480), Vector3(28, -20, -640), Vector3(138, 58, -540), Vector3(115, -70, -560)]
 		hostile.presentation_salvo_counts = {4: 5, 9: 7}
 	hostile.normal_distance = -positions[index].z if spectacle() else 230
 	hostile.spectacle_enabled = spectacle()
