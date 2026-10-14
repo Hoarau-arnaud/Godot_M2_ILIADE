@@ -499,7 +499,7 @@ func advance_storm(center: Vector3) -> void:
 	patterns_generated[Pattern.DEMO_METEOR_STORM] = _storm_serial
 
 
-func spawn_mega(center: Vector3, fleet_velocity: Vector3, trajectory: int, diameter_value: float = 40) -> bool:
+func spawn_mega(center: Vector3, fleet_velocity: Vector3, trajectory: int, diameter_value: float = 40, prediction_time: float = 6) -> bool:
 	if not is_instance_valid(_storm_container) or active_asteroid_count >= max_active_asteroids:
 		return false
 	for node: Node in _storm_container.get_children():
@@ -507,7 +507,6 @@ func spawn_mega(center: Vector3, fleet_velocity: Vector3, trajectory: int, diame
 			return false # Un seul danger principal à la fois.
 	var motions: Array[Vector3] = [Vector3(9, 0, 8), Vector3(-7, -5, 7), Vector3(0, -10, 5), Vector3(5, 0, 3)]
 	var travel: Vector3 = motions[trajectory % motions.size()]
-	var prediction_time: float = 6
 	var crossing: Vector3 = center + fleet_velocity * prediction_time + Vector3(12, 4, 0)
 	var candidate: Vector3 = crossing - travel * prediction_time
 	# Aucun changement de vitesse après ce calcul : pas de poursuite.
@@ -536,7 +535,7 @@ func spawn_mega(center: Vector3, fleet_velocity: Vector3, trajectory: int, diame
 	return true
 
 
-func spawn_fast_crossing(center: Vector3) -> void:
+func spawn_fast_crossing(center: Vector3, multiple_angles: bool = false) -> void:
 	for index: int in range(3):
 		if active_asteroid_count >= max_active_asteroids or not is_instance_valid(_storm_container):
 			return
@@ -547,22 +546,26 @@ func spawn_fast_crossing(center: Vector3) -> void:
 		rock.single_convex_envelope = true
 		rock.motion_type = SpaceAsteroid.MotionType.LINEAR
 		rock.motion_velocity = Vector3(34, -8 + index * 8, 8)
+		var start: Vector3 = Vector3(-60, -8 + index * 8, -75)
+		if multiple_angles and index > 0:
+			start = Vector3(60, 8, -75) if index == 1 else Vector3(0, 60, -75)
+			rock.motion_velocity = Vector3(-34, -4, 8) if index == 1 else Vector3(4, -34, 8)
 		rock.motion_duration = 80
-		rock.position = _storm_container.to_local(center + Vector3(-60, -8 + index * 8, -75)) - rock.trajectory_offset(0)
+		rock.position = _storm_container.to_local(center + start) - rock.trajectory_offset(0)
 		_storm_container.add_child(rock)
 		active_asteroid_count += 1
 		active_mobile_count += 1
 
 
-func spawn_colossal(center: Vector3, fleet_velocity: Vector3, diameter_value: float = 96) -> SpaceAsteroid:
+func spawn_colossal(center: Vector3, fleet_velocity: Vector3, diameter_value: float = 96, prediction_time: float = 11) -> SpaceAsteroid:
 	if not is_instance_valid(_storm_container) or active_asteroid_count >= max_active_asteroids:
 		return null
 	for node: Node in _storm_container.get_children():
 		if node is SpaceAsteroid and (node as SpaceAsteroid).diameter >= 60 and not node.is_queued_for_deletion():
 			return null
 	var travel: Vector3 = Vector3(-3, -3, 4)
-	var crossing: Vector3 = center + fleet_velocity * 11 + Vector3(18, diameter_value * 0.35, 0)
-	var candidate: Vector3 = crossing - travel * 11
+	var crossing: Vector3 = center + fleet_velocity * prediction_time + Vector3(18, diameter_value * 0.35, 0)
+	var candidate: Vector3 = crossing - travel * prediction_time
 	for node: Node in get_tree().get_nodes_in_group("blue_ships"):
 		if candidate.distance_to((node as Node3D).global_position) < diameter_value * 0.65 + 25:
 			return null

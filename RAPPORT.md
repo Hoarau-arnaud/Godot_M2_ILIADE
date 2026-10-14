@@ -301,3 +301,20 @@ Apprentissage/adaptation, coopération explicite, communication inter-agent, nav
 Le projet démontre un système multi-agents spatial à quatre types : les interactions locales produisent détours, dispersion, esquives et récupération. L’étude montre des compromis et une sensibilité aux conditions initiales, sans optimisation universelle. La présentation peut alterner phases, pause et exemples mesurés.
 
 M1–M3 ont établi le vol collectif ; M4–M6 les quatre agents et le combat ; M7–M11 les contrôles/démo ; M12–M15 la lisibilité, l’anticipation, les renforts et les dangers arcade. L’[historique détaillé](docs/HISTORIQUE_M1_M15.md) conserve les anciennes validations. Les [données brutes](docs/experiments/m16_results.json) et scripts permettent de refaire l’étude. Le PowerPoint reste à préparer à partir de ce rapport.
+
+
+## Démonstration soutenance
+
+| Phase | Durée | Ce que je montre |
+|---|---:|---|
+| 1 | 35 s | Évitement collectif |
+| 2 | 30 s | PatrolDrone |
+| 3 | 35 s | Interceptor |
+| 4 | 55 s | Capital Ship |
+| 5 | 75 s | Tous les agents |
+
+1. « Les BlueShip ne possèdent pas de leader : ils détectent individuellement l’obstacle, se dispersent puis se regroupent grâce aux règles locales. »
+2. « Le PatrolDrone suit sa propre suite de waypoints et ne poursuit pas les chasseurs. »
+3. « L’Interceptor détecte une cible, la poursuit temporairement, tire puis se désengage. »
+4. « Le Capital Ship agit à distance : il observe le groupe et choisit des attaques de zone ou des missiles qui obligent les agents à adapter leur trajectoire. »
+5. « Ici, les quatre types d’agents et l’environnement interagissent simultanément. »

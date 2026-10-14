@@ -143,6 +143,7 @@ var _engine_settings_owned: bool = false
 @onready var statistics: Label = $HUD/Panel/Statistics
 @onready var presentation_window: PresentationWindow = $PresentationWindow
 @onready var demo_controls: DemoControls = $DemoControls
+@onready var presentation: PresentationDemonstration = $PresentationDemonstration
 @onready var demonstration: GuidedDemonstration = $GuidedDemonstration
 
 
@@ -184,7 +185,7 @@ func _physics_process(delta: float) -> void:
 	if demonstration.game_over:
 		return
 	elapsed_simulation_time += delta
-	if demonstration.is_guided() and guided_reinforcements_enabled:
+	if demonstration.is_staged() and guided_reinforcements_enabled:
 		_maintain_reinforcements(delta / maxf(Engine.time_scale, 0.01))
 	else:
 		_maintain_requested_ships(delta)
@@ -194,7 +195,7 @@ func _physics_process(delta: float) -> void:
 	# La progression ne recule pas si la perte d'un survivant déplace légèrement le barycentre.
 	distance_travelled = maxf(distance_travelled, _origin_z - center.z)
 	_update_difficulty()
-	if not demonstration.is_guided():
+	if not demonstration.is_staged():
 		_maintain_drones(center, delta)
 		_maintain_interceptors(center, delta)
 		_maintain_capitals(center, delta)
@@ -244,7 +245,7 @@ func _input(event: InputEvent) -> void:
 		presentation_window.toggle_fullscreen()
 		get_viewport().set_input_as_handled()
 		return
-	if demonstration.is_guided():
+	if demonstration.is_staged():
 		return
 	var actions: Array[String] = ["difficulty_auto", "difficulty_easy", "difficulty_medium", "difficulty_hard"]
 	for level: int in range(actions.size()):
@@ -445,7 +446,7 @@ func _on_interceptor_died(hostile: PatrolDrone) -> void:
 
 
 func _on_enemy_fired(projectile: EnemyLaser) -> void:
-	if demonstration.is_guided() and threat_choreography_enabled:
+	if demonstration.is_staged() and threat_choreography_enabled:
 		_record_threat(projectile)
 	else:
 		_count_targeted_projectile(projectile.targeted)
@@ -458,7 +459,7 @@ func target_capital_count() -> int:
 	if not capital_ships_enabled:
 		return 0
 	if manual_capital_count_override >= 0:
-		if demonstration.is_guided():
+		if demonstration.is_staged():
 			return manual_capital_count_override
 		return clampi(manual_capital_count_override, 0, 1)
 	return 1 if difficulty_level == 3 else 0
@@ -509,7 +510,7 @@ func _maintain_capitals(center: Vector3, delta: float) -> void:
 
 
 func _on_artillery_fired(projectile: ArtilleryProjectile) -> void:
-	if demonstration.is_guided() and threat_choreography_enabled:
+	if demonstration.is_staged() and threat_choreography_enabled:
 		_record_threat(projectile)
 	else:
 		_count_targeted_projectile(projectile.targeted)
@@ -856,7 +857,7 @@ func _on_ship_died(ship: BlueShip) -> void:
 	death_causes[ship.death_cause] = int(death_causes.get(ship.death_cause, 0)) + 1
 	ships.erase(ship)
 	death_count += 1
-	if demonstration.is_guided() and guided_reinforcements_enabled:
+	if demonstration.is_staged() and guided_reinforcements_enabled:
 		# Horloge réelle : délai indépendant de la vitesse de démonstration.
 		reinforcement_waits.append(1.0 + float(death_count % 5) * 0.15)
 	else:
@@ -905,11 +906,11 @@ func _update_camera(center: Vector3, delta: float) -> void:
 	for ship: BlueShip in ships:
 		if is_instance_valid(ship) and ship.alive and ship.evasive_boost_remaining > 0:
 			boosting += 1
-	camera.boost_fov_extra = minf(boosting / 3.0, 1) * 3 if demonstration.is_guided() else 0
+	camera.boost_fov_extra = minf(boosting / 3.0, 1) * 3 if demonstration.is_staged() else 0
 	space_decor.streak_length_multiplier = lerpf(space_decor.streak_length_multiplier, 1.35 if arcade_hazards_enabled and boosting >= 3 else 1.0, 1 - exp(-3 * delta / maxf(Engine.time_scale, 0.01)))
 	space_decor.readability_center = center
-	space_decor.guided_readability = demonstration.is_guided() and threat_choreography_enabled
-	space_decor.guided_speed_effect = 1.25 if demonstration.is_guided() and not legacy_flight_profile else 1
+	space_decor.guided_readability = demonstration.is_staged() and threat_choreography_enabled
+	space_decor.guided_speed_effect = 1.25 if demonstration.is_staged() and not legacy_flight_profile else 1
 	if camera.action_observation_enabled and positions.size() >= 10:
 		var focus: Array[Vector3] = _camera_subjects(positions)
 		var focus_center: Vector3 = Vector3.ZERO

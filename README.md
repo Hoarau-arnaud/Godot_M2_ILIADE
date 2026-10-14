@@ -1,4 +1,4 @@
-# Simulation SMA spatiale — version finale M16
+# Simulation SMA spatiale — version finale M16 et démo soutenance M17
 
 Projet Godot **4.7.2 / GDScript** : quatre types d’agents autonomes, BlueShip, PatrolDrone, Interceptor et Capital Ship. Les projectiles, grilles, astéroïdes et décors ne sont pas des agents. Aucun cinquième agent ni nouvelle famille d’armes dans M16.
 
@@ -8,7 +8,11 @@ Importer `project.godot` dans Godot 4.7.2 puis lancer le projet. GUIDED démarre
 
 | Commande | Fonction |
 |---|---|
-| D | Basculer FREE/GUIDED |
+| D | Basculer FREE/GUIDED ; retour FREE en PRESENTATION |
+| F7 | Démo soutenance : écran READY, combat figé |
+| ESPACE | Démarrer PRESENTATION / passer immédiatement à la phase suivante |
+| R | Recommencer PRESENTATION depuis READY, pertes remises à zéro |
+| Échap | Retour FREE depuis PRESENTATION |
 | F1 / F2 | Obstacles / astéroïdes dynamiques |
 | F3 / F4 | Patrol / Interceptor |
 | F5 / F6 | Capital-artillerie / assaut final |
@@ -23,6 +27,14 @@ Importer `project.godot` dans Godot 4.7.2 puis lancer le projet. GUIDED démarre
 Le panneau propose aussi six boutons compacts P1–P6. Il défile verticalement si nécessaire en 720p. Un saut recrée seulement Guided, recentre la caméra et remet le timer de phase à zéro, sans compter le nettoyage comme mort. Les pertes cumulées sont conservées ; Replay seul/nouveau run les efface et remet phase 1 + seed initiale. Un saut pendant pause reste suspendu. Quitter Guided ou Replay reprend la simulation.
 
 Le HUD permanent contient uniquement pertes bleues, étoiles et titre de phase. PAUSE est temporaire. Pour une capture propre, masquer les réglages et l’aide avec TAB/H si ces panneaux sont ouverts.
+
+## Démo soutenance
+
+F7 ou le bouton « Démo soutenance » ouvre READY. ESPACE lance les cinq phases de 35 / 30 / 35 / 55 / 75 secondes, avec quatre transitions de 0,5 seconde : **232 secondes (~3 min 52)**, hors pause et sauts manuels. Le titre de chaque phase disparaît après trois secondes. P fige aussi le timer et la caméra ; ESPACE saute sans compter le nettoyage comme mort. R revient à READY ; D/Échap restaure FREE. À la fin, la scène reste figée avec REJOUER et SIMULATION LIBRE. F1–F6 continuent à sélectionner les phases scientifiques GUIDED M16.
+
+Seed de soutenance : **20261012**, retenue après les cinq parcours PRESENTATION 20261012–20261016. Elle montre la plus forte dispersion de phase 1 (68,4 m puis récupération à 20,4 m), 30 boosts en phase Interceptor et 15 passages dans la Grid capitale. La sélection porte sur les mouvements visibles, les traversées et la stabilité, sans imposer un nombre de morts. Mesure native 1920×1080 / MSAA 4× : **232,021 s**, **99,92 FPS moyens**, **95,93 FPS minimum sur une seconde** ; 3 pertes réelles, 3 renforts, 143 boosts cumulés, 15 BlueShip à la fin. Les cinq seeds passent sans erreur, en 232,02–232,03 s ; captures exclues de ces mesures. PRESENTATION réutilise les quatre agents et les armes existantes, avec sa propre horloge et des réglages de spawn/artillerie ; FREE et les durées GUIDED gardent leurs valeurs M16.
+
+Validation M17 séparée : `--headless --path . --fixed-fps 60 --script res://tests/validate_presentation_demo.gd` vérifie les commandes ; ajouter `-- --complete --seed=20261012` pour les cinq phases. Sans `--headless` ni `--fixed-fps`, `-- --native --seed=20261012` mesure la durée réelle et les FPS dans un viewport et une fenêtre verrouillés à 1920×1080. `-- --capture` vérifie 720p/1080p/maximisé/plein écran et produit les captures ignorées dans `.godot/validation`. Les tests historiques restent dans `tests/run_validation.ps1`.
 
 ## Parcours
 

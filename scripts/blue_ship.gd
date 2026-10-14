@@ -913,11 +913,15 @@ func _track_near_pass(node: Node3D, offset: Vector3, relative: Vector3, radius_v
 
 func _cleanup_local_metrics() -> void:
 	for key: Variant in _gate_memory.keys():
-		if not is_instance_valid(key):
-			_gate_memory.erase(key)
-			continue
-		if (key as MovingLaserGate).is_queued_for_deletion():
-			_gate_memory.erase(key)
+		if not is_instance_valid(key) or (key as MovingLaserGate).is_queued_for_deletion():
+			# erase() rejette une clé Objet libérée dans un dictionnaire typé.
+			# Reconstruire uniquement lors d'une expiration conserve les mémoires vivantes.
+			var live: Dictionary[MovingLaserGate, Dictionary] = {}
+			for candidate: Variant in _gate_memory.keys():
+				if is_instance_valid(candidate) and not (candidate as MovingLaserGate).is_queued_for_deletion():
+					live[candidate] = _gate_memory[candidate]
+			_gate_memory = live
+			break
 	for id: int in _reaction_ids.keys():
 		var node: Node3D = _reaction_ids[id].get_ref() as Node3D
 		if not is_instance_valid(node) or node.global_position.distance_to(global_position) > 240:
