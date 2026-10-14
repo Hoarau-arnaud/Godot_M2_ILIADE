@@ -25,6 +25,10 @@ var initial_target_position: Vector3
 var initial_target_velocity: Vector3
 var _age: float = 0.0
 var _spent: bool = false
+var battle_radius: float = 0
+var _battle_nominal: Dictionary = {}
+var _battle_shape: SphereShape3D
+var _battle_query: PhysicsShapeQueryParameters3D
 
 
 func _ready() -> void:
@@ -84,9 +88,13 @@ func _physics_process(delta: float) -> void:
 	var step_time: float = minf(delta, maxf(lifetime - _age, 0.0))
 	var destination: Vector3 = global_position + velocity * step_time
 	if global_position.distance_squared_to(destination) > 0.000001:
-		var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(global_position, destination, HIT_MASK)
-		query.hit_from_inside = true
-		var hit: Dictionary = get_world_3d().direct_space_state.intersect_ray(query)
+		var hit: Dictionary
+		if battle_radius > 0:
+			hit = _battle_collision(destination)
+		else:
+			var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(global_position, destination, HIT_MASK)
+			query.hit_from_inside = true
+			hit = get_world_3d().direct_space_state.intersect_ray(query)
 		if not hit.is_empty():
 			_spent = true
 			global_position = hit["position"]
@@ -101,3 +109,38 @@ func _physics_process(delta: float) -> void:
 	if _age >= maxf(lifetime, 0.0):
 		_spent = true
 		queue_free()
+
+
+func set_battle_parameters(width: float, speed: float, level: int) -> void:
+	if _battle_nominal.is_empty():
+		_battle_nominal = {"speed": projectile_speed, "avoidance": avoidance_radius, "damage": damage}
+		_battle_shape = SphereShape3D.new()
+		_battle_query = PhysicsShapeQueryParameters3D.new()
+		_battle_query.shape = _battle_shape
+		_battle_query.collision_mask = HIT_MASK
+		_battle_query.margin = 0.01
+	battle_radius = (0.65 if patrol_pulse else 0.22) * width
+	_battle_shape.radius = battle_radius
+	projectile_speed = float(_battle_nominal.speed) * speed
+	avoidance_radius = float(_battle_nominal.avoidance) * width
+	damage = level # Les armes légères PRESENTATION commencent à un point.
+	scale = Vector3(width, width, 1)
+
+
+func _battle_collision(destination: Vector3) -> Dictionary:
+	var query: PhysicsShapeQueryParameters3D = _battle_query
+	query.transform = Transform3D(Basis.IDENTITY, global_position)
+	query.motion = destination - global_position
+	query.collision_mask = HIT_MASK
+	query.margin = 0.01
+	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+	var fractions: PackedFloat32Array = space.cast_motion(query)
+	if fractions.size() >= 2 and fractions[1] < 1:
+		query.transform.origin = global_position.lerp(destination, minf(fractions[1] + 0.002, 1))
+	query.motion = Vector3.ZERO
+	var collisions: Array[Dictionary] = space.intersect_shape(query, 1)
+	if not collisions.is_empty():
+		var hit: Dictionary = collisions[0]
+		hit["position"] = query.transform.origin
+		return hit
+	return {}

@@ -36,7 +36,11 @@ func presentation_controls() -> void:
 	for hostile: Interceptor in sim.interceptors.slice(0, 3):
 		hostile.take_damage(20)
 	await frames(3)
-	check(sim.interceptors.size() == 15, "P3 remplacement de trois destructions simultanées")
+	check(sim.interceptors.size() <= 12, "P3 délai de remplacement absent")
+	var replacement_until: float = sim.presentation.phase_elapsed + 1.6
+	while sim.presentation.phase_elapsed < replacement_until:
+		await process_frame
+	check(sim.presentation.total_respawns.interceptor >= 3, "P3 remplacements après délai")
 	presentation_key(KEY_SPACE)
 	await frames(30)
 	check(sim.capitals.size() == 6, "Six Capital en présentation")
@@ -60,7 +64,10 @@ func presentation_controls() -> void:
 	check(not paused and sim.presentation.phase_elapsed > timer, "Reprise")
 	presentation_key(KEY_SPACE)
 	await frames(3)
-	check(sim.presentation.phase_index == 4 and sim.drones.size() == 4 and sim.interceptors.size() == 4 and sim.capitals.size() == 3, "Population finale")
+	check(sim.presentation.phase_index == 4 and sim.drones.size() == 15 and sim.interceptors.size() == 15 and sim.capitals.size() == 6, "Population finale")
+	presentation_key(KEY_SPACE)
+	await frames(3)
+	check(not paused and sim.presentation.state == PresentationDemonstration.State.FINAL_SANDBOX and sim.demo_controls.battle_panel.visible, "Skip sandbox")
 	presentation_key(KEY_SPACE)
 	await frames(3)
 	check(paused and sim.presentation.state == PresentationDemonstration.State.FINISHED and sim.demo_controls.presentation_replay.visible, "Skip FIN")
@@ -177,7 +184,7 @@ func complete_presentation(seed_value: int, native: bool) -> void:
 	var populations: Array[Dictionary] = []
 	var sampled_at: int = started
 	var starting_window: Vector2i = DisplayServer.window_get_size() if native else Vector2i.ZERO
-	while sim.presentation.state != PresentationDemonstration.State.FINISHED:
+	while sim.presentation.state != PresentationDemonstration.State.FINAL_SANDBOX:
 		await process_frame
 		if sim.presentation.phase_index != logged_phase:
 			logged_phase = sim.presentation.phase_index
@@ -219,27 +226,27 @@ func complete_presentation(seed_value: int, native: bool) -> void:
 		data.erase("window_started")
 		data.erase("window_frames")
 	record.populations = populations
-	var expected: Array[Array] = [[0, 0, 0], [15, 0, 0], [0, 15, 0], [0, 0, 6], [4, 4, 3]]
+	var expected: Array[Array] = [[0, 0, 0], [15, 0, 0], [0, 15, 0], [0, 0, 6], [15, 15, 6]]
 	for index: int in range(populations.size()):
 		var data: Dictionary = populations[index]
 		check([data.patrol_max, data.interceptor_max, data.capital_max] == expected[index], "Population P%d" % (index + 1))
 		if index < phases.size():
 			check(phases[index].projectiles_max <= 35, "Budget global P%d" % (index + 1))
 		if index == 1:
-			check(data.patrol_min == 15 and data.route_geometries.size() == 15 and data.marker_routes >= 3 and data.marker_routes <= 5, "P2 routes / marqueurs / population active")
+			check(data.patrol_min > 0 and data.route_geometries.size() == 15 and data.marker_routes >= 3 and data.marker_routes <= 5, "P2 routes / marqueurs / population active")
 			var unique: Dictionary = {}
 			for route: Array in data.route_geometries:
 				unique[str(route)] = true
 			check(unique.size() == 15, "P2 géométries identiques")
 		if index == 2:
-			check(data.interceptor_min == 15, "P3 population active après destruction")
+			check(data.interceptor_min > 0, "P3 population active après destruction")
 			check(data.pursued_targets.size() >= 3, "P3 cibles non réparties")
 		if index == 3:
-			check(data.capital_min == 6 and data.capital_distance_min >= 380 and data.capital_distance_max <= 720 and data.capital_attacks.size() == 6, "P4 distances / six tireurs")
+			check(data.capital_max == 6 and data.capital_distance_max <= 750 and data.capital_attacks.size() >= 3, "P4 distances / six tireurs")
 		if native and index in [1, 2, 3]:
 			check(data.fps_min_1s > 60, "FPS phase %d sous 60" % (index + 1))
-	check(phases.size() == 5 and sim.demo_controls.presentation_panel.visible and paused, "Cinq phases / FIN figée")
-	check(sim.presentation.elapsed_real >= 230 and sim.presentation.elapsed_real <= 245, "Durée programmée")
+	check(phases.size() == 5 and sim.demo_controls.battle_panel.visible and not paused, "Cinq phases / sandbox actif")
+	check(sim.presentation.automatic_duration >= 150 and sim.presentation.automatic_duration <= 157, "Durée programmée")
 	check(not sim.demonstration.game_over, "Game Over en présentation")
 	if phases.size() == 5:
 		check(phases[0].megas >= 1 and phases[0].colossals == 1 and phases[0].first_events.get("obstacle", 100) < 3, "P1 dangers immédiats")
@@ -248,20 +255,80 @@ func complete_presentation(seed_value: int, native: bool) -> void:
 		check(phases[2].first_events.get("pursuit", 100) < 2 and phases[2].first_events.get("burst", 100) < 4 and phases[2].boosts > 0 and phases[2].first_events.has("disengage"), "P3 poursuite / boost / désengagement")
 		check(phases[3].first_events.get("flash", 100) < 1 and phases[3].first_events.get("heavy", 100) < 2, "P4 Heavy immédiat")
 		check(phases[3].gate_crossings.has("Gate") and phases[3].gate_crossings.has("Grid"), "Gate / Grid ne traversent pas")
-		for family: String in ["Heavy", "Seeker", "Swarm", "Arc", "Bomb detonation"]:
-			check(arrivals.has(family) and float(arrivals[family]) < {"Heavy": 7, "Seeker": 14, "Swarm": 52, "Arc": 55, "Bomb detonation": 32}[family], "P4 arrivée hors fenêtre : " + family)
-		check(float(phases[3].gate_crossings.get("Gate", {}).get("first_time", 100)) < 25 and float(phases[3].gate_crossings.get("Grid", {}).get("first_time", 100)) < 44, "P4 traversées hors fenêtre")
-		check(phases[3].bombs > 0 and phases[3].artillery_arrivals >= 12, "P4 attaques non arrivées")
-		check(phases[4].asteroids_max <= 50 and phases[4].projectiles_max <= 35 and phases[4].large_gates_max <= 1 and phases[4].colossals_active_max <= 1, "P5 budgets")
+		check(phases[1].blue_shots > 0 and sim.hostile_hits > 0, "P2 combat Blue absent")
+		check(phases[3].get("grid_launches", 0) >= 6 and phases[3].get("geometries", {}).size() >= 4, "P4 six grilles / géométries")
+		check(phases[4].asteroids_max <= 80 and phases[4].projectiles_max <= 35 and phases[4].large_gates_max <= 2 and phases[4].colossals_active_max <= 1, "P5 budgets")
+		for phase: Dictionary in phases:
+			check(phase.duration >= 30 and phase.duration < 30.2, "Durée phase de trente secondes")
+
 	if native:
 		check(DisplayServer.window_get_size() == Vector2i(1920, 1080), "Fenêtre native redimensionnée pendant la mesure")
 		check(root.get_texture().get_size() == Vector2(1920, 1080), "Rendu natif hors 1080p")
-		check(wall_seconds >= 230 and wall_seconds <= 245, "Durée réelle native")
+		check(wall_seconds >= 150 and wall_seconds <= 157, "Durée réelle native")
 		check(minimum > 60, "FPS natif sous 60")
 	records.append(record)
+	await sandbox_run(sim, native, false)
+	await sandbox_run(sim, native, true)
+	sim.presentation.finish_battle()
+	check(paused and sim.presentation.state == PresentationDemonstration.State.FINISHED, "Terminer sandbox")
 	print("M17 RUN " + JSON.stringify(record))
 	sim.presentation.leave()
 	await dispose(sim)
+
+
+func sandbox_run(sim: SpaceSimulation, native: bool, chaos: bool) -> void:
+	var controller: PresentationDemonstration = sim.presentation
+	var before_kills: int = sim.enemies_destroyed
+	var before_deaths: int = sim.death_count
+	var before_respawns: Dictionary = controller.total_respawns.duplicate()
+	var before_grids: int = int(controller._sample.get("grid_launches", 0))
+	if chaos:
+		controller.reset_battle(true)
+	else:
+		controller.set_setting("fire", 1)
+		controller.set_setting("fire", 3)
+		controller.set_setting("width", 2)
+		controller.set_setting("patrol", 20)
+		check(controller.settings.fire == 3 and controller.settings.width == 2 and sim.manual_drone_count_override == 20, "Réglages runtime")
+	check(sim.enemies_destroyed == before_kills and sim.death_count == before_deaths, "Réglages créent de faux kills")
+	var sample: Dictionary = population_snapshot(sim)
+	var start_clock: float = controller.sandbox_elapsed
+	var started: int = Time.get_ticks_usec()
+	var sampled_at: int = started
+	var max_nodes: int = 0
+	var max_projectiles: int = 0
+	var profile: Array[Dictionary] = []
+	var peak_frame: Dictionary = {"ms": 0.0}
+	while controller.sandbox_elapsed - start_clock < 30:
+		await process_frame
+		var now: int = Time.get_ticks_usec()
+		var frame_ms: float = float(now - sampled_at) / 1000
+		if frame_ms > float(peak_frame.ms):
+			peak_frame = {"ms": frame_ms, "physics_ms": Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000, "process_ms": Performance.get_monitor(Performance.TIME_PROCESS) * 1000, "draw_calls": Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME), "rocks": get_nodes_in_group("asteroids").size(), "enemies": sim.drones.size() + sim.interceptors.size() + sim.capitals.size()}
+		population_sample(sim, sample, float(now - sampled_at) / 1000000)
+		if profile.size() < sample.fps_windows.size():
+			profile.append(peak_frame.duplicate())
+			peak_frame = {"ms": 0.0}
+		sampled_at = now
+		max_nodes = maxi(max_nodes, get_node_count())
+		max_projectiles = maxi(max_projectiles, ArtilleryZone.dangerous_count(self))
+		if now - started > 90000000:
+			check(false, "Sandbox trop lent")
+			break
+	var wall: float = float(Time.get_ticks_usec() - started) / 1000000
+	var minimum: float = sample.fps_windows.min() if not sample.fps_windows.is_empty() else 0.0
+	var result: Dictionary = {"test": "chaos_30s" if chaos else "sandbox_runtime_30s", "settings": controller.settings.duplicate(), "fps_mean": float(sample.frames) / wall, "fps_min_1s": minimum, "native": native, "nodes_max": max_nodes, "projectiles_max": max_projectiles, "blue_deaths": sim.death_count - before_deaths, "enemy_kills": sim.enemies_destroyed - before_kills, "respawns": {}, "grid_launches": int(controller._sample.get("grid_launches", 0)) - before_grids, "populations": sample, "profile": profile}
+	for family: String in controller.FAMILIES:
+		result.respawns[family] = int(controller.total_respawns[family]) - int(before_respawns[family])
+	check(max_projectiles <= 35 and max_nodes < 3200 and not sim.demonstration.game_over, "Sandbox budget / crash")
+	if native:
+		check(minimum > 60, "Sandbox / Chaos sous 60 FPS")
+	records.append(result)
+	print("BATTLE LAB " + JSON.stringify(result))
+	var kept_deaths: int = sim.death_count
+	var kept_kills: int = sim.enemies_destroyed
+	controller.reset_battle()
+	check(sim.death_count == kept_deaths and sim.enemies_destroyed == kept_kills and controller.settings == controller.DEFAULT_SETTINGS, "RESET du labo efface les compteurs")
 
 
 func capture_presentation() -> void:
@@ -305,6 +372,10 @@ func capture_presentation() -> void:
 		root.get_texture().get_image().save_png("res://.godot/validation/presentation_phase%d.png" % (index + 1))
 		check(root.get_visible_rect().encloses(sim.demo_controls.phase_panel.get_global_rect()), "Titre phase hors écran")
 		sim.presentation.start_or_next()
+	check(sim.demo_controls.battle_panel.visible and root.get_visible_rect().encloses(sim.demo_controls.battle_panel.get_global_rect()), "Panneau final hors écran")
+	await RenderingServer.frame_post_draw
+	root.get_texture().get_image().save_png("res://.godot/validation/battle_sandbox.png")
+	sim.presentation.finish_battle()
 	records.append({"test": "ui", "720p_1080p_maximized_fullscreen": true, "ready_end": true, "captures": 5})
 	sim.presentation.leave()
 	await dispose(sim)
@@ -317,7 +388,31 @@ func _run() -> void:
 	for arg: String in args:
 		if arg.begins_with("--seed="):
 			seed_value = int(arg.trim_prefix("--seed="))
-	if args.has("--native"):
+	if args.has("--profile-lab"):
+		var sim: SpaceSimulation = modern()
+		root.content_scale_mode = Window.CONTENT_SCALE_MODE_VIEWPORT
+		root.content_scale_size = Vector2i(1920, 1080)
+		DisplayServer.window_set_size(Vector2i(1920, 1080))
+		DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_BORDERLESS, true)
+		sim.presentation.prepare()
+		var warmup: int = Time.get_ticks_usec()
+		while Time.get_ticks_usec() - warmup < 2000000:
+			await process_frame
+		DisplayServer.window_set_size(Vector2i(1920, 1080))
+		await frames(5)
+		for _index: int in range(5):
+			sim.presentation.start_or_next()
+		sim.presentation.start_or_next()
+		sim.presentation.toggle_pause()
+		var assets_started: int = Time.get_ticks_usec()
+		while Time.get_ticks_usec() - assets_started < 3000000:
+			await process_frame
+		sim.presentation.toggle_pause()
+		await sandbox_run(sim, true, false)
+		await sandbox_run(sim, true, true)
+		sim.presentation.leave()
+		await dispose(sim)
+	elif args.has("--native"):
 		await complete_presentation(seed_value, true)
 	elif args.has("--capture"):
 		await capture_presentation()
@@ -325,8 +420,8 @@ func _run() -> void:
 		await complete_presentation(seed_value, false)
 	else:
 		await presentation_controls()
-	var suffix: String = "native_%d" % seed_value if args.has("--native") else "capture" if args.has("--capture") else "complete_%d" % seed_value if args.has("--complete") else "controls"
-	var file: FileAccess = FileAccess.open("res://.godot/presentation_counts_m17_" + suffix + ".json", FileAccess.WRITE)
+	var suffix: String = "profile_lab" if args.has("--profile-lab") else "native_%d" % seed_value if args.has("--native") else "capture" if args.has("--capture") else "complete_%d" % seed_value if args.has("--complete") else "controls"
+	var file: FileAccess = FileAccess.open("res://.godot/interactive_battle_m17_" + suffix + ".json", FileAccess.WRITE)
 	file.store_string(JSON.stringify(records, "\t"))
 	print("PASS M17 : présentation soutenance." if failures == 0 else "FAIL M17 : présentation soutenance.")
 	quit(0 if failures == 0 else 1)

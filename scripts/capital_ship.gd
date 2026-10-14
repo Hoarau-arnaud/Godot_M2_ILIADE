@@ -48,6 +48,16 @@ var observed_count: int = 0
 var group_distance: float = 190
 var vulnerable: bool = false
 var presentation_salvo_counts: Dictionary = {}
+var presentation_enabled: bool = false
+var presentation_projectile_speed: float = 1
+var presentation_gate_limit: int = 1
+var presentation_gate_geometry: int = -1
+var presentation_grid_width: float = 1
+var _presentation_raid_remaining: float = 0
+var _presentation_raid_distance: float = 72
+var _presentation_raid_target: BlueShip
+var _presentation_escape_remaining: float = 0
+var _presentation_escape_direction: Vector3 = Vector3.UP
 var prepare_duration: float = 1.3
 var cooldown_duration: float = 4.5
 var _time: float = 0
@@ -223,6 +233,9 @@ func _update_state(delta: float) -> void:
 
 
 func _move(delta: float, correction: Vector3) -> void:
+	if presentation_enabled:
+		_move_presentation(delta, correction)
+		return
 	var ahead: float = vulnerable_distance if vulnerable else normal_distance
 	var desired: Vector3 = observed_center + Vector3(_drift.x + sin(_time * 0.12) * 6, _drift.y + sin(_time * 0.09) * 4, -ahead)
 	var offset: Vector3 = desired - global_position
@@ -313,9 +326,9 @@ func _launch(spec: Dictionary) -> void:
 	if chosen != null and chosen.alive and (projectile.targeted or projectile.threat_category == ThreatPattern.Category.NEAR_PASS):
 		projectile.initial_target_position = chosen.global_position
 		projectile.initial_target_velocity = chosen.velocity
-		aim = CombatPrediction.aim(origin, chosen.global_position, chosen.velocity, spec.speed) + Vector3(spec.aim_error)
+		aim = CombatPrediction.aim(origin, chosen.global_position, chosen.velocity, float(spec.speed) * presentation_projectile_speed) + Vector3(spec.aim_error)
 	elif predictive_targeting and not (readable_arsenal and int(spec.pattern) == ArtilleryPattern.BOMB_CLUSTER):
-		aim = CombatPrediction.aim(origin, observed_center, observed_velocity, spec.speed) + Vector3(spec.aim_error)
+		aim = CombatPrediction.aim(origin, observed_center, observed_velocity, float(spec.speed) * presentation_projectile_speed) + Vector3(spec.aim_error)
 	projectile.kind = int(spec["pattern"]) as ArtilleryProjectile.Kind
 	projectile.projectile_speed = spec["speed"]
 	projectile.flight_direction = (aim - origin).normalized()
@@ -427,13 +440,13 @@ func _fire_spectacle() -> void:
 			if pattern_history.size() > 64:
 				pattern_history.pop_front()
 			salvo_started.emit(pattern)
-		var needed: int = MovingLaserGate.beam_count(1 if pattern == ArtilleryPattern.LASER_GRID else 0) if arcade_arsenal and pattern in [7, 8] else 6 if pattern == ArtilleryPattern.LASER_GRID else 4 if pattern == ArtilleryPattern.LASER_CURTAIN else 1
+		var needed: int = 8 if presentation_enabled and pattern in [7, 8] else MovingLaserGate.beam_count(1 if pattern == ArtilleryPattern.LASER_GRID else 0) if arcade_arsenal and pattern in [7, 8] else 6 if pattern == ArtilleryPattern.LASER_GRID else 4 if pattern == ArtilleryPattern.LASER_CURTAIN else 1
 		# Réserver six places aux beams en finale, même pendant les rafales locales.
 		var limit: int = artillery_limit - 6 if artillery_limit <= 60 and pattern not in [ArtilleryPattern.LASER_GRID, ArtilleryPattern.LASER_CURTAIN] else artillery_limit
 		if ArtilleryZone.dangerous_count(get_tree()) + needed > limit:
 			continue # Plafond global ; aucune file d'attente retardée sans limite.
 		if pattern in [ArtilleryPattern.LASER_CURTAIN, ArtilleryPattern.LASER_GRID]:
-			if (arcade_arsenal and _large_gate_exists()) or (readable_arsenal and pattern == ArtilleryPattern.LASER_GRID and _grid_exists()):
+			if (arcade_arsenal and _large_gate_exists()) or (not presentation_enabled and readable_arsenal and pattern == ArtilleryPattern.LASER_GRID and _grid_exists()):
 				continue
 			if get_tree().get_nodes_in_group("combat_hazards").size() >= 6:
 				continue
@@ -535,7 +548,7 @@ func _build_readable_salvo(pattern: int) -> Array[Dictionary]:
 		var aim: Vector3 = CombatPrediction.aim(origin, chosen.global_position if chosen != null and category_value != ThreatPattern.Category.ZONE else observed_center, chosen.velocity if chosen != null and category_value != ThreatPattern.Category.ZONE else observed_velocity, speeds[pattern]) + error_value
 		if pattern == ArtilleryPattern.BOMB_CLUSTER:
 			var cluster: Dictionary = _dense_cluster(targets)
-			aim = CombatPrediction.aim(origin, cluster.position, cluster.velocity, speeds[pattern]) + error_value
+			aim = CombatPrediction.aim(origin, cluster.position, cluster.velocity, speeds[pattern] * presentation_projectile_speed) + error_value
 		salvo.append({"index": index, "delay": index * 0.16, "origin": origin, "local_origin": origin - global_position, "aim": aim, "speed": speeds[pattern], "travel": origin.distance_to(aim) / speeds[pattern], "target": chosen, "targeted": targeted_value, "category": category_value, "aim_error": error_value, "pattern": pattern})
 	return salvo
 
@@ -558,10 +571,11 @@ func _dense_cluster(targets: Array[BlueShip]) -> Dictionary:
 
 
 func _large_gate_exists() -> bool:
+	var count: int = 0
 	for node: Node in get_tree().get_nodes_in_group("combat_hazards"):
 		if node is MovingLaserGate and not node.is_queued_for_deletion():
-			return true
-	return false
+			count += 1
+	return count >= presentation_gate_limit
 
 
 func _launch_gate(spec: Dictionary) -> void:
@@ -570,10 +584,74 @@ func _launch_gate(spec: Dictionary) -> void:
 	gate.angular_speed_degrees = -25 if salvos_fired % 3 == 2 else 25 if gate.variant == MovingLaserGate.Variant.ROTATING_LASER_GRID else 15
 	gate.rotation_profile = MovingLaserGate.RotationProfile.REVERSE_ROTATION if gate.angular_speed_degrees < 0 else MovingLaserGate.RotationProfile.MEDIUM_ROTATION if gate.angular_speed_degrees == 25 else MovingLaserGate.RotationProfile.SLOW_ROTATION
 	gate.initial_tilt_degrees = [0, 20, 35, 45][salvos_fired % 4]
+	if presentation_enabled:
+		gate.geometry_seed = individual_seed + salvos_fired * 997
+		var geometry_random: RandomNumberGenerator = RandomNumberGenerator.new()
+		geometry_random.seed = gate.geometry_seed
+		gate.geometry = (presentation_gate_geometry if presentation_gate_geometry >= 0 else geometry_random.randi_range(0, 6)) as MovingLaserGate.GateGeometry
+		gate.width = geometry_random.randf_range(80, 130)
+		gate.height = geometry_random.randf_range(60, 105)
+		gate.initial_tilt_degrees = [0, 15, -25, 35, 45][geometry_random.randi_range(0, 4)]
+		gate.presentation_grid_scale = presentation_grid_width
+		gate.set_meta("presentation_gate", true)
 	var origin: Vector3 = global_position + Vector3(spec.local_origin)
 	var aim: Vector3 = CombatPrediction.aim(origin, observed_center, observed_velocity, 45)
 	gate.velocity = (aim - origin).normalized() * 45
-	gate.active_time = origin.distance_to(aim) / 45 + 5
+	gate.active_time = origin.distance_to(aim) / 45 + (1.8 if presentation_enabled else 5)
 	gate.position = projectile_container.to_local(origin)
 	projectile_container.add_child(gate)
 	_flash_time = 0.5
+
+
+func begin_presentation_raid(seconds: float, distance_value: float) -> void:
+	if not presentation_enabled or not alive:
+		return
+	var targets: Array[BlueShip] = []
+	for node: Node in get_tree().get_nodes_in_group("blue_ships"):
+		if (node as BlueShip).alive:
+			targets.append(node as BlueShip)
+	if targets.is_empty():
+		return
+	# Préférer un voisinage dense : plusieurs BlueShip peuvent atteindre le blindage arrière.
+	var best: BlueShip = targets[0]
+	var best_neighbors: int = -1
+	for candidate: BlueShip in targets:
+		var neighbors: int = 0
+		for other: BlueShip in targets:
+			if candidate.global_position.distance_to(other.global_position) < 18:
+				neighbors += 1
+		if neighbors > best_neighbors:
+			best_neighbors = neighbors
+			best = candidate
+	_presentation_raid_target = best
+	_presentation_raid_distance = distance_value
+	_presentation_raid_remaining = seconds
+
+
+func _move_presentation(delta: float, correction: Vector3) -> void:
+	var desired: Vector3 = observed_center + Vector3(fleet_offset.x + sin(_time * 0.12) * 6, fleet_offset.y + sin(_time * 0.09) * 4, -normal_distance)
+	var target_velocity: Vector3 = observed_velocity
+	if _presentation_raid_remaining > 0 and is_instance_valid(_presentation_raid_target) and _presentation_raid_target.alive:
+		desired = _presentation_raid_target.global_position + Vector3(0, 0, -_presentation_raid_distance)
+		target_velocity = _presentation_raid_target.velocity
+		if global_position.distance_to(desired) < 14:
+			_presentation_raid_remaining -= delta / maxf(Engine.time_scale, 0.01)
+	else:
+		_presentation_raid_remaining = 0
+	var offset: Vector3 = desired - global_position
+	# Une grosse masse annule l'approche avant contact ; sortir latéralement puis repartir.
+	if _critical_obstacle:
+		_presentation_raid_remaining = 0
+		_presentation_escape_remaining = 0.6
+		if correction.length_squared() > 0.01:
+			_presentation_escape_direction = correction.normalized()
+	else:
+		_presentation_escape_remaining = maxf(_presentation_escape_remaining - delta / maxf(Engine.time_scale, 0.01), 0)
+	var escaping: bool = _presentation_escape_remaining > 0
+	var wanted: Vector3 = observed_velocity + _presentation_escape_direction * 35 if escaping else target_velocity + (offset * 2).limit_length(210) + correction
+	velocity = velocity.move_toward(wanted, (1000 if escaping else 250) * delta)
+	var contact: KinematicCollision3D = move_and_collide(velocity * delta, false, 0.02, true)
+	if contact != null:
+		obstacle_contacts += 1
+		velocity = velocity.slide(contact.get_normal())
+		move_and_collide(contact.get_remainder().slide(contact.get_normal()))

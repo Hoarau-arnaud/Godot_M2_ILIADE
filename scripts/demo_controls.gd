@@ -1,6 +1,8 @@
 class_name DemoControls
 extends CanvasLayer
 
+const BATTLE_CONTROLS: Script = preload("res://scripts/battle_controls.gd")
+var battle_panel: PanelContainer
 var presentation_panel: Control
 var presentation_title: Label
 var presentation_detail: Label
@@ -548,8 +550,25 @@ func show_presentation(state: int) -> void:
 	presentation_replay.visible = finished
 	presentation_keys.text = "P : pause   ·   ESPACE : phase suivante   ·   R : recommencer" if ready else "R : rejouer   ·   D / Échap : simulation libre"
 	presentation_title.text = "DÉMO SOUTENANCE" if ready else "FIN DE LA DÉMONSTRATION"
-	presentation_detail.text = "Durée : ~4 minutes\nAppuyer sur ESPACE pour démarrer" if ready else "Vaisseaux bleus détruits : %d" % _simulation().death_count
+	presentation_detail.text = "Durée automatique : 2 min 32 s, puis finale interactive\nAppuyer sur ESPACE pour démarrer" if ready else "Vaisseaux bleus détruits : %d\nEnnemis abattus : %d" % [_simulation().death_count, _simulation().enemies_destroyed]
+	if state in [PresentationDemonstration.State.INACTIVE, PresentationDemonstration.State.READY, PresentationDemonstration.State.FINISHED]:
+		if is_instance_valid(battle_panel):
+			battle_panel.hide()
 	if ready or finished:
 		panel.hide()
 		help_panel.hide()
 		phase_panel.hide()
+
+
+func ensure_battle_panel() -> void:
+	if is_instance_valid(battle_panel):
+		return
+	battle_panel = BATTLE_CONTROLS.new() as PanelContainer
+	battle_panel.set("controller", get_parent().get_node("PresentationDemonstration"))
+	add_child(battle_panel)
+
+
+func release_battle_panel() -> void:
+	if is_instance_valid(battle_panel):
+		battle_panel.queue_free()
+	battle_panel = null

@@ -15,6 +15,7 @@ var _streaks: MultiMeshInstance3D
 var _streak_positions: PackedVector3Array = PackedVector3Array()
 var _streak_lengths: PackedFloat32Array = PackedFloat32Array()
 var guided_readability: bool = false
+var presentation_detail: bool = false
 var readability_center: Vector3 = Vector3.ZERO
 var _debris: MultiMeshInstance3D
 var _debris_points: PackedVector3Array = PackedVector3Array()
@@ -88,7 +89,7 @@ func recycle_stars(center: Vector3, delta: float = 0.0, demo_pace: float = 1.0, 
 		var extent: Vector3 = LAYER_EXTENTS[layer]
 		var positions: PackedVector3Array = _star_positions[layer]
 		var drift: float = [0.0, 4.0, 18.0][layer] * guided_speed_effect * delta
-		for index: int in range(positions.size()):
+		for index: int in range(mini(positions.size(), [200, 80, 25][layer]) if presentation_detail else positions.size()):
 			var star_position: Vector3 = positions[index]
 			# Le proche défile plus vite ; le lointain garde sa parallaxe naturelle.
 			star_position.z += drift
@@ -110,7 +111,7 @@ func recycle_stars(center: Vector3, delta: float = 0.0, demo_pace: float = 1.0, 
 	_update_streaks(center, delta, demo_pace, fleet_velocity)
 	var sight: Vector3 = (readability_center - center).normalized()
 	var corridor_length: float = center.distance_to(readability_center) + 140
-	for index: int in range(_debris_points.size()):
+	for index: int in range(mini(_debris_points.size(), 180) if presentation_detail else _debris_points.size()):
 		var relative: Vector3 = _debris_points[index] - center
 		var point: Vector3 = center + Vector3(wrapf(relative.x, -200, 200), wrapf(relative.y, -135, 135), wrapf(relative.z + delta * 3, -600, 140))
 		_debris_points[index] = point
@@ -153,7 +154,7 @@ func _update_streaks(center: Vector3, delta: float, demo_pace: float, fleet_velo
 	var drift: Vector3 = -fleet_velocity.normalized() if fleet_velocity.length_squared() > 0.01 else Vector3.BACK
 	var alignment: Basis = Basis.looking_at(-drift, Vector3.UP)
 	var displacement: Vector3 = drift * (32.0 + speed * 0.8) * guided_speed_effect * delta
-	for index: int in range(_streak_positions.size()):
+	for index: int in range(mini(_streak_positions.size(), 24) if presentation_detail else _streak_positions.size()):
 		var point: Vector3 = _streak_positions[index] + displacement
 		var relative: Vector3 = point - center
 		point = center + Vector3(wrapf(relative.x, -75, 75), wrapf(relative.y, -48, 48), wrapf(relative.z, -160, 60))
@@ -329,3 +330,11 @@ func set_arcade_mode(enabled: bool) -> void:
 			var surface: ShaderMaterial = (node as MeshInstance3D).material_override as ShaderMaterial
 			if surface.shader == preload("res://materials/planet_surface.gdshader"):
 				surface.set_shader_parameter("arcade_palette", enabled)
+
+
+func set_presentation_detail(enabled: bool) -> void:
+	presentation_detail = enabled
+	_debris.multimesh.visible_instance_count = 180 if enabled else -1
+	_streaks.multimesh.visible_instance_count = 24 if enabled else -1
+	for layer: int in range(_star_layers.size()):
+		_star_layers[layer].multimesh.visible_instance_count = mini(_star_layers[layer].multimesh.instance_count, [200, 80, 25][layer]) if enabled else -1

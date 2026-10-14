@@ -24,6 +24,7 @@ enum PatrolState { PATROL, AVOIDING, CHANGING_WAYPOINT, DESTROYED }
 @export var patrol_fire_enabled: bool = false
 @export var predictive_targeting: bool = true
 var readable_threats: bool = false
+var presentation_projectile_speed: float = 1
 @export var patrol_firing_cone_degrees: float = 32
 var patrol_projectile_container: Node3D
 var route_waypoints: Array[Vector3] = []
@@ -175,7 +176,7 @@ func _update_patrol_fire(delta: float) -> void:
 	projectile.projectile_speed = 58 if predictive_targeting else 26
 	projectile.lifetime = 3 if predictive_targeting else 6
 	projectile.avoidance_radius = 5
-	var aim: Vector3 = CombatPrediction.aim(global_position, chosen.global_position, chosen.velocity, projectile.projectile_speed) if predictive_targeting else chosen.global_position + chosen.velocity * 0.5
+	var aim: Vector3 = CombatPrediction.aim(global_position, chosen.global_position, chosen.velocity, projectile.projectile_speed * presentation_projectile_speed) if predictive_targeting else chosen.global_position + chosen.velocity * 0.5
 	if predictive_targeting:
 		aim += Vector3(_random.randf_range(-1.5, 1.5), _random.randf_range(-1.5, 1.5), 0)
 	projectile.flight_direction = (aim - global_position).normalized()

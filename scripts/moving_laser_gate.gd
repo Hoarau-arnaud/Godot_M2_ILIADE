@@ -6,6 +6,10 @@ signal ship_passed(ship: BlueShip)
 signal ship_bypassed(ship: BlueShip)
 enum Variant { LASER_GATE, ROTATING_LASER_GRID }
 enum RotationProfile { SLOW_ROTATION, MEDIUM_ROTATION, REVERSE_ROTATION }
+enum GateGeometry { RECTANGULAR, DIAGONAL_X, DIAMOND, OFFSET_CROSS, HEXAGONAL, RADIAL, ASYMMETRIC }
+var geometry: GateGeometry = GateGeometry.RECTANGULAR
+var geometry_seed: int = 0
+var presentation_grid_scale: float = 1
 var variant: Variant = Variant.LASER_GATE
 var rotation_profile: RotationProfile = RotationProfile.SLOW_ROTATION
 var width: float = 110
@@ -31,7 +35,7 @@ static func beam_count(grid_variant: int) -> int:
 
 func _ready() -> void:
 	kind = Kind.GRID if variant == Variant.ROTATING_LASER_GRID else Kind.CURTAIN
-	beam_width = 1.6
+	beam_width = 1.6 * presentation_grid_scale
 	delay = 0.8
 	active_time = maxf(active_time, 14)
 	set_meta("weapon_family", "Laser")
@@ -48,6 +52,9 @@ func _ready() -> void:
 
 
 func _build_beams() -> void:
+	if geometry != GateGeometry.RECTANGULAR:
+		_build_geometry()
+		return
 	for x: float in [-width * 0.5, -18.0, 18.0, width * 0.5]:
 		beam_segments.append(Vector3(x, -height * 0.5, 0))
 		beam_segments.append(Vector3(x, height * 0.5, 0))
@@ -159,8 +166,14 @@ func _swept_beam_contact(previous: Vector3, current: Vector3) -> bool:
 		for index: int in range(areas.size()):
 			var area: Area3D = areas[index]
 			var box: BoxShape3D = (area.get_child(0) as CollisionShape3D).shape as BoxShape3D
+			var local_from: Vector3 = from
+			var local_to: Vector3 = to
 			var bounds: AABB = AABB(area.position - box.size * 0.5, box.size).grow(1.1)
-			if bounds.has_point(from) or bounds.has_point(to) or bounds.intersects_segment(from, to) != null:
+			if geometry != GateGeometry.RECTANGULAR:
+				local_from = area.transform.affine_inverse() * from
+				local_to = area.transform.affine_inverse() * to
+				bounds = AABB(-box.size * 0.5, box.size).grow(1.1)
+			if bounds.has_point(local_from) or bounds.has_point(local_to) or bounds.intersects_segment(local_from, local_to) != null:
 				return true
 	return false
 
@@ -180,3 +193,109 @@ func beam_clearance(point: Vector3, seconds: float) -> float:
 		var nearest: Vector3 = from + segment * clampf((local - from).dot(segment) / segment.length_squared(), 0, 1)
 		minimum = minf(minimum, local.distance_to(nearest) - beam_width * 0.5)
 	return minimum
+
+
+func _segment(from: Vector2, to: Vector2) -> void:
+	beam_segments.append(Vector3(from.x * width * 0.5, from.y * height * 0.5, 0))
+	beam_segments.append(Vector3(to.x * width * 0.5, to.y * height * 0.5, 0))
+
+
+func _build_geometry() -> void:
+	match geometry:
+		GateGeometry.DIAGONAL_X:
+			_segment(Vector2(-1, -1), Vector2(1, 1))
+			_segment(Vector2(-1, 1), Vector2(1, -1))
+			_segment(Vector2(-1, 0.6), Vector2(-1, 1))
+			_segment(Vector2(1, -1), Vector2(1, -0.6))
+		GateGeometry.DIAMOND:
+			_segment(Vector2(-0.92, 0.08), Vector2(-0.08, 0.92))
+			_segment(Vector2(0.08, 0.92), Vector2(0.92, 0.08))
+			_segment(Vector2(0.92, -0.08), Vector2(0.08, -0.92))
+			_segment(Vector2(-0.08, -0.92), Vector2(-0.92, -0.08))
+			_segment(Vector2(-0.55, -0.1), Vector2(-0.25, -0.1))
+			_segment(Vector2(0.3, 0.35), Vector2(0.65, 0.35))
+		GateGeometry.OFFSET_CROSS:
+			_segment(Vector2(0.28, -1), Vector2(0.28, -0.45))
+			_segment(Vector2(0.28, 0.15), Vector2(0.28, 1))
+			_segment(Vector2(-1, -0.22), Vector2(-0.18, -0.22))
+			_segment(Vector2(0.55, -0.22), Vector2(1, -0.22))
+			_segment(Vector2(-0.95, 0.85), Vector2(-0.5, 0.6))
+		GateGeometry.HEXAGONAL:
+			var vertices: Array[Vector2] = [Vector2(-1, 0), Vector2(-0.5, 1), Vector2(0.5, 1), Vector2(1, 0), Vector2(0.5, -1), Vector2(-0.5, -1)]
+			for index: int in range(6):
+				_segment(vertices[index], vertices[(index + 1) % 6])
+			_segment(Vector2(-0.7, 0.2), Vector2(-0.2, 0.2))
+			_segment(Vector2(0.3, -0.35), Vector2(0.65, -0.35))
+		GateGeometry.RADIAL:
+			var hub: Vector2 = Vector2(-0.38, 0.15)
+			for edge: Vector2 in [Vector2(0.8, 1), Vector2(1, 0.1), Vector2(0.65, -1), Vector2(-0.8, -1)]:
+				_segment(hub.lerp(edge, 0.24), edge)
+		GateGeometry.ASYMMETRIC:
+			_segment(Vector2(-1, -0.65), Vector2(-0.25, 0.7))
+			_segment(Vector2(0.18, -0.9), Vector2(1, 0.45))
+			_segment(Vector2(-0.65, 0.9), Vector2(0.2, 0.9))
+			_segment(Vector2(0.62, 0.05), Vector2(0.62, 0.75))
+	# Ouvertures vérifiées contre les segments réels, y compris à épaisseur maximale.
+	var candidates: Array[Vector3] = []
+	for x: float in [-0.8, -0.55, -0.3, 0, 0.3, 0.55, 0.8]:
+		for y: float in [-0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75]:
+			var point: Vector3 = Vector3(x * width * 0.5, y * height * 0.5, 0)
+			if _local_clearance(point) >= 10:
+				candidates.append(point)
+	candidates.sort_custom(func(a: Vector3, b: Vector3) -> bool: return _local_clearance(a) > _local_clearance(b))
+	for point: Vector3 in candidates:
+		if safe_points.all(func(other: Vector3) -> bool: return other.distance_to(point) >= 14):
+			safe_points.append(point)
+		if safe_points.size() >= 7:
+			break
+	safe_points.append_array([Vector3(-width * 0.5 - 14, 0, 0), Vector3(width * 0.5 + 14, 0, 0), Vector3(0, -height * 0.5 - 14, 0), Vector3(0, height * 0.5 + 14, 0)])
+	for index: int in range(0, beam_segments.size(), 2):
+		var from: Vector3 = beam_segments[index]
+		var to: Vector3 = beam_segments[index + 1]
+		var dimensions: Vector3 = Vector3(from.distance_to(to), beam_width, 3)
+		var mesh: BoxMesh = BoxMesh.new()
+		mesh.size = dimensions
+		var part: MeshInstance3D = _part(mesh)
+		part.position = (from + to) * 0.5
+		part.rotation.z = atan2(to.y - from.y, to.x - from.x)
+		_visuals.append(part)
+		var area: Area3D = Area3D.new()
+		area.collision_layer = 0
+		area.collision_mask = 1
+		area.transform = part.transform
+		var collider: CollisionShape3D = CollisionShape3D.new()
+		var box: BoxShape3D = BoxShape3D.new()
+		box.size = dimensions
+		collider.shape = box
+		area.add_child(collider)
+		add_child(area)
+		areas.append(area)
+
+
+func _local_clearance(point: Vector3) -> float:
+	var minimum: float = INF
+	for index: int in range(0, beam_segments.size(), 2):
+		var from: Vector3 = beam_segments[index]
+		var segment: Vector3 = beam_segments[index + 1] - from
+		var nearest: Vector3 = from + segment * clampf((point - from).dot(segment) / segment.length_squared(), 0, 1)
+		minimum = minf(minimum, point.distance_to(nearest))
+	return minimum
+
+
+func set_battle_width(multiplier: float) -> void:
+	var next_width: float = 1.6 * multiplier
+	var ratio: float = next_width / beam_width
+	for index: int in range(areas.size()):
+		var part: MeshInstance3D = _visuals[index]
+		var box: BoxShape3D = (areas[index].get_child(0) as CollisionShape3D).shape as BoxShape3D
+		var dimensions: Vector3 = box.size
+		var from: Vector3 = beam_segments[index * 2]
+		var to: Vector3 = beam_segments[index * 2 + 1]
+		if geometry == GateGeometry.RECTANGULAR and absf(from.x - to.x) < 1:
+			dimensions.x *= ratio
+		else:
+			dimensions.y *= ratio
+		box.size = dimensions
+		(part.mesh as BoxMesh).size = dimensions
+	beam_width = next_width
+	presentation_grid_scale = multiplier
