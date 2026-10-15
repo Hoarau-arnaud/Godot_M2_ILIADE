@@ -34,6 +34,7 @@ var irregular_barrages: bool = true
 var storm_enabled: bool = false
 var storm_complex: bool = false
 var storm_target: int = 180
+var presentation_spawn_budget: bool = false
 var storm_samples: Array[Dictionary] = []
 var storm_speed_min: float = INF
 var storm_speed_max: float = 0
@@ -460,8 +461,8 @@ func advance_storm(center: Vector3) -> void:
 	var ships: Array[Node] = get_tree().get_nodes_in_group("blue_ships")
 	var target_count: int = mini(storm_target, max_active_asteroids)
 	var added: int = 0
-	for _attempt: int in range(1200):
-		if active_asteroid_count >= target_count or added >= 180:
+	for _attempt: int in range(48 if presentation_spawn_budget else 1200):
+		if active_asteroid_count >= target_count or added >= (1 if presentation_spawn_budget else 180):
 			break
 		var spec: Dictionary = MeteorStorm.sample(_random, center, storm_complex)
 		if not MeteorStorm.clear(spec, center, rocks, ships):
@@ -472,6 +473,7 @@ func advance_storm(center: Vector3) -> void:
 		rock.size_category = _size_category(rock.diameter)
 		rock.shape_seed = spec.seed
 		rock.single_convex_envelope = true
+		rock.presentation_skip_unused_shapes = presentation_spawn_budget
 		rock.motion_type = int(spec.motion) as SpaceAsteroid.MotionType
 		rock.motion_velocity = spec.velocity
 		rock.motion_duration = 80
@@ -521,6 +523,7 @@ func spawn_mega(center: Vector3, fleet_velocity: Vector3, trajectory: int, diame
 	rock.shape_seed = _seed + 14777 + mega_generated * 997
 	rock.threat_strength = 1.6
 	rock.single_convex_envelope = true
+	rock.presentation_skip_unused_shapes = presentation_spawn_budget
 	rock.motion_type = SpaceAsteroid.MotionType.LINEAR
 	rock.motion_velocity = travel
 	rock.motion_duration = 80
@@ -544,6 +547,7 @@ func spawn_fast_crossing(center: Vector3, multiple_angles: bool = false) -> void
 		rock.size_category = SpaceAsteroid.SizeCategory.SMALL
 		rock.shape_seed = _seed + 14501 + index
 		rock.single_convex_envelope = true
+		rock.presentation_skip_unused_shapes = presentation_spawn_budget
 		rock.motion_type = SpaceAsteroid.MotionType.LINEAR
 		rock.motion_velocity = Vector3(34, -8 + index * 8, 8)
 		var start: Vector3 = Vector3(-60, -8 + index * 8, -75)
@@ -576,6 +580,7 @@ func spawn_colossal(center: Vector3, fleet_velocity: Vector3, diameter_value: fl
 	rock.shape_seed = _seed + 15701 + colossal_generated * 997
 	rock.threat_strength = 1.6
 	rock.single_convex_envelope = true
+	rock.presentation_skip_unused_shapes = presentation_spawn_budget
 	rock.motion_type = SpaceAsteroid.MotionType.LINEAR
 	rock.motion_velocity = travel
 	rock.motion_duration = 80

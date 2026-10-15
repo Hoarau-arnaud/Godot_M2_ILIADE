@@ -9,6 +9,7 @@ enum MotionType { STATIC, LINEAR, DIAGONAL, VERTICAL_SWEEP, CIRCULAR, ARC }
 static var _primitive_cache: Dictionary[int, PrimitiveMesh] = {}
 static var _convex_points_cache: Dictionary[int, PackedVector3Array] = {}
 var single_convex_envelope: bool = false
+var presentation_skip_unused_shapes: bool = false
 var _envelope_points: PackedVector3Array = PackedVector3Array()
 
 @export var size_category: SizeCategory = SizeCategory.MEDIUM
@@ -162,13 +163,19 @@ func _add_lobe(offset: Vector3, lobe_scale: Vector3, lobe_rotation: Vector3, mat
 	mesh_instance.scale = lobe_scale
 	visuals.add_child(mesh_instance)
 	# Les points de collision suivent la même déformation que la primitive visible.
-	var convex: ConvexPolygonShape3D = ConvexPolygonShape3D.new()
+	var convex: ConvexPolygonShape3D
+	if not (single_convex_envelope and presentation_skip_unused_shapes):
+		convex = ConvexPolygonShape3D.new()
 	# PackedVector3Array est partagé par référence : déformer uniquement une copie.
 	var points: PackedVector3Array = _convex_points_cache[primitive_key].duplicate()
 	var lobe_basis: Basis = Basis.from_euler(lobe_rotation)
 	for index: int in range(points.size()):
 		points[index] = lobe_basis * (points[index] * lobe_scale)
 		avoidance_radius = maxf(avoidance_radius, (offset + points[index]).length())
+	if single_convex_envelope and presentation_skip_unused_shapes:
+		for point: Vector3 in points:
+			_envelope_points.append(point + offset)
+		return
 	convex.points = points
 	if single_convex_envelope:
 		for point: Vector3 in points:

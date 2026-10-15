@@ -271,7 +271,7 @@ func target_drone_count() -> int:
 	if not drones_enabled:
 		return 0
 	if manual_drone_count_override >= 0:
-		return clampi(manual_drone_count_override, 0, 8)
+		return clampi(manual_drone_count_override, 0, 30 if demonstration.mode == GuidedDemonstration.DemoMode.PRESENTATION else 8)
 	var counts: Array[int] = [easy_drone_count, intermediate_drone_count, hard_drone_count]
 	return clampi(counts[difficulty_level - 1], 0, 3)
 
@@ -362,7 +362,7 @@ func target_interceptor_count() -> int:
 	if not interceptors_enabled:
 		return 0
 	if manual_interceptor_count_override >= 0:
-		return clampi(manual_interceptor_count_override, 0, 8)
+		return clampi(manual_interceptor_count_override, 0, 30 if demonstration.mode == GuidedDemonstration.DemoMode.PRESENTATION else 8)
 	var counts: Array[int] = [easy_interceptor_count, intermediate_interceptor_count, hard_interceptor_count]
 	return clampi(counts[difficulty_level - 1], 0, 2)
 
@@ -446,6 +446,8 @@ func _on_interceptor_died(hostile: PatrolDrone) -> void:
 
 
 func _on_enemy_fired(projectile: EnemyLaser) -> void:
+	if demonstration.mode == GuidedDemonstration.DemoMode.PRESENTATION:
+		presentation.configure_projectile(projectile)
 	if demonstration.is_staged() and threat_choreography_enabled:
 		_record_threat(projectile)
 	else:
@@ -510,6 +512,8 @@ func _maintain_capitals(center: Vector3, delta: float) -> void:
 
 
 func _on_artillery_fired(projectile: ArtilleryProjectile) -> void:
+	if demonstration.mode == GuidedDemonstration.DemoMode.PRESENTATION:
+		presentation.configure_projectile(projectile)
 	if demonstration.is_staged() and threat_choreography_enabled:
 		_record_threat(projectile)
 	else:
@@ -607,6 +611,8 @@ func _add_ship(local_position: Vector3) -> void:
 	if legacy_flight_profile:
 		FlightTuning.legacy_actor(ship)
 	ship_container.add_child(ship)
+	if demonstration.mode == GuidedDemonstration.DemoMode.PRESENTATION:
+		presentation.pack_actor(ship, "blue")
 	ships.append(ship)
 	ship_spawn_count += 1
 	living_agent_count = ships.size()
@@ -871,6 +877,8 @@ func _on_ship_died(ship: BlueShip) -> void:
 
 func _update_hud() -> void:
 	statistics.text = "Vaisseaux bleus détruits : %d" % death_count
+	if demonstration.mode == GuidedDemonstration.DemoMode.PRESENTATION:
+		statistics.text += "\nEnnemis abattus : %d" % enemies_destroyed
 	demo_controls.refresh(self)
 
 

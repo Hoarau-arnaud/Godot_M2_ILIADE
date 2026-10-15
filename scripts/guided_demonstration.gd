@@ -327,7 +327,7 @@ func _begin_phase(index: int, center: Vector3, preserve_blues: bool = true, prof
 	simulation.drones_enabled = true
 	simulation.interceptors_enabled = true
 	simulation.capital_ships_enabled = true
-	simulation.combat_enabled = index >= 3
+	simulation.combat_enabled = bool(profile.get("blue_combat", index >= 3))
 	simulation.set_simulation_speed((1.9 if simulation.legacy_flight_profile else simulation.guided_simulation_speed) if spectacle() else 1.7)
 	simulation.set_movement_multiplier((1.6 if index == 5 else 1.35 if index in [2, 3] else 1.5) if spectacle() else 1.3 if index == 5 else 1.2)
 	simulation.set_spacing_multiplier(1.05 if index == 5 else 1.0)
@@ -350,7 +350,7 @@ func _begin_phase(index: int, center: Vector3, preserve_blues: bool = true, prof
 	simulation.target_ship_count = 15
 	simulation.living_agent_count = simulation.ships.size()
 	for blue: BlueShip in simulation.ships:
-		blue.combat_enabled = index >= 3
+		blue.combat_enabled = simulation.combat_enabled
 		blue.adaptive_threat_response = choreographed()
 		if choreographed():
 			simulation.configure_guided_blue(blue)
@@ -387,6 +387,7 @@ func _begin_phase(index: int, center: Vector3, preserve_blues: bool = true, prof
 	missile_count = 0
 	_arrived_ids.clear()
 	tracers = null
+	field.presentation_spawn_budget = not profile.is_empty()
 	field.initialize_field(demonstration_seed + index * 1091, center, simulation._fleet_z_bounds().x)
 	field.difficulty_override = 3
 	if field.storm_enabled or index == 5:
@@ -449,16 +450,25 @@ func _spawn_patrol(center: Vector3, index: int, markers: bool, replacement: bool
 	drone.patrol_anchor = Vector2(center.x + (index - 1.5) * 9, center.y)
 	drone.patrol_projectile_container = simulation.projectile_container
 	var offset: Vector3 = Vector3((index - 1.5) * 12, -8 if index % 2 == 0 else 8, -42 - index * 12)
-	if phase_index == 5:
+	if phase_index == 5 and _stage_profile.is_empty():
 		var starts: Array[Vector3] = [Vector3(-9.5, -9.5, -34), Vector3(0, 0, -34), Vector3(9.5, 9.5, -34), Vector3(-20, 8, -65), Vector3(20, -8, -80)]
 		offset = starts[index]
 		if replacement:
 			offset = Vector3((index - 1.5) * 40, -20 if index % 2 == 0 else 20, -100)
 	if not _stage_profile.is_empty():
 		drone.dangerous_projectile_limit = 29
-		if phase_index == 2:
-			offset = Vector3((index - 1) * 9, 0, 28)
-			drone.patrol_anchor = Vector2(center.x + (index - 1) * 9, center.y)
+		if phase_index in [2, 5]:
+			drone.demonstration_route = true
+			var route_random: RandomNumberGenerator = RandomNumberGenerator.new()
+			route_random.seed = drone.individual_seed
+			# Cinq bandes latérales, trois hauteurs et une profondeur propre à chaque drone.
+			offset = Vector3((index % 5 - 2) * 14 + route_random.randf_range(-3, 3), (index / 5 % 3 - 1) * 16 + route_random.randf_range(-3, 3), route_random.randf_range(22, 48) if index % 2 == 0 else route_random.randf_range(-42, -24))
+			drone.patrol_anchor = Vector2(center.x + offset.x * 0.7, center.y + offset.y * 0.7)
+			var width: float = route_random.randf_range(12, 23)
+			var height: float = route_random.randf_range(5, 12)
+			var step: float = route_random.randf_range(27, 38)
+			var direction: float = -1 if index % 2 == 0 else 1
+			drone.demonstration_route_offsets.assign([Vector3(-width * direction, -height, -24), Vector3(width * direction, height, -24 - step), Vector3(width * direction, -height, -24 - 2 * step), Vector3(-width * direction, height, -24 - 3 * step)])
 			drone.forward_speed = 15.8
 			drone._patrol_fire_timer = 4.4 + index * 0.4
 		else:
@@ -469,9 +479,13 @@ func _spawn_patrol(center: Vector3, index: int, markers: bool, replacement: bool
 	drone.patrol_fired.connect(simulation._on_enemy_fired)
 	if simulation.legacy_flight_profile:
 		FlightTuning.legacy_actor(drone)
+	if not _stage_profile.is_empty():
+		simulation.presentation.configure_actor(drone, "patrol", index)
 	simulation.drone_container.add_child(drone)
+	if not _stage_profile.is_empty():
+		simulation.presentation.pack_actor(drone, "patrol")
 	simulation.drones.append(drone)
-	if markers:
+	if markers and (_stage_profile.is_empty() or phase_index != 2 or index in [0, 4, 10, 14]):
 		_add_route_markers(drone)
 
 
@@ -486,7 +500,8 @@ func _maintain_arcade_interceptors() -> void:
 	if simulation.interceptors.size() >= simulation.manual_interceptor_count_override:
 		return
 	_interceptor_replacement_serial += 1
-	_spawn_interceptor(simulation._fleet_center(), _interceptor_replacement_serial % 4, true)
+	var slots: int = 15 if not _stage_profile.is_empty() and phase_index == 3 else 4
+	_spawn_interceptor(simulation._fleet_center(), _interceptor_replacement_serial % slots, true)
 
 
 func _spawn_interceptor(center: Vector3, index: int, replacement: bool = false) -> void:
@@ -506,13 +521,20 @@ func _spawn_interceptor(center: Vector3, index: int, replacement: bool = false) 
 		offset = Vector3((index - 1.5) * 32, -18 if index % 2 == 0 else 18, 35)
 	if not _stage_profile.is_empty():
 		hostile.dangerous_projectile_limit = 29
+		if phase_index in [3, 5]:
+			var starts: Array[Vector3] = [Vector3(-35, 16, -30), Vector3(29, -21, -39), Vector3(-12, 28, -45), Vector3(15, -29, -26), Vector3(-44, -8, -12), Vector3(40, 11, -20), Vector3(-28, -23, 18), Vector3(33, 24, 10), Vector3(-16, 9, 38), Vector3(20, -11, 44), Vector3(-48, 26, 5), Vector3(47, -18, 26), Vector3(-4, 36, 22), Vector3(8, -34, 6), Vector3(3, 14, -52)]
+			offset = starts[index % starts.size()] + Vector3((index / 15) * 13, -(index / 15) * 9, -(index / 15) * 12)
 	hostile.position = simulation.interceptor_container.to_local(_safe_position(center + offset, 3))
 	hostile.died.connect(simulation._on_interceptor_died)
 	hostile.destroyed.connect(simulation._on_hostile_destroyed)
 	hostile.fired.connect(simulation._on_enemy_fired)
 	if simulation.legacy_flight_profile:
 		FlightTuning.legacy_actor(hostile)
+	if not _stage_profile.is_empty():
+		simulation.presentation.configure_actor(hostile, "interceptor", index)
 	simulation.interceptor_container.add_child(hostile)
+	if not _stage_profile.is_empty():
+		simulation.presentation.pack_actor(hostile, "interceptor")
 	simulation.interceptors.append(hostile)
 
 
@@ -522,6 +544,7 @@ func _spawn_capital(center: Vector3, teaching: bool, index: int = 0) -> void:
 	var positions: Array[Vector3] = [Vector3(-120, 35, -390), Vector3(-40, -58, -460), Vector3(58, 66, -515), Vector3(145, -12, -580), Vector3(12, 8, -630)]
 	if not _stage_profile.is_empty():
 		positions = [Vector3(-110, 35, -430), Vector3(-32, -54, -510), Vector3(64, 54, -600)]
+		positions = [Vector3(-140, 48, -410), Vector3(-96, -62, -460), Vector3(-12, 76, -480), Vector3(28, -20, -640), Vector3(138, 58, -540), Vector3(115, -70, -560), Vector3(-178, -24, -575), Vector3(181, 20, -620), Vector3(-72, 88, -590), Vector3(84, -87, -650)]
 		hostile.presentation_salvo_counts = {4: 5, 9: 7}
 	hostile.normal_distance = -positions[index].z if spectacle() else 230
 	hostile.spectacle_enabled = spectacle()
@@ -547,7 +570,11 @@ func _spawn_capital(center: Vector3, teaching: bool, index: int = 0) -> void:
 	)
 	if simulation.legacy_flight_profile:
 		FlightTuning.legacy_actor(hostile)
+	if not _stage_profile.is_empty():
+		simulation.presentation.configure_actor(hostile, "capital", index)
 	simulation.capital_container.add_child(hostile)
+	if not _stage_profile.is_empty():
+		simulation.presentation.pack_actor(hostile, "capital")
 	simulation.capitals.append(hostile)
 
 
@@ -567,6 +594,11 @@ func _set_camera_phase(index: int) -> void:
 
 
 func _add_route_markers(drone: PatrolDrone) -> void:
+	if not _stage_profile.is_empty():
+		for index: int in range(_marker_drones.size()):
+			if not is_instance_valid(_marker_drones[index]) or not _marker_drones[index].alive:
+				_marker_drones[index] = drone
+				return
 	if _markers == null:
 		_markers = Node3D.new()
 		_markers.name = "PatrolRouteMarkers"

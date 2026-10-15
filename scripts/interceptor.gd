@@ -179,7 +179,7 @@ func _update_fire(delta: float) -> void:
 		_burst_remaining = maxi(burst_size, 1)
 	# Une estimation imparfaite au départ ; le projectile garde ensuite sa direction.
 	var spread: Vector2 = Vector2(_fire_random.randf_range(-1.0, 1.0), _fire_random.randf_range(-1.0, 1.0)) * tan(deg_to_rad(shot_spread_angle))
-	var aim: Vector3 = CombatPrediction.aim(_muzzle.global_position, target.global_position, target.velocity, 85) if predictive_targeting else target.global_position
+	var aim: Vector3 = CombatPrediction.aim(_muzzle.global_position, target.global_position, target.velocity, 85 * presentation_projectile_speed) if predictive_targeting else target.global_position
 	var category_value: int = ThreatPattern.Category.TARGETED
 	if readable_threats:
 		var sim: SpaceSimulation = get_parent().get_parent() as SpaceSimulation

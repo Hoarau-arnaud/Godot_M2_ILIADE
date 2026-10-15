@@ -30,6 +30,7 @@ var spent: bool = false
 var bomb_zone: ArtilleryZone
 var _origin: Vector3
 var _shape: Shape3D
+var _battle_nominal: Dictionary = {}
 
 
 func _ready() -> void:
@@ -231,9 +232,13 @@ func _update_visual() -> void:
 				var ring: MeshInstance3D = node as MeshInstance3D
 				ring.rotation.z = age * (1.3 if ring.position.z < 0 else -1.3)
 				ring.rotation.x = deg_to_rad(80 + sin(age * 1.5 + ring.position.z) * 10)
+		if not _battle_nominal.is_empty():
+			$Visual.scale = Vector3(float(_battle_nominal.width), float(_battle_nominal.width), 1)
 		return
 	if velocity.length_squared() > 0.001:
 		$Visual.basis = Basis.looking_at(velocity.normalized(), Vector3.RIGHT if absf(velocity.normalized().y) > 0.98 else Vector3.UP)
+	if not _battle_nominal.is_empty():
+		$Visual.scale = Vector3(float(_battle_nominal.width), float(_battle_nominal.width), 1)
 
 
 func _add_fins(width: float, z: float, color: Color) -> void:
@@ -306,3 +311,27 @@ func _build_arcade_signature(visual: Node3D, signature_key: int) -> void:
 		for z: float in [-1.2, 1.2]:
 			var ring: MeshInstance3D = _energy_ring(1.3, z, Color(1, 0.55, 0.9))
 			ring.name = "AnimatedEnergyRing_%d" % (0 if z < 0 else 1)
+
+
+func set_battle_parameters(width: float, speed: float, level: int) -> void:
+	if _battle_nominal.is_empty():
+		_battle_nominal = {"speed": projectile_speed, "avoidance": avoidance_radius, "damage": damage, "radius": _shape.radius}
+		if _shape is CapsuleShape3D:
+			_battle_nominal.height = (_shape as CapsuleShape3D).height
+	_battle_nominal.width = width
+	var old_speed: float = projectile_speed
+	projectile_speed = float(_battle_nominal.speed) * speed
+	var ratio: float = old_speed / maxf(projectile_speed, 0.01)
+	arc_duration *= ratio
+	if is_instance_valid(bomb_zone):
+		bomb_zone.delay *= ratio
+		lifetime *= ratio
+	avoidance_radius = float(_battle_nominal.avoidance) * width
+	damage = maxi(int(_battle_nominal.damage), level)
+	var radius_value: float = float(_battle_nominal.radius) * width
+	if _shape is CapsuleShape3D:
+		(_shape as CapsuleShape3D).height = maxf(float(_battle_nominal.height), radius_value * 2)
+		(_shape as CapsuleShape3D).radius = radius_value
+	else:
+		(_shape as SphereShape3D).radius = radius_value
+	$Visual.scale = Vector3(width, width, 1)

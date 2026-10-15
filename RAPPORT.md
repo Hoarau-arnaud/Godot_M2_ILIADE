@@ -305,16 +305,26 @@ M1–M3 ont établi le vol collectif ; M4–M6 les quatre agents et le combat ; 
 
 ## Démonstration soutenance
 
-| Phase | Durée | Ce que je montre |
-|---|---:|---|
-| 1 | 35 s | Évitement collectif |
-| 2 | 30 s | PatrolDrone |
-| 3 | 35 s | Interceptor |
-| 4 | 55 s | Capital Ship |
-| 5 | 75 s | Tous les agents |
+La présentation utilise les agents et armes existants, avec une horloge propre. Chaque phase dure **30 s**, avec quatre transitions de **0,5 s** : **152 s (~2 min 32)** automatiques, puis un laboratoire final interactif sans limite de durée. Les durées et mesures scientifiques GUIDED M16 restent celles présentées ci-dessus.
 
-1. « Les BlueShip ne possèdent pas de leader : ils détectent individuellement l’obstacle, se dispersent puis se regroupent grâce aux règles locales. »
-2. « Le PatrolDrone suit sa propre suite de waypoints et ne poursuit pas les chasseurs. »
-3. « L’Interceptor détecte une cible, la poursuit temporairement, tire puis se désengage. »
-4. « Le Capital Ship agit à distance : il observe le groupe et choisit des attaques de zone ou des missiles qui obligent les agents à adapter leur trajectoire. »
-5. « Ici, les quatre types d’agents et l’environnement interagissent simultanément. »
+| Phase | Durée | Population ennemie visée, pour 15 BlueShip |
+|---|---:|---|
+| 1 | 30 s | Aucun ennemi : évitement collectif |
+| 2 | 30 s | 15 PatrolDrone |
+| 3 | 30 s | 15 Interceptor |
+| 4 | 30 s | 6 Capital Ships |
+| 5 | 30 s, puis sandbox | 15 Patrol + 15 Interceptor + 6 Capital, soit 36 ennemis |
+
+Les BlueShip combattent en P2–P5 lorsque portée, cône et ligne de vue le permettent ; la sécurité reste prioritaire et leur navigation ne poursuit pas les ennemis. Des fenêtres de Capital à 70–76 m pendant 5–6 s rendent le blindage arrière accessible à la portée Blue existante. Les ennemis disparus sont remplacés après 0,8–1,4 s réelles pour les unités légères et 2–4 s pour les Capital, avec un RNG déterministe. Le HUD affiche cumulativement « Vaisseaux bleus détruits » et « Ennemis abattus ». Seules les destructions de combat augmentent le second compteur ; les retraits, skips et nettoyages ne comptent pas. R recommence avec les deux compteurs à zéro.
+
+Le panneau **LABORATOIRE DE BATAILLE**, distinct de FREE et ancré à gauche, apparaît dès P5. Il affiche les quatre compteurs actifs/détruits et onze réglages : Patrol 0–30, Interceptor 0–30, Capital 0–10, cadence 0,5–4×, largeur projectiles 0,5–3×, épaisseur grilles 0,5–3×, vitesse 0,5–2×, dégâts 1–3, densité 0–2,5×, Mega/Colossal 0–3 et agressivité 0,5–3×. Les volumes physiques et perçus suivent les largeurs ; BlueLaser n'est pas modifié. Les cibles supplémentaires arrivent progressivement, et les réductions sont administratives.
+
+RESET rétablit 15/15/6 ennemis, cadence 2×, largeurs/vitesse/densité/agressivité 1×, dégâts légers 1 et Mega normal, sans effacer les pertes/kills. CHAOS utilise 25/25/8 ennemis, cadence 3×, largeur 1,7×, grilles 1,8×, vitesse 1,3×, dégâts 2, densité 1,6×, Mega élevé et agressivité 2×. ESPACE ou TERMINER fige FIN ; R recommence et D/Échap restaure FREE.
+
+La cadence individuelle Patrol/Interceptor est doublée par rapport au correctif de populations. P4 et P5 programment six Gate/Grid, soit trois fois leurs deux lancements antérieurs, avec un maximum de deux grandes grilles simultanées et un budget global de 35 unités dangereuses. Les formes déterministes sont RECTANGULAR, DIAGONAL_X, DIAMOND, OFFSET_CROSS, HEXAGONAL, RADIAL et ASYMMETRIC, fixes ou rotatives ; chacune possède au moins trois ouvertures intérieures sûres. Les validations couvrent traversées autonomes, contacts avec beams, kills/respawns, paramètres physiques, parcours de 152 s et CHAOS. Ces essais de présentation ne remplacent aucune mesure scientifique M16.
+
+1. « Les BlueShip se dispersent et se regroupent par des règles locales, sans leader. »
+2. « Chaque Patrol garde sa propre route, et un adversaire abattu est remplacé. »
+3. « L'Interceptor sélectionne localement une cible, poursuit, tire et se désengage. »
+4. « La flotte capitale alterne les attaques et les formes de grilles ; ses fenêtres de proximité permettent la riposte. »
+5. « Le laboratoire montre immédiatement les effets de la cadence, des volumes et des populations sur la bataille. »
