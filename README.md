@@ -4,18 +4,15 @@ Projet Godot **4.7.2 / GDScript** : quatre types d’agents autonomes, BlueShip,
 
 ## Lancer et présenter
 
-Importer `project.godot` dans Godot 4.7.2 puis lancer le projet. GUIDED démarre automatiquement, avec réglages/aide masqués. FREE reste accessible via le panneau. Les commandes ci-dessous concernent la fenêtre de jeu ; F5 dans l’éditeur conserve sa fonction Godot habituelle.
+Importer `project.godot` dans Godot 4.7.2 puis lancer le projet. Play ouvre directement **DÉMO SOUTENANCE**, en attente sur READY, avec **ESPACE — Démarrer** et **ALLER À LA FINALE**. La simulation reste figée avant le choix. FREE reste accessible via le panneau. Les commandes ci-dessous concernent la fenêtre de jeu ; F5 dans l’éditeur conserve sa fonction Godot habituelle.
 
 | Commande | Fonction |
 |---|---|
-| D | Basculer FREE/GUIDED ; retour FREE en PRESENTATION |
+| D / Échap | Retour à la simulation libre |
 | F7 | Démo soutenance : écran READY, combat figé |
 | ESPACE | Démarrer PRESENTATION / passer immédiatement à la phase suivante |
 | R | Recommencer PRESENTATION depuis READY, pertes remises à zéro |
-| Échap | Retour FREE depuis PRESENTATION |
-| F1 / F2 | Obstacles / astéroïdes dynamiques |
-| F3 / F4 | Patrol / Interceptor |
-| F5 / F6 | Capital-artillerie / assaut final |
+| F8 | ALLER À LA FINALE depuis READY ou une phase en cours |
 | P ou Pause | Suspendre/reprendre agents, projectiles, caméra et timer |
 | TAB / H | Afficher/masquer réglages / aide |
 | F / C | Suivi-libre / cinématique en FREE |
@@ -24,13 +21,13 @@ Importer `project.godot` dans Godot 4.7.2 puis lancer le projet. GUIDED démarre
 | Clic droit, molette, flèches/WASD/ZQ, PageUp/E/PageDown | Orbite, zoom et déplacement en caméra libre |
 | G / Home | Recentrer la caméra libre |
 
-Le panneau propose aussi six boutons compacts P1–P6. Il défile verticalement si nécessaire en 720p. Un saut recrée seulement Guided, recentre la caméra et remet le timer de phase à zéro, sans compter le nettoyage comme mort. Les pertes cumulées sont conservées ; Replay seul/nouveau run les efface et remet phase 1 + seed initiale. Un saut pendant pause reste suspendu. Quitter Guided ou Replay reprend la simulation.
+Le bouton **ALLER À LA FINALE** est présent sur READY et reste accessible en haut à droite pendant P1–P4. Il ouvre ASSAUT FINAL à t=0 avec Battle Lab immédiatement visible et les cibles 15 Patrol / 15 Interceptor / 6 Capital. Le saut conserve les pertes et kills réels d'une phase déjà jouée ; son nettoyage ne donne aucun score. Depuis READY, les compteurs restent à zéro. L'ancien scénario Guided est conservé comme infrastructure interne et pour les tests historiques, sans bouton ni raccourci utilisateur.
 
-Le HUD permanent contient uniquement pertes bleues, étoiles et titre de phase. PAUSE est temporaire. Pour une capture propre, masquer les réglages et l’aide avec TAB/H si ces panneaux sont ouverts.
+Le HUD affiche les pertes bleues et ennemis abattus ; le titre de phase et PAUSE sont temporaires. TAB/H ouvrent réglages/aide. Le panneau défile si nécessaire en 720p.
 
 ## Démo soutenance
 
-F7 ou « Démo soutenance » ouvre READY. ESPACE lance **cinq phases de 30 secondes**, séparées par quatre transitions de 0,5 seconde : **152 secondes (~2 min 32)**, hors pause et sauts. Le titre de phase disparaît après trois secondes. P fige agents, projectiles, caméra et horloge ; ESPACE passe à la phase suivante. R recommence avec les deux compteurs à zéro ; D/Échap restaure FREE. F1–F6 restent les raccourcis scientifiques GUIDED M16.
+READY est le premier écran au Play ; F7 ou « Démo soutenance » le prépare à nouveau. ESPACE lance **cinq phases de 30 secondes**, séparées par quatre transitions de 0,5 seconde : **152 secondes (~2 min 32)**, hors pause et sauts. Le titre de phase disparaît après trois secondes. P fige agents, projectiles, caméra et horloge ; ESPACE passe à la phase suivante. R recommence avec les deux compteurs à zéro ; D/Échap restaure FREE. F8 permet de passer directement à la finale.
 
 | Phase | BlueShip visés | Patrol visés | Interceptor visés | Capital visés |
 |---|---:|---:|---:|---:|
@@ -58,15 +55,21 @@ Les ennemis sont remplacés avec un RNG déterministe : **0,8–1,4 s réelles**
 | Mega / Colossal | 0–3 | 1, normal | 3, élevé |
 | Agressivité | 0,5–3× | 1× | 2× |
 
-Les ajouts sont progressifs et les retraits administratifs. Largeur, collision et `avoidance_radius` varient ensemble ; les animations gardent l'épaisseur choisie. La vitesse entre dans la prédiction des nouveaux tirs. Les BlueLaser gardent leurs paramètres. La fréquence Patrol de P2 et la fréquence Interceptor de P3 sont doublées par rapport au commit `3929024`. L'agressivité modifie la détection/poursuite et le cône de recherche, indépendamment de la cadence.
+Les ajouts sont progressifs et les retraits administratifs. Largeur, collision et `avoidance_radius` varient ensemble ; les animations gardent l'épaisseur choisie. La vitesse entre dans la prédiction des nouveaux tirs. Les BlueLaser cyan ont un corps de 0,48 m (anciennement 0,24 m), une pointe de rayon 0,52 m et un **rayon physique balayé de 0,7 m**, avec blocage par les astéroïdes et sans friendly fire. En Presentation, les tirs Interceptor partent d’une base **1,75×** et les pulses Patrol d’une base **1,5×** ; le slider multiplie ensuite cette base, collision et perception comprises. La fréquence Patrol de P2 et la fréquence Interceptor de P3 sont doublées par rapport au commit `3929024`. L'agressivité modifie la détection/poursuite et le cône de recherche, indépendamment de la cadence.
 
-P4 et P5 programment **six lancements de Gate/Grid en 30 s**, soit trois fois les deux lancements des phases précédentes ; les budgets peuvent différer un lancement. Au maximum deux grandes grilles coexistent. Les formes rouges/orange sont RECTANGULAR, DIAGONAL_X, DIAMOND, OFFSET_CROSS, HEXAGONAL, RADIAL et ASYMMETRIC. Elles disposent d'au moins trois ouvertures intérieures sûres, de contournements et de rotations déterministes. Le plafond partagé reste **35 unités dangereuses**, beams compris ; les astéroïdes physiques sont limités à 80.
+En finale uniquement, tous les spawns légers (initiaux, remplacements, sliders) restent proches du barycentre Blue : Patrol X ±20–55 m, Y ±25 m, Z −80 à −35 m ; Interceptor X ±20–60 m, Y ±25 m, Z −80 à −35 m. Une recherche de clearance bornée reste dans X ±58 / Y ±32 / Z −85…−35 m ; sans place sûre, l'ajout est différé. Les Patrol bouclent sur quatre waypoints locaux : leur ancre 3D suit doucement le centre lorsque son déplacement dépasse 18 m. Ils ne poursuivent aucune cible, gardent un cône frontal de 43° et une portée de 70 m. Les Interceptor répartissent les cibles centrales selon distance, visibilité et charge de poursuite ; leur désengagement rejoint une position de mission locale. Les unités trop loin pendant 3 s sont recyclées lorsqu'elles passent hors champ : Patrol >115 m, Interceptor >145 m sans engagement. Aucun kill ni respawn de mort n'est ajouté. Les Capital restent lointains, avec leurs fenêtres de vulnérabilité.
 
-Seed de présentation : **20261012**. Validation : `--headless --path . --fixed-fps 60 --script res://tests/validate_presentation_demo.gd` pour les commandes ; `-- --complete` pour les cinq phases, 30 s de réglages sandbox et 30 s de CHAOS. Sans `--headless` ni `--fixed-fps`, `-- --native` mesure ces parcours à 1920×1080. `-- --capture` produit les captures UI. `tests/validate_battle_lab.gd` vérifie les cinq kills contrôlés, les délais, les retraits, les sept géométries, les collisions de largeur et un kill Capital par BlueLaser à 24 PV. Les tests historiques restent dans `tests/run_validation.ps1`. PRESENTATION regroupe les silhouettes statiques en meshes mis en cache, réduit le décor proche, répartit la génération des météores et annule les approches Capital devant une grosse masse. Les formes physiques sont conservées ; FREE/GUIDED gardent leurs réglages et leurs visuels. Les mesures scientifiques M16 ci-dessous sont conservées.
+P4/P5 disposent d'un scheduler dédié : **un lancement toutes les 1,667 s** au réglage nominal de cadence 2×, soit environ **18 grilles en 30 s**, trois fois les six du main précédent. Cadence 4× donne un intervalle de 0,833 s. Les formes RECTANGULAR, DIAGONAL_X, DIAMOND, OFFSET_CROSS, HEXAGONAL, RADIAL et ASYMMETRIC alternent sans répétition immédiate, avec décalages de position, angle et horaire. Chaque grille garde des ouvertures et contournements ; elle est retirée une fois passée derrière toute la flotte. Le plafond autorise quatre grandes grilles (la troisième/quatrième demandent au moins 75 FPS mesurés) et **48 unités dangereuses** beams compris. Les quotas de tirs verts/rouges réservent des occasions aux deux familles. Les rochers physiques restent plafonnés à 80.
 
-## Parcours
+Seed : **20261012**. `tests/validate_final_battle_flow.gd` vérifie Play/READY, boutons/F8, compteurs, largeur physique Blue, masque, blocage rocher, largeurs ennemies, distances et engagements pendant 30 s, sliders et lancements effectifs. Exécution : `--headless --path . --fixed-fps 60 --script res://tests/validate_final_battle_flow.gd` ; `-- --unit` limite aux fixtures. Sans `--headless`/`--fixed-fps`, `-- --native` mesure P4, P5, sliders puis CHAOS à 1920×1080. Les tests M17 et `validate_battle_lab.gd` restent disponibles ; les tests M1–M16 utilisent explicitement le helper interne via `tests/run_validation.ps1`. Les mesures scientifiques historiques ci-dessous sont conservées.
 
-Phases 1–4 : 18 s réelles chacune ; Capital : 42 s pour laisser arriver Heavy → Seeker → Moving Gate → Bomb → Rotating Grid → Swarm → Arc ; finale continue à cible 15 Blue / 4 Patrol / 4 Interceptor / 3 Capital. Les survivants persistent pendant le parcours normal. Renforts après 1,0–1,6 s réelles, éventuellement retardés si aucun spawn n’est sûr.
+La Presentation utilise des meshes/matériaux partagés pour les tirs et explosions, un rejet de plan avant les contacts des grilles, des perceptions de proximité espacées de 0,06–0,08 s simulée, un pas physique de 90 Hz (0,0222 s simulée à 2×) et MSAA 2×. Les sweeps de projectiles et les collisions de déplacement restent actifs. Les réglages du viewport et de simulation libre sont restaurés à la sortie. Les comptes rendus 1080p précisent ces conditions.
+
+Validation 1080p du correctif (seed 20261012, MSAA 2×, physique 90 Hz) : **P5 99,76 / 96,45 FPS**, **CHAOS 97,88 / 85,25 FPS** (moyenne / minimum sur une seconde). P4 et P5 : **18 lancements réels chacune**. P5 : 15/15 Patrol ont tiré, 15/15 Interceptor ont poursuivi/tiré ; 100,00 % / 98,52 % des mesures sont sous 100 m. Détails, médianes, maxima et sliders dans le rapport.
+
+## Parcours scientifique historique M16
+
+Phases 1–4 : 18 s réelles chacune ; Capital : 42 s pour laisser arriver Heavy → Seeker → Moving Gate → Bomb → Rotating Grid → Swarm → Arc ; finale continue à cible 15 Blue / 4 Patrol / 4 Interceptor / 3 Capital. Les survivants persistent pendant le parcours scientifique interne. Renforts après 1,0–1,6 s réelles, éventuellement retardés si aucun spawn n’est sûr.
 
 Les dangers M15 sont conservés : Gate/Grid mobiles 110×80 m à 45 m/s, rotation 15/±25°/s, ouvertures mémorisées localement ; rares Colossal 96 m (plage nominale jusqu’à 160 m), boost doré sans collider, missiles volumétriques, planète/anneau et décor procédural original. Une grande grille et un Colossal au plus simultanément, plafonds de 64/48/64 rochers et 40 unités dangereuses. Aucune consigne de trajectoire globale normale aux BlueShip.
 

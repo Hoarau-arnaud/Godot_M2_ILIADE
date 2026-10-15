@@ -5,7 +5,7 @@ extends RefCounted
 # Aucun état global : le profil concerne uniquement la fixture passée en argument.
 static func legacy_actor(actor: Node) -> void:
 	if actor is SpaceSimulation:
-		(actor as SpaceSimulation).auto_start_guided_demo = false
+		(actor as SpaceSimulation).auto_start_presentation_demo = false
 		(actor as SpaceSimulation).legacy_flight_profile = true
 		m13_fixture(actor)
 	elif actor is BlueShip:

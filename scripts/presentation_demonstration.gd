@@ -1,7 +1,7 @@
 class_name PresentationDemonstration
 extends Node
 
-# Une horloge et des rendez-vous de scène ; aucun ordre de navigation aux agents.
+# Horloge et mission locale Patrol ; la navigation Blue reste autonome.
 enum State { INACTIVE, READY, RUNNING, TRANSITION, FINISHED, FINAL_SANDBOX }
 const BATTLE_VISUAL_CACHE: Script = preload("res://scripts/battle_visual_cache.gd")
 const DURATIONS: Array[float] = [30.0, 30.0, 30.0, 30.0, 30.0]
@@ -43,6 +43,12 @@ var _colossal_at: float = 10
 var _raid_at: float = 8
 var _raid_cursor: int = 0
 var _gate_cursor: int = 0
+var _grid_at: float = 0.7
+var _projectile_cleanup_at: float = 0
+var _saved_msaa: Viewport.MSAA = Viewport.MSAA_DISABLED
+const GRID_INTERVAL: float = 30.0 / 18.0
+const GRID_LIMIT: int = 4
+var administrative_recycles: Dictionary = {"patrol": 0, "interceptor": 0}
 @onready var simulation: SpaceSimulation = get_parent() as SpaceSimulation
 @onready var guide: GuidedDemonstration = get_parent().get_node("GuidedDemonstration") as GuidedDemonstration
 
@@ -65,6 +71,8 @@ func prepare() -> void:
 	if guide.is_staged():
 		guide.stop()
 	simulation.demo_controls.ensure_battle_panel()
+	_saved_msaa = get_viewport().msaa_3d
+	get_viewport().msaa_3d = Viewport.MSAA_2X
 	_guide_seed = guide.demonstration_seed
 	guide.demonstration_seed = presentation_seed
 	state = State.READY
@@ -83,6 +91,7 @@ func prepare() -> void:
 	respawn_events.clear()
 	_reset_population_stats()
 	guide.start(_profile(0))
+	Engine.physics_ticks_per_second = 90
 	simulation.space_decor.set_presentation_detail(true)
 	for blue: BlueShip in simulation.ships:
 		pack_actor(blue, "blue")
@@ -111,6 +120,20 @@ func start_or_next() -> void:
 		_finish()
 
 
+func jump_to_final() -> void:
+	if not active() or state == State.FINISHED:
+		prepare()
+	if phase_index == 4 and state in [State.RUNNING, State.FINAL_SANDBOX]:
+		return
+	if state == State.RUNNING:
+		_finish_phase(true)
+	user_paused = false
+	state = State.RUNNING
+	simulation.demo_controls.show_presentation(state)
+	_begin_phase(4)
+	_apply_pause()
+
+
 func toggle_pause() -> void:
 	if state in [State.RUNNING, State.TRANSITION, State.FINAL_SANDBOX]:
 		user_paused = not user_paused
@@ -130,6 +153,7 @@ func _mode_changed(new_mode: int) -> void:
 	if new_mode == GuidedDemonstration.DemoMode.PRESENTATION:
 		return
 	if active():
+		get_viewport().msaa_3d = _saved_msaa
 		guide.demonstration_seed = _guide_seed
 		simulation.space_decor.set_presentation_detail(false)
 		simulation.demo_controls.release_battle_panel()
@@ -159,6 +183,9 @@ func _begin_phase(index: int, rebuild: bool = true) -> void:
 	settings = DEFAULT_SETTINGS.duplicate()
 	_reset_population_stats()
 	_gate_cursor = 0
+	_grid_at = 0.7
+	_projectile_cleanup_at = 0
+	administrative_recycles = {"patrol": 0, "interceptor": 0}
 	_raid_at = 8
 	_raid_cursor = 0
 	_lab_attack_at = 1
@@ -167,18 +194,20 @@ func _begin_phase(index: int, rebuild: bool = true) -> void:
 	_colossal_at = 24
 	if rebuild:
 		guide._begin_phase(GUIDED_PHASES[index], simulation._fleet_center(), true, _profile(index))
+	Engine.physics_ticks_per_second = 90 # Pas simulé <= 1/45 s à 2x ; sweeps conservés.
 	guide.phase_elapsed = 0
 	_sample = {"phase": index + 1, "title": TITLES[index], "first_events": {}, "boosts_start": simulation.evasive_boost_count, "dispersion_peak": simulation.dispersion, "dispersion_end": simulation.dispersion, "gate_crossings": {}, "events": []}
 	match index:
 		0: _events = [[0.0, "mega", 1], [8.0, "colossal", 0], [18.0, "fast", 0], [23.0, "fast", 0]]
 		1: _events = []
 		2: _events = []
-		3: _events = [[0.0, "capital", 0], [2.0, "capital", 7], [4.0, "capital", 4], [6.0, "capital", 8], [10.0, "capital", 7], [12.0, "capital", 6], [14.0, "capital", 8], [18.0, "capital", 7], [20.0, "capital", 9], [22.0, "capital", 8], [26.0, "capital", 2]]
-		4: _events = [[0.0, "mega", 1], [0.0, "capital", 0], [2.0, "capital", 7], [4.0, "capital", 4], [6.0, "capital", 8], [8.0, "colossal", 0], [10.0, "capital", 7], [12.0, "capital", 6], [14.0, "capital", 8], [18.0, "capital", 7], [20.0, "capital", 9], [22.0, "capital", 8], [26.0, "capital", 2]]
+		3: _events = [[0.0, "capital", 0], [4.0, "capital", 4], [12.0, "capital", 6], [20.0, "capital", 9], [26.0, "capital", 2]]
+		4: _events = [[0.0, "mega", 1], [0.0, "capital", 0], [4.0, "capital", 4], [8.0, "colossal", 0], [12.0, "capital", 6], [20.0, "capital", 9], [26.0, "capital", 2]]
 	simulation.camera.presentation_shots = true
 	simulation.demo_controls.set_phase(index, TITLES[index], 3.0)
 	_apply_settings()
 	simulation.demo_controls.battle_panel.visible = index == 4
+	simulation.demo_controls.refresh_final_shortcut()
 	_choreograph()
 
 
@@ -200,7 +229,11 @@ func _process(delta: float) -> void:
 	_choreograph()
 	_maintain_populations()
 	_update_raids(real_delta)
+	if phase_index in [3, 4]:
+		_schedule_grids()
 	if phase_index == 4:
+		_update_battle_zone(real_delta)
+		_cleanup_battle_projectiles()
 		_boulders()
 	if state == State.FINAL_SANDBOX:
 		sandbox_elapsed += real_delta
@@ -253,7 +286,7 @@ func _event(kind: String, pattern: int) -> bool:
 				for node: Node in get_tree().get_nodes_in_group("combat_hazards"):
 					if node is MovingLaserGate and not node.is_queued_for_deletion():
 						gates += 1
-				if gates >= 2 or ArtilleryZone.dangerous_count(get_tree()) + 8 > 35:
+				if gates >= GRID_LIMIT or ArtilleryZone.dangerous_count(get_tree()) + 8 > 48:
 					return false
 				var geometries: Array[int] = [1, 2, 6, 4, 5, 3, 0]
 				capital.presentation_gate_geometry = geometries[_gate_cursor % geometries.size()]
@@ -276,7 +309,7 @@ func _update_camera() -> void:
 		1: shots = [5, 1, 2]
 		2: shots = [0, 11, 5]
 		3: shots = [10, 5, 0, 10]
-		4: shots = [7, 5, 11, 8, 10]
+		4: shots = [5, 11, 8, 5]
 	if segment == _camera_segment:
 		return
 	_camera_segment = segment
@@ -392,13 +425,27 @@ func configure_actor(actor: Node3D, family: String, slot: int) -> void:
 	if actor is CapitalShip:
 		var capital: CapitalShip = actor as CapitalShip
 		capital.presentation_enabled = true
-		capital.presentation_gate_limit = 2
+		capital.presentation_gate_limit = GRID_LIMIT
 		capital.presentation_grid_width = float(settings.grid_width)
 		capital.salvo_started.connect(_capital_pattern)
 	else:
 		var hostile: PatrolDrone = actor as PatrolDrone
-		hostile.dangerous_projectile_limit = 19 if phase_index == 4 else 29 # Réserver seize beams pendant la finale.
+		hostile.dangerous_projectile_limit = (44 if actor is Interceptor else 40) if phase_index == 4 else 29
 		hostile.patrol_firing_cone_degrees = 32
+	if phase_index == 4 and actor is PatrolDrone:
+		var light: PatrolDrone = actor as PatrolDrone
+		light.presentation_battle = true
+		light.battle_center = simulation._fleet_center()
+		light.battle_anchor = light.battle_center
+		light._battle_anchor_goal = light.battle_center
+		light.battle_velocity = _fleet_velocity()
+		if family == "patrol":
+			light.demonstration_route = true
+			var mirror: float = -1 if slot % 2 else 1
+			var lift: float = (slot % 3 - 1) * 6
+			light.demonstration_route_offsets.assign([Vector3(-45 * mirror, -15 + lift, -35), Vector3(35 * mirror, 12 + lift, -45), Vector3(45 * mirror, -10 + lift, 10), Vector3(-35 * mirror, 18 + lift, 20)])
+			light.route_index = slot % 4
+			light._patrol_fire_timer = 0.2 + (slot % 5) * 0.15
 	_configure_actor_settings(actor)
 
 
@@ -418,10 +465,15 @@ func _configure_actor_settings(actor: Node3D) -> void:
 	actor.presentation_projectile_speed = float(settings.speed)
 	if actor is Interceptor:
 		var hostile: Interceptor = actor as Interceptor
-		hostile.target_detection_radius = 80 * float(settings.aggression)
+		hostile.target_detection_radius = (110 if phase_index == 4 else 80) * float(settings.aggression)
+		if phase_index == 4:
+			hostile.pursuit_max_speed = 45
+			hostile.max_side_speed = 16
+			hostile.firing_range = 90
+			hostile.firing_cone_angle = 35
 		hostile.max_pursuit_duration = 8 * sqrt(float(settings.aggression))
 	elif actor is PatrolDrone:
-		(actor as PatrolDrone).patrol_firing_cone_degrees = clampf(32 * sqrt(float(settings.aggression)), 22, 48)
+		(actor as PatrolDrone).patrol_firing_cone_degrees = clampf((43 if phase_index == 4 else 32) * sqrt(float(settings.aggression)), 22, 55 if phase_index == 4 else 48)
 	elif actor is CapitalShip:
 		(actor as CapitalShip).presentation_grid_width = float(settings.grid_width)
 
@@ -434,7 +486,7 @@ func _enemy_destroyed(_actor: Node3D, family: String, slot: int, generation: int
 	_pending_respawns.append({"family": family, "slot": slot, "at": phase_elapsed + delay, "died_at": phase_elapsed})
 
 
-func _spawn_actor(family: String, slot: int) -> void:
+func _spawn_actor(family: String, slot: int) -> bool:
 	var center: Vector3 = simulation._fleet_center()
 	match family:
 		"patrol":
@@ -444,6 +496,7 @@ func _spawn_actor(family: String, slot: int) -> void:
 			guide._interceptor_replacement_serial += 1
 			guide._spawn_interceptor(center, slot, true)
 		"capital": guide._spawn_capital(center, true, slot)
+	return _slot_exists(family, slot)
 
 
 func _retire_actor(family: String, actor: Node3D) -> void:
@@ -480,7 +533,9 @@ func _maintain_populations() -> void:
 			if slot >= target or _slot_exists(family, slot) or _actors(family).size() >= target:
 				_pending_respawns.erase(entry)
 			elif phase_elapsed >= float(entry.at):
-				_spawn_actor(family, slot)
+				if not _spawn_actor(family, slot):
+					entry.at = phase_elapsed + 0.1
+					continue
 				_pending_respawns.erase(entry)
 				_family_stats[family].respawns += 1
 				total_respawns[family] += 1
@@ -580,7 +635,7 @@ func _update_raids(_real_delta: float) -> void:
 
 func _lab_attacks() -> void:
 	if sandbox_elapsed >= _lab_attack_at:
-		var patterns: Array[int] = [7, 0, 8, 4, 7, 6, 8, 9, 7, 2, 8]
+		var patterns: Array[int] = [0, 4, 6, 9, 2]
 		if _event("capital", patterns[_lab_attack_cursor % patterns.size()]):
 			_lab_attack_cursor += 1
 			_lab_attack_at = sandbox_elapsed + 8 / float(settings.fire)
@@ -615,6 +670,8 @@ func _count_enemy_kill(_actor: Node3D, family: String, generation: int) -> void:
 
 
 func pack_actor(actor: Node3D, family: String) -> void:
+	if actor is BlueShip:
+		(actor as BlueShip).presentation_combat_interval = 0.08
 	BATTLE_VISUAL_CACHE.pack(actor.get_node("Visuals") as Node3D, family)
 
 
@@ -639,3 +696,134 @@ func _warm_visuals() -> void:
 	await RenderingServer.frame_post_draw
 	if is_instance_valid(warm):
 		warm.queue_free()
+
+
+func _fleet_velocity() -> Vector3:
+	var speed: Vector3 = Vector3.ZERO
+	for blue: BlueShip in simulation.ships:
+		speed += blue.velocity
+	return speed / maxf(simulation.ships.size(), 1)
+
+
+func battle_spawn_offset(family: String, slot: int) -> Vector3:
+	var random: RandomNumberGenerator = RandomNumberGenerator.new()
+	random.seed = presentation_seed + slot * 1297 + _spawn_serial * 37 + (177 if family == "patrol" else 991)
+	return Vector3((-1 if slot % 2 else 1) * random.randf_range(20, 55 if family == "patrol" else 60), random.randf_range(-25, 25), random.randf_range(-80, -35))
+
+
+func battle_spawn_position(center: Vector3, offset: Vector3, clearance: float) -> Vector3:
+	var query: PhysicsShapeQueryParameters3D = PhysicsShapeQueryParameters3D.new()
+	var sphere: SphereShape3D = SphereShape3D.new()
+	sphere.radius = clearance + 2
+	query.shape = sphere
+	query.collision_mask = 7
+	for attempt: int in range(192):
+		var candidate: Vector3 = center + offset
+		if attempt > 0:
+			# Recherche bornée dans la zone de combat ; jamais de fuite latérale à 200 m.
+			var k: int = attempt + _spawn_serial * 7
+			candidate = center + Vector3(sin(k * 2.399963) * 58, cos(k * 1.618) * 32, -35 - fposmod(k * 13.7, 50))
+		var occupied: bool = false
+		for actor: Node3D in simulation.ships + simulation.drones + simulation.interceptors:
+			if candidate.distance_squared_to(actor.global_position) < 64:
+				occupied = true
+				break
+		if occupied:
+			continue
+		# Les RIDs de rochers ajoutés dans ce même callback peuvent attendre le tick suivant.
+		# Leur enveloppe locale est déjà disponible : aucune première frame de collision.
+		for node: Node in get_tree().get_nodes_in_group("asteroids"):
+			var rock: SpaceAsteroid = node as SpaceAsteroid
+			var gap: float = sphere.radius + rock.avoidance_radius + 2
+			if candidate.distance_squared_to(rock.global_position) < gap * gap:
+				occupied = true
+				break
+		if occupied:
+			continue
+		query.transform.origin = candidate
+		if simulation.get_world_3d().direct_space_state.intersect_shape(query, 1).is_empty():
+			return candidate
+	return Vector3.INF # Aucun emplacement sûr : le gestionnaire réessaie au tick suivant.
+
+
+func _update_battle_zone(real_delta: float) -> void:
+	var center: Vector3 = simulation._fleet_center()
+	var speed: Vector3 = _fleet_velocity()
+	for family: String in ["patrol", "interceptor"]:
+		for actor: PatrolDrone in _actors(family).duplicate():
+			actor.battle_center = center
+			actor.battle_velocity = speed
+			var far: bool = actor.global_position.distance_to(center) > (115 if family == "patrol" else 145)
+			if actor is Interceptor:
+				var hostile: Interceptor = actor as Interceptor
+				if hostile._mission_state == Interceptor.InterceptorState.PURSUIT and is_instance_valid(hostile.target):
+					var useful: bool = hostile.target.global_position.distance_to(center) <= 100 and hostile.global_position.distance_to(hostile.target.global_position) <= hostile.target_detection_radius
+					far = far and not useful
+			var outside: float = float(actor.get_meta("battle_outside", 0)) + real_delta if far else 0.0
+			actor.set_meta("battle_outside", outside)
+			if outside >= 3 and not simulation.camera.is_position_in_frustum(actor.global_position):
+				var slot: int = int(actor.get_meta("presentation_slot"))
+				_retire_actor(family, actor)
+				_spawn_actor(family, slot)
+				administrative_recycles[family] += 1
+
+
+func _schedule_grids() -> void:
+	if phase_elapsed < _grid_at or simulation.capitals.is_empty():
+		return
+	var count: int = 0
+	for node: Node in get_tree().get_nodes_in_group("combat_hazards"):
+		if node is MovingLaserGate and not node.is_queued_for_deletion():
+			count += 1
+	# Une grille nouvelle garde sa place dans le budget sans interrompre les Capital.
+	if count >= GRID_LIMIT or (count >= 2 and Engine.get_frames_per_second() < 75) or ArtilleryZone.dangerous_count(get_tree()) + 8 > 48:
+		return
+	var random: RandomNumberGenerator = RandomNumberGenerator.new()
+	random.seed = presentation_seed + _gate_cursor * 997 + phase_index * 1709
+	var gate: MovingLaserGate = MovingLaserGate.new()
+	gate.variant = (_gate_cursor % 2) as MovingLaserGate.Variant
+	var forms: Array[int] = [1, 2, 6, 4, 5, 3, 0]
+	gate.geometry = forms[_gate_cursor % forms.size()] as MovingLaserGate.GateGeometry
+	gate.geometry_seed = random.seed
+	gate.width = random.randf_range(100, 125)
+	gate.height = random.randf_range(80, 100)
+	gate.initial_tilt_degrees = [0, 15, -25, 35, 45][_gate_cursor % 5]
+	gate.angular_speed_degrees = (-18 if _gate_cursor % 3 == 2 else 18) if gate.variant == MovingLaserGate.Variant.ROTATING_LASER_GRID else 0
+	gate.presentation_grid_scale = float(settings.grid_width)
+	gate.set_meta("presentation_gate", true)
+	gate.set_meta("presentation_scheduled", true)
+	gate.velocity = Vector3(0, 0, 45 * float(settings.speed))
+	gate.position = simulation.projectile_container.to_local(simulation._fleet_center() + Vector3((_gate_cursor % 3 - 1) * 8, (_gate_cursor % 2 * 2 - 1) * 5, -200))
+	simulation.projectile_container.add_child(gate)
+	_gate_cursor += 1
+	_grid_at = phase_elapsed + GRID_INTERVAL * 2 / float(settings.fire)
+
+
+func light_fire_available(family: String, first_shot: bool = false) -> bool:
+	var count: int = 0
+	for node: Node in get_tree().get_nodes_in_group("hostile_projectiles"):
+		if node is EnemyLaser and (node as EnemyLaser).patrol_pulse == (family == "patrol"):
+			count += 1
+	return count < (10 if family == "patrol" else 18 if first_shot else 14)
+
+
+func _exit_tree() -> void:
+	if active() and is_instance_valid(get_viewport()):
+		get_viewport().msaa_3d = _saved_msaa
+
+
+func _cleanup_battle_projectiles() -> void:
+	if phase_elapsed < _projectile_cleanup_at:
+		return
+	_projectile_cleanup_at = phase_elapsed + 0.25
+	var center: Vector3 = simulation._fleet_center()
+	var speed: Vector3 = _fleet_velocity()
+	for node: Node in get_tree().get_nodes_in_group("hostile_projectiles") + get_tree().get_nodes_in_group("blue_lasers"):
+		if node is EnemyLaser or node is BlueLaser:
+			var bolt: Node3D = node as Node3D
+			var offset: Vector3 = bolt.global_position - center
+			var limit: float = 160 if node is EnemyLaser else 220
+			var flight: Vector3 = node.flight_direction * node.projectile_speed - speed
+			if offset.length_squared() > limit * limit and offset.dot(flight) > 0:
+				guide._disable_entity(node)
+				node.queue_free()

@@ -21,7 +21,7 @@ const DIFFICULTY_NAMES: Array[String] = ["Facile", "Intermédiaire", "Difficile"
 @export_range(-1, 1, 1) var manual_capital_count_override: int = -1
 @export var capital_replacement_delay: float = 25.0
 
-@export var auto_start_guided_demo: bool = true
+@export var auto_start_presentation_demo: bool = true
 @export var guided_simulation_speed: float = 2.0
 @export var arcade_hazards_enabled: bool = true
 @export var threat_choreography_enabled: bool = true
@@ -177,8 +177,8 @@ func _ready() -> void:
 	space_decor.set_arcade_mode(arcade_hazards_enabled and not legacy_flight_profile)
 	_measure_group(_last_center)
 	_update_hud()
-	if auto_start_guided_demo:
-		demonstration.start.call_deferred()
+	if auto_start_presentation_demo:
+		presentation.prepare.call_deferred()
 
 
 func _physics_process(delta: float) -> void:
@@ -228,7 +228,7 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.echo:
 		return
 	if event.is_action_pressed("guided_demo_toggle"):
-		demonstration.toggle()
+		demonstration.stop()
 		get_viewport().set_input_as_handled()
 		return
 	# Les raccourcis de démonstration restent disponibles quand un contrôle est utilisé.

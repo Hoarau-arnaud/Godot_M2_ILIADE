@@ -473,7 +473,15 @@ func _spawn_patrol(center: Vector3, index: int, markers: bool, replacement: bool
 			drone._patrol_fire_timer = 4.4 + index * 0.4
 		else:
 			offset.z = 30
-	drone.position = simulation.drone_container.to_local(_safe_position(center + offset, 3))
+	if not _stage_profile.is_empty() and phase_index == 5:
+		offset = simulation.presentation.battle_spawn_offset("patrol", index)
+		var spawn: Vector3 = simulation.presentation.battle_spawn_position(center, offset, 3)
+		if not spawn.is_finite():
+			drone.free()
+			return
+		drone.position = simulation.drone_container.to_local(spawn)
+	else:
+		drone.position = simulation.drone_container.to_local(_safe_position(center + offset, 3))
 	drone.died.connect(simulation._on_drone_died)
 	drone.destroyed.connect(simulation._on_hostile_destroyed)
 	drone.patrol_fired.connect(simulation._on_enemy_fired)
@@ -524,7 +532,15 @@ func _spawn_interceptor(center: Vector3, index: int, replacement: bool = false) 
 		if phase_index in [3, 5]:
 			var starts: Array[Vector3] = [Vector3(-35, 16, -30), Vector3(29, -21, -39), Vector3(-12, 28, -45), Vector3(15, -29, -26), Vector3(-44, -8, -12), Vector3(40, 11, -20), Vector3(-28, -23, 18), Vector3(33, 24, 10), Vector3(-16, 9, 38), Vector3(20, -11, 44), Vector3(-48, 26, 5), Vector3(47, -18, 26), Vector3(-4, 36, 22), Vector3(8, -34, 6), Vector3(3, 14, -52)]
 			offset = starts[index % starts.size()] + Vector3((index / 15) * 13, -(index / 15) * 9, -(index / 15) * 12)
-	hostile.position = simulation.interceptor_container.to_local(_safe_position(center + offset, 3))
+	if not _stage_profile.is_empty() and phase_index == 5:
+		offset = simulation.presentation.battle_spawn_offset("interceptor", index)
+		var spawn: Vector3 = simulation.presentation.battle_spawn_position(center, offset, 3)
+		if not spawn.is_finite():
+			hostile.free()
+			return
+		hostile.position = simulation.interceptor_container.to_local(spawn)
+	else:
+		hostile.position = simulation.interceptor_container.to_local(_safe_position(center + offset, 3))
 	hostile.died.connect(simulation._on_interceptor_died)
 	hostile.destroyed.connect(simulation._on_hostile_destroyed)
 	hostile.fired.connect(simulation._on_enemy_fired)

@@ -515,6 +515,8 @@ func spawn_mega(center: Vector3, fleet_velocity: Vector3, trajectory: int, diame
 	for node: Node in get_tree().get_nodes_in_group("blue_ships"):
 		if candidate.distance_to((node as Node3D).global_position) < diameter_value * 0.65 + 20:
 			return false
+	if presentation_spawn_budget and not _presentation_hazard_spawn_clear(candidate, diameter_value):
+		return false
 	var rock: SpaceAsteroid = ASTEROID_SCENE.instantiate() as SpaceAsteroid
 	rock.name = "Mega_%d" % mega_generated
 	rock.diameter = diameter_value
@@ -573,6 +575,8 @@ func spawn_colossal(center: Vector3, fleet_velocity: Vector3, diameter_value: fl
 	for node: Node in get_tree().get_nodes_in_group("blue_ships"):
 		if candidate.distance_to((node as Node3D).global_position) < diameter_value * 0.65 + 25:
 			return null
+	if presentation_spawn_budget and not _presentation_hazard_spawn_clear(candidate, diameter_value):
+		return null
 	var rock: SpaceAsteroid = ASTEROID_SCENE.instantiate() as SpaceAsteroid
 	rock.name = "Colossal_%d" % colossal_generated
 	rock.diameter = diameter_value
@@ -590,3 +594,12 @@ func spawn_colossal(center: Vector3, fleet_velocity: Vector3, diameter_value: fl
 	active_mobile_count += 1
 	colossal_generated += 1
 	return rock
+
+
+func _presentation_hazard_spawn_clear(candidate: Vector3, diameter_value: float) -> bool:
+	# Un grand danger apparaît avant sa trajectoire ; jamais directement dans un hostile.
+	for node: Node in get_tree().get_nodes_in_group("hostile_agents"):
+		var margin: float = CapitalShip.BODY_CLEARANCE + 10 if node is CapitalShip else 8
+		if candidate.distance_to((node as Node3D).global_position) < diameter_value * 0.65 + margin:
+			return false
+	return true

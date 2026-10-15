@@ -25,7 +25,7 @@ func frames(count: int) -> void:
 func empty(count: int = 1) -> SpaceSimulation:
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
 	FlightTuning.m13_fixture(sim)
-	sim.auto_start_guided_demo = false
+	sim.auto_start_presentation_demo = false
 	sim.ship_count = count
 	sim.simulation_speed_multiplier = 1
 	sim.streaming_enabled = false
@@ -365,8 +365,8 @@ func lifecycle() -> void:
 	FlightTuning.m13_fixture(default_sim)
 	root.add_child(default_sim)
 	await frames(2)
-	check(default_sim.demonstration.is_guided() and default_sim.demonstration.phase_index == 0 and default_sim.demo_controls.phase_panel.visible, "Autostart phase 1 absent")
-	records.append({"test": "autostart", "guided": default_sim.demonstration.is_guided(), "phase": default_sim.demonstration.phase_index + 1, "label": default_sim.demo_controls.phase_label.text})
+	check(default_sim.presentation.state == PresentationDemonstration.State.READY and not default_sim.demonstration.is_guided() and default_sim.demo_controls.presentation_panel.visible, "Play ne prépare pas READY")
+	records.append({"test": "autostart", "guided": default_sim.demonstration.is_guided(), "presentation_ready": default_sim.presentation.state == PresentationDemonstration.State.READY, "label": default_sim.demo_controls.presentation_title.text})
 	await dispose(default_sim)
 	for phase: int in range(6):
 		var sim: SpaceSimulation = empty()
@@ -409,10 +409,12 @@ func demonstration_run(native: bool) -> void:
 		root.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_KEEP
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
 	FlightTuning.m13_fixture(sim)
+	sim.auto_start_presentation_demo = false
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--pace="):
 			sim.guided_simulation_speed = argument.trim_prefix("--pace=").to_float()
 	root.add_child(sim)
+	sim.demonstration.start()
 	await frames(3)
 	if finale_only:
 		sim.demonstration._begin_phase(5, Vector3.ZERO)

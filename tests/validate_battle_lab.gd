@@ -52,6 +52,15 @@ func counters_and_respawns() -> void:
 	sim.presentation.prepare()
 	for _index: int in range(5):
 		sim.presentation.start_or_next()
+	# Compteurs/ajouts isolés : les tirs et rochers du scénario ne doivent pas tuer la fixture.
+	sim.presentation._events.clear()
+	sim.presentation._grid_at = INF
+	sim.combat_enabled = false
+	sim.streaming_enabled = false
+	sim.asteroid_container.storm_enabled = false
+	for node: Node in get_nodes_in_group("combat_hazards") + get_nodes_in_group("hostile_projectiles") + get_nodes_in_group("asteroids"):
+		sim.demonstration._disable_entity(node)
+		node.queue_free()
 	for blue: BlueShip in sim.ships:
 		blue.combat_enabled = false
 		blue.set_physics_process(false)
@@ -84,12 +93,12 @@ func counters_and_respawns() -> void:
 	sim.presentation.set_setting("speed", 1.5)
 	sim.presentation.set_setting("damage", 2)
 	sim.presentation.set_setting("aggression", 2)
-	check(sim.interceptors[0].fire_intensity == 3 and sim.interceptors[0].target_detection_radius == 160, "Cadence / agressivité distinctes")
+	check(sim.interceptors[0].fire_intensity == 3 and sim.interceptors[0].target_detection_radius == 220, "Cadence / agressivité distinctes")
 	var shot: EnemyLaser = load("res://scenes/enemy_laser.tscn").instantiate() as EnemyLaser
 	shot.patrol_pulse = true
 	sim.projectile_container.add_child(shot)
 	sim.presentation.configure_projectile(shot)
-	check(shot.battle_radius > 1 and shot.damage == 2 and shot.projectile_speed == 127.5 and shot.avoidance_radius == 8, "Volume / vitesse / dégâts pulse")
+	check(shot.battle_radius > 1 and shot.damage == 2 and shot.projectile_speed == 127.5 and is_equal_approx(shot.avoidance_radius, shot.battle_radius + 1.4), "Volume / vitesse / dégâts pulse")
 	var shell: ArtilleryProjectile = ArtilleryProjectile.new()
 	shell.arcade_signature = true
 	sim.projectile_container.add_child(shell)
@@ -115,6 +124,7 @@ func capital_combat() -> void:
 	for _index: int in range(5):
 		sim.presentation.start_or_next()
 	sim.presentation._events.clear()
+	sim.presentation._grid_at = INF # Fixture de fenêtre de combat isolée, sans scheduler de grilles.
 	sim.presentation.set_setting("patrol", 0)
 	sim.presentation.set_setting("interceptor", 0)
 	sim.presentation.set_setting("capital", 1)
@@ -146,7 +156,7 @@ func physical_width() -> void:
 		blue.position = Vector3.ZERO
 		blue.set_physics_process(false)
 		var hostile: PatrolDrone = SpaceSimulation.DRONE_SCENE.instantiate() as PatrolDrone
-		hostile.position = Vector3(2.3, 0, -5)
+		hostile.position = Vector3(2.8, 0, -5)
 		sim.drone_container.add_child(hostile)
 		hostile.set_physics_process(false)
 		await frames(2)
@@ -154,7 +164,7 @@ func physical_width() -> void:
 		var shot: EnemyLaser = load("res://scenes/enemy_laser.tscn").instantiate() as EnemyLaser
 		shot.patrol_pulse = true
 		shot.flight_direction = Vector3.BACK
-		shot.position = Vector3(2.3, 0, -10)
+		shot.position = Vector3(2.8, 0, -10)
 		sim.projectile_container.add_child(shot)
 		shot.set_battle_parameters(width, 1, 1)
 		await frames(20)

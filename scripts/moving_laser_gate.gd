@@ -152,11 +152,25 @@ func _physics_process(delta: float) -> void:
 	for id: int in _previous_blues.keys():
 		if not live_ids.has(id):
 			_previous_blues.erase(id)
+	if has_meta("presentation_gate") and not live_ids.is_empty():
+		var all_passed: bool = true
+		for node: Node in get_tree().get_nodes_in_group("blue_ships"):
+			if ((node as Node3D).global_position - global_position).dot(_heading.z) > -20:
+				all_passed = false
+				break
+		if all_passed:
+			queue_free()
 	if age >= active_time:
 		queue_free()
 
 
 func _swept_beam_contact(previous: Vector3, current: Vector3) -> bool:
+	# Rejet de plan conservateur : toutes les barres restent dans |Z| <= 2.6 m.
+	# Évite les inverses/segments pour les agents encore loin de la grille.
+	var before: float = (previous - _previous_transform.origin).dot(_heading.z)
+	var after: float = (current - global_position).dot(_heading.z)
+	if before * after > 0 and minf(absf(before), absf(after)) > 3:
+		return false
 	# En complément des Area3D, trois poses interpolées balayent les barres rotatives.
 	for sample: int in range(3):
 		var pose: Transform3D = _previous_transform.interpolate_with(global_transform, float(sample) * 0.5)

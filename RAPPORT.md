@@ -107,7 +107,7 @@ Séparation évite les voisins trop proches ; cohésion rapproche du voisinage l
 
 ## 8. Démonstration guidée et présentation
 
-Au lancement : GUIDED automatique ; FREE reste accessible dans le panneau. **F1–F6** et les boutons **P1–P6** ouvrent directement Obstacles, Astéroïdes dynamiques, Patrol, Interceptor, Capital et Finale. Un saut nettoie uniquement Guided, recrée quinze Blue et la phase demandée, remet le timer à zéro et recentre la caméra. Les nettoyages ne sont pas des morts ; les pertes cumulées restent conservées.
+Interface historique M16, conservée ici pour documenter les essais ci-dessous : GUIDED automatique et FREE dans le panneau. La version utilisateur actuelle ouvre READY de Presentation ; ses commandes sont décrites dans « Démonstration soutenance ». **F1–F6** et les boutons **P1–P6** ouvrent directement Obstacles, Astéroïdes dynamiques, Patrol, Interceptor, Capital et Finale. Un saut nettoie uniquement Guided, recrée quinze Blue et la phase demandée, remet le timer à zéro et recentre la caméra. Les nettoyages ne sont pas des morts ; les pertes cumulées restent conservées.
 
 **P / Pause** suspend agents, projectiles, caméra et timer. Le label PAUSE et les contrôles restent actifs. Un saut pendant pause reste en pause ; quitter Guided ou Replay reprend la simulation. **TAB/H** basculent réglages/aide, initialement masqués. Le HUD permanent se limite aux pertes bleues, étoiles et titre de phase ; PAUSE est temporaire.
 
@@ -317,14 +317,51 @@ La présentation utilise les agents et armes existants, avec une horloge propre.
 
 Les BlueShip combattent en P2–P5 lorsque portée, cône et ligne de vue le permettent ; la sécurité reste prioritaire et leur navigation ne poursuit pas les ennemis. Des fenêtres de Capital à 70–76 m pendant 5–6 s rendent le blindage arrière accessible à la portée Blue existante. Les ennemis disparus sont remplacés après 0,8–1,4 s réelles pour les unités légères et 2–4 s pour les Capital, avec un RNG déterministe. Le HUD affiche cumulativement « Vaisseaux bleus détruits » et « Ennemis abattus ». Seules les destructions de combat augmentent le second compteur ; les retraits, skips et nettoyages ne comptent pas. R recommence avec les deux compteurs à zéro.
 
-Le panneau **LABORATOIRE DE BATAILLE**, distinct de FREE et ancré à gauche, apparaît dès P5. Il affiche les quatre compteurs actifs/détruits et onze réglages : Patrol 0–30, Interceptor 0–30, Capital 0–10, cadence 0,5–4×, largeur projectiles 0,5–3×, épaisseur grilles 0,5–3×, vitesse 0,5–2×, dégâts 1–3, densité 0–2,5×, Mega/Colossal 0–3 et agressivité 0,5–3×. Les volumes physiques et perçus suivent les largeurs ; BlueLaser n'est pas modifié. Les cibles supplémentaires arrivent progressivement, et les réductions sont administratives.
+Le panneau **LABORATOIRE DE BATAILLE**, distinct de FREE et ancré à gauche, apparaît dès P5. Il affiche les quatre compteurs actifs/détruits et onze réglages : Patrol 0–30, Interceptor 0–30, Capital 0–10, cadence 0,5–4×, largeur projectiles 0,5–3×, épaisseur grilles 0,5–3×, vitesse 0,5–2×, dégâts 1–3, densité 0–2,5×, Mega/Colossal 0–3 et agressivité 0,5–3×. Les volumes physiques et perçus suivent les largeurs. BlueLaser utilise désormais une sphère balayée de rayon 0,7 m, un corps cyan de 0,48 m (ancien : 0,24 m) et une pointe de rayon 0,52 m. Le masque reste rochers + hostiles, sans Blue. Les bases Presentation sont multipliées par 1,75 pour les tirs Interceptor et 1,5 pour les pulses Patrol, avant le slider. Les cibles supplémentaires arrivent progressivement, et les réductions sont administratives.
 
 RESET rétablit 15/15/6 ennemis, cadence 2×, largeurs/vitesse/densité/agressivité 1×, dégâts légers 1 et Mega normal, sans effacer les pertes/kills. CHAOS utilise 25/25/8 ennemis, cadence 3×, largeur 1,7×, grilles 1,8×, vitesse 1,3×, dégâts 2, densité 1,6×, Mega élevé et agressivité 2×. ESPACE ou TERMINER fige FIN ; R recommence et D/Échap restaure FREE.
 
-La cadence individuelle Patrol/Interceptor est doublée par rapport au correctif de populations. P4 et P5 programment six Gate/Grid, soit trois fois leurs deux lancements antérieurs, avec un maximum de deux grandes grilles simultanées et un budget global de 35 unités dangereuses. Les formes déterministes sont RECTANGULAR, DIAGONAL_X, DIAMOND, OFFSET_CROSS, HEXAGONAL, RADIAL et ASYMMETRIC, fixes ou rotatives ; chacune possède au moins trois ouvertures intérieures sûres. Les validations couvrent traversées autonomes, contacts avec beams, kills/respawns, paramètres physiques, parcours de 152 s et CHAOS. Ces essais de présentation ne remplacent aucune mesure scientifique M16.
+La Presentation est la démonstration principale dès Play : READY affiche DÉMARRER et **ALLER À LA FINALE**. Ce second bouton reste visible en P1–P4 ; F8 offre le même saut et F7 prépare/recommence. Le saut nettoie les hazards et ennemis précédents sans score, conserve les compteurs réels déjà obtenus et démarre P5 à t=0, avec Battle Lab immédiatement visible. GuidedDemonstration reste un helper interne, testé mais retiré de l'interface utilisateur.
+
+Les spawns finaux Patrol et Interceptor sont bornés autour du centre Blue : X ±20–55/60 m, Y ±25 m, Z −80…−35 m, avec recherche alternative sûre dans X ±58 / Y ±32 / Z −85…−35 m. Les Patrol suivent des boucles de waypoints, sans poursuite. Une ancre 3D mobile se recale progressivement après un déplacement de plus de 18 m du centre. Le cône frontal nominal vaut 43° et la portée 70 m. Les Interceptor privilégient les Blue dans les 100 m du centre, répartissent leurs cibles selon proximité, ligne de vue et charge, puis se désengagent vers une position locale à environ 45 m. Après 3 s hors zone (>115 m Patrol, >145 m Interceptor non engagé), un recyclage hors champ est administratif, sans kill ni mort. Les Capital conservent leur rôle lointain et les raids temporaires.
+
+Un scheduler indépendant des cycles Capital déclenche les Gate/Grid toutes les 1,667 s au réglage nominal : objectif 18 lancements réels par phase, trois fois les six du main au départ de ce correctif. La fréquence répond au slider, l'épaisseur agit sur les nouvelles grilles. Les sept formes et leurs ouvertures sont conservées, sans répétition consécutive ; timing, positions et rotations diffèrent. Une grille passée derrière toute la flotte est nettoyée immédiatement. La troisième/quatrième grille ne sont autorisées qu’à partir de 75 FPS mesurés ; le plafond est quatre grandes grilles et 48 unités dangereuses, beams compris. Des quotas distincts évitent que les pulses verts monopolisent toutes les occasions de tir. Les tests mesurent les lancements, traversées, contournements, distances, engagements et performances en 1080p. Ces essais de Presentation ne remplacent aucune mesure scientifique M16.
 
 1. « Les BlueShip se dispersent et se regroupent par des règles locales, sans leader. »
 2. « Chaque Patrol garde sa propre route, et un adversaire abattu est remplacé. »
 3. « L'Interceptor sélectionne localement une cible, poursuit, tire et se désengage. »
 4. « La flotte capitale alterne les attaques et les formes de grilles ; ses fenêtres de proximité permettent la riposte. »
 5. « Le laboratoire montre immédiatement les effets de la cadence, des volumes et des populations sur la bataille. »
+
+
+La Presentation utilise des meshes/matériaux partagés pour les tirs et explosions, un rejet de plan avant les contacts des grilles, des perceptions de proximité espacées de 0,06–0,08 s simulée, un pas physique de 90 Hz (0,0222 s simulée à 2×) et MSAA 2×. Les sweeps de projectiles et les collisions de déplacement restent actifs. Les réglages du viewport et de simulation libre sont restaurés à la sortie. Les comptes rendus 1080p précisent ces conditions.
+
+### Mesures du correctif de finale
+
+Passage natif du 15/10/2026, seed 20261012, rendu et fenêtre **1920×1080**, Intel Arc, MSAA 2×, physique 90 Hz. Chaque fenêtre P4/P5/CHAOS dure 30 s réelles ; aucune destruction n’est injectée dans ces mesures. Les traversées sont des événements agent/grille.
+
+| Fenêtre | FPS moyen / min 1 s | Gate + Grid lancées | Traversées / contournements | Grilles simultanées max | Nodes max | Projectiles hostiles max | Combat hazards max | Unités dangereuses max |
+|---|---:|---|---:|---:|---:|---:|---:|---:|
+| P4 | 99,98 / 99,84 | 9 + 9 | 151 / 100 | 2 | 1594 | 11 | 4 | 23 |
+| P5 | 99,76 / 96,45 | 9 + 9 | 145 / 106 | 2 | 2341 | 28 | 2 | 38 |
+| CHAOS | 97,88 / 85,25 | scheduler continu | 216 / 62 | 2 | 2911 | 29 | 2 | 41 |
+
+P4 et P5 ont chacune lancé **18 nouvelles grandes grilles**, contre six dans le main de départ. Les sept géométries sont observées dans chaque phase. Le maximum sur tout le parcours, sliders inclus : **29 projectiles hostiles**, **2911 nodes**, **4 combat hazards**, **41/48 unités dangereuses** beams compris. Les phases et CHAOS restent au-dessus de 60 FPS au minimum sur une seconde dans ce passage.
+
+| Distance en P5 | Moyenne | Médiane | Maximum | Mesures sous 100 m | Temps avec ≥80 % sous 100 m |
+|---|---:|---:|---:|---:|---:|
+| Patrol | 41,51 m | 41,82 m | 89,35 m | 100,00 % | 100,00 % |
+| Interceptor | 52,80 m | 49,70 m | 135,95 m | 98,52 % | 100,00 % |
+
+Les **15/15 Patrol initiaux** ont tiré ; les **15/15 Interceptor initiaux** ont poursuivi, les **15/15** ont tiré et les **15/15** se sont désengagés. Ces comptes distinguent les unités initiales de leurs remplaçants.
+
+Sliders 15→25, dix unités ajoutées progressivement ; distances à leur apparition :
+
+| Nouveaux slots 15…24 | Distances au centre, en mètres |
+|---|---|
+| Patrol | 88,64, 64,04, 65,68, 54,62, 65,97, 80,82, 81,50, 65,61, 83,87, 77,88 |
+| Interceptor | 72,89, 68,93, 76,52, 66,18, 47,98, 79,45, 78,90, 88,70, 95,79, 57,34 |
+
+Les dix Interceptor ajoutés ont acquis une cible dès leur premier échantillon ; première rafale après **0,21–1,36 s**, avant 4 s. La distance maximale d’apparition des vingt ajouts vaut **95,79 m** dans ces fenêtres. Le désengagement rejoint la mission locale ; en CHAOS, **99,27 %** des mesures Interceptor sont sous 100 m.
+
+Fixtures séparées : ancien rayon central qui rate / nouvelle sphère Blue qui touche à 1 m de décalage sur une cible de rayon 0,5 m ; décalage 1,4 m qui rate ; tir à 3000 m/s sans tunneling ; rocher bloquant et Blue intercalé intact. Les bases rouge/verte et les multiplicateurs physique/visuel/perçu sont vérifiés. Recyclage hors champ et nettoyages : zéro kill et zéro respawn de mort. Le clic UI vérifie 15/15/6 à l’entrée ; les Mega/Colossal vérifient aussi les hostiles avant leur apparition.

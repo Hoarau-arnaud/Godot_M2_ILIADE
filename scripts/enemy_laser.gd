@@ -13,6 +13,12 @@ enum VisualVariant { BOLT, SPEAR, PULSE }
 @export var visual_variant: VisualVariant = VisualVariant.BOLT
 @export var patrol_pulse: bool = false
 
+static var _green_material: StandardMaterial3D
+static var _white_material: StandardMaterial3D
+static var _white_cores: Dictionary[int, BoxMesh] = {}
+static var _pulse_trail_mesh: CylinderMesh
+static var _pulse_ring_mesh: TorusMesh
+
 var flight_direction: Vector3 = Vector3.FORWARD
 var velocity: Vector3:
 	get:
@@ -34,46 +40,53 @@ var _battle_query: PhysicsShapeQueryParameters3D
 func _ready() -> void:
 	if patrol_pulse:
 		visual_variant = VisualVariant.PULSE
-		var green: StandardMaterial3D = StandardMaterial3D.new()
-		green.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		green.albedo_color = Color(0.3, 1, 0.42)
-		green.emission_enabled = true
-		green.emission = Color(0.12, 1, 0.28)
-		green.emission_energy_multiplier = 2.5
+		if _green_material == null:
+			_green_material = StandardMaterial3D.new()
+			_green_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+			_green_material.albedo_color = Color(0.3, 1, 0.42)
+			_green_material.emission_enabled = true
+			_green_material.emission = Color(0.12, 1, 0.28)
+			_green_material.emission_energy_multiplier = 2.5
+		var green: StandardMaterial3D = _green_material
 		$Pulse.material_override = green
 		$PulseTrail.material_override = green
 		$Pulse.scale = Vector3.ONE * 2.25
-		var trail: CylinderMesh = CylinderMesh.new()
-		trail.top_radius = 0.28
-		trail.bottom_radius = 0.16
-		trail.height = 4.5
-		trail.radial_segments = 8
-		$PulseTrail.mesh = trail
+		if _pulse_trail_mesh == null:
+			_pulse_trail_mesh = CylinderMesh.new()
+			_pulse_trail_mesh.top_radius = 0.28
+			_pulse_trail_mesh.bottom_radius = 0.16
+			_pulse_trail_mesh.height = 4.5
+			_pulse_trail_mesh.radial_segments = 8
+		$PulseTrail.mesh = _pulse_trail_mesh
 		$PulseTrail.rotation_degrees.x = 90
 		$PulseTrail.position.z = 2.4
 		var halo: MeshInstance3D = MeshInstance3D.new()
 		halo.name = "PulseHalo"
-		var ring: TorusMesh = TorusMesh.new()
-		ring.inner_radius = 0.78
-		ring.outer_radius = 1
-		ring.rings = 16
-		ring.ring_segments = 6
-		halo.mesh = ring
+		if _pulse_ring_mesh == null:
+			_pulse_ring_mesh = TorusMesh.new()
+			_pulse_ring_mesh.inner_radius = 0.78
+			_pulse_ring_mesh.outer_radius = 1
+			_pulse_ring_mesh.rings = 16
+			_pulse_ring_mesh.ring_segments = 6
+		halo.mesh = _pulse_ring_mesh
 		halo.material_override = green
 		halo.rotation_degrees.x = 90
 		add_child(halo)
 	if visual_variant != VisualVariant.PULSE:
 		var core: MeshInstance3D = MeshInstance3D.new()
-		var streak: BoxMesh = BoxMesh.new()
-		streak.size = Vector3(0.18, 0.18, 6 if visual_variant == VisualVariant.BOLT else 8)
-		core.mesh = streak
-		var white: StandardMaterial3D = StandardMaterial3D.new()
-		white.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		white.albedo_color = Color(1, 1, 1)
-		white.emission_enabled = true
-		white.emission = Color(1, 1, 1)
-		white.emission_energy_multiplier = 3
-		core.material_override = white
+		if _white_material == null:
+			_white_material = StandardMaterial3D.new()
+			_white_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+			_white_material.albedo_color = Color.WHITE
+			_white_material.emission_enabled = true
+			_white_material.emission = Color.WHITE
+			_white_material.emission_energy_multiplier = 3
+		if not _white_cores.has(visual_variant):
+			var streak: BoxMesh = BoxMesh.new()
+			streak.size = Vector3(0.18, 0.18, 6 if visual_variant == VisualVariant.BOLT else 8)
+			streak.material = _white_material
+			_white_cores[visual_variant] = streak
+		core.mesh = _white_cores[visual_variant]
 		core.position.z = 1.1 if visual_variant == VisualVariant.BOLT else 2
 		add_child(core)
 	$Bolt.visible = visual_variant == VisualVariant.BOLT
@@ -119,12 +132,13 @@ func set_battle_parameters(width: float, speed: float, level: int) -> void:
 		_battle_query.shape = _battle_shape
 		_battle_query.collision_mask = HIT_MASK
 		_battle_query.margin = 0.01
-	battle_radius = (0.65 if patrol_pulse else 0.22) * width
+	var base_width: float = 1.5 if patrol_pulse else 1.75
+	battle_radius = (0.65 if patrol_pulse else 0.22) * base_width * width
 	_battle_shape.radius = battle_radius
 	projectile_speed = float(_battle_nominal.speed) * speed
-	avoidance_radius = float(_battle_nominal.avoidance) * width
+	avoidance_radius = battle_radius + 1.4 # Volume du projectile + marge du corps Blue, sans halo artificiel.
 	damage = level # Les armes légères PRESENTATION commencent à un point.
-	scale = Vector3(width, width, 1)
+	scale = Vector3(base_width * width, base_width * width, 1)
 
 
 func _battle_collision(destination: Vector3) -> Dictionary:

@@ -246,7 +246,7 @@ func _framing_distance(target: Vector3, direction: Vector3) -> float:
 	var tangent_x: float = tangent_y * viewport_size.x / maxf(viewport_size.y, 1.0)
 	var distance: float = 30.0
 	var framing_points: Array[Vector3] = _agent_positions
-	if action_observation_enabled:
+	if action_observation_enabled or presentation_shots:
 		var nearby: Array[Vector3] = []
 		for point: Vector3 in _agent_positions:
 			if point.distance_to(_group_center) < 110:

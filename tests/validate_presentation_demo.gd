@@ -89,9 +89,9 @@ func presentation_controls() -> void:
 	presentation_key(KEY_R)
 	await frames(3)
 	check(paused and sim.presentation.state == PresentationDemonstration.State.READY and sim.death_count == 0, "R restart READY")
-	presentation_key(KEY_F5)
+	sim.presentation.guided_phase(4)
 	await frames(3)
-	check(not paused and sim.demonstration.is_guided() and sim.demonstration.phase_index == 4 and sim.demonstration.phase_duration(4) == 42, "F1–F6 Guided M16")
+	check(not paused and sim.demonstration.is_guided() and sim.demonstration.phase_index == 4 and sim.demonstration.phase_duration(4) == 42, "Helper Guided M16 interne")
 	presentation_key(KEY_F7)
 	await frames(3)
 	presentation_key(KEY_D)
@@ -231,7 +231,7 @@ func complete_presentation(seed_value: int, native: bool) -> void:
 		var data: Dictionary = populations[index]
 		check([data.patrol_max, data.interceptor_max, data.capital_max] == expected[index], "Population P%d" % (index + 1))
 		if index < phases.size():
-			check(phases[index].projectiles_max <= 35, "Budget global P%d" % (index + 1))
+			check(phases[index].projectiles_max <= (48 if index >= 3 else 35), "Budget global P%d" % (index + 1))
 		if index == 1:
 			check(data.patrol_min > 0 and data.route_geometries.size() == 15 and data.marker_routes >= 3 and data.marker_routes <= 5, "P2 routes / marqueurs / population active")
 			var unique: Dictionary = {}
@@ -256,8 +256,8 @@ func complete_presentation(seed_value: int, native: bool) -> void:
 		check(phases[3].first_events.get("flash", 100) < 1 and phases[3].first_events.get("heavy", 100) < 2, "P4 Heavy immédiat")
 		check(phases[3].gate_crossings.has("Gate") and phases[3].gate_crossings.has("Grid"), "Gate / Grid ne traversent pas")
 		check(phases[1].blue_shots > 0 and sim.hostile_hits > 0, "P2 combat Blue absent")
-		check(phases[3].get("grid_launches", 0) >= 6 and phases[3].get("geometries", {}).size() >= 4, "P4 six grilles / géométries")
-		check(phases[4].asteroids_max <= 80 and phases[4].projectiles_max <= 35 and phases[4].large_gates_max <= 2 and phases[4].colossals_active_max <= 1, "P5 budgets")
+		check(phases[3].get("grid_launches", 0) >= 17 and phases[3].get("geometries", {}).size() >= 4, "P4 dix-huit grilles / géométries")
+		check(phases[4].asteroids_max <= 80 and phases[4].projectiles_max <= 48 and phases[4].large_gates_max <= 4 and phases[4].colossals_active_max <= 1, "P5 budgets")
 		for phase: Dictionary in phases:
 			check(phase.duration >= 30 and phase.duration < 30.2, "Durée phase de trente secondes")
 
@@ -320,7 +320,7 @@ func sandbox_run(sim: SpaceSimulation, native: bool, chaos: bool) -> void:
 	var result: Dictionary = {"test": "chaos_30s" if chaos else "sandbox_runtime_30s", "settings": controller.settings.duplicate(), "fps_mean": float(sample.frames) / wall, "fps_min_1s": minimum, "native": native, "nodes_max": max_nodes, "projectiles_max": max_projectiles, "blue_deaths": sim.death_count - before_deaths, "enemy_kills": sim.enemies_destroyed - before_kills, "respawns": {}, "grid_launches": int(controller._sample.get("grid_launches", 0)) - before_grids, "populations": sample, "profile": profile}
 	for family: String in controller.FAMILIES:
 		result.respawns[family] = int(controller.total_respawns[family]) - int(before_respawns[family])
-	check(max_projectiles <= 35 and max_nodes < 3200 and not sim.demonstration.game_over, "Sandbox budget / crash")
+	check(max_projectiles <= 48 and max_nodes < 3200 and not sim.demonstration.game_over, "Sandbox budget / crash")
 	if native:
 		check(minimum > 60, "Sandbox / Chaos sous 60 FPS")
 	records.append(result)
