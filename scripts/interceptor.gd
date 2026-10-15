@@ -36,6 +36,8 @@ var _escape_direction: Vector3 = Vector3.RIGHT
 var _shot_timer: float = 0.0
 var bursts_started: int = 0
 var _burst_remaining: int = 0
+var _separation_sample_at: float = -INF
+var _cached_separation: Vector3 = Vector3.ZERO
 var _fire_random: RandomNumberGenerator = RandomNumberGenerator.new()
 
 @onready var _muzzle: Marker3D = $Visuals/Muzzle
@@ -56,10 +58,16 @@ func _physics_process(delta: float) -> void:
 	if _mission_state == InterceptorState.PURSUIT and is_instance_valid(target):
 		var offset: Vector3 = target.global_position + target.velocity * target_prediction_time - global_position
 		# Correction locale limitée : conserver une distance de combat, sans coller la cible.
-		desired = target.velocity + offset.normalized() * clampf((offset.length() - pursuit_distance) * 0.6, -4.0, 7.0)
+		desired = target.velocity + offset.normalized() * clampf((offset.length() - pursuit_distance) * 0.6, -4.0, 14.0 if presentation_battle else 7.0)
 		desired.z = clampf(desired.z, -pursuit_max_speed, -2.0)
 	elif _mission_state == InterceptorState.DISENGAGE:
-		desired = _escape_direction * 5.0 + Vector3.FORWARD * (forward_speed + 3.0)
+		if presentation_battle:
+			var rally: Vector3 = battle_center + _escape_direction * 45 + Vector3(0, 0, -15)
+			desired = battle_velocity + (rally - global_position).limit_length(16)
+		else:
+			desired = _escape_direction * 5.0 + Vector3.FORWARD * (forward_speed + 3.0)
+	if presentation_battle and _mission_state == InterceptorState.PATROL:
+		desired = battle_velocity + (battle_center - global_position).limit_length(12)
 	var collision_steering: Vector3 = _obstacle_avoidance() * avoidance_weight
 	collision_steering += _ship_avoidance() * ship_avoidance_weight
 	collision_steering += _hostile_separation()
@@ -96,6 +104,9 @@ func _update_mission(delta: float) -> void:
 				_pursuit_time = 0.0
 				pursuits_started += 1
 		InterceptorState.PURSUIT:
+			if presentation_battle and is_instance_valid(target) and target.global_position.distance_to(battle_center) > 100 and global_position.distance_to(battle_center) > 100:
+				_begin_disengage()
+				return
 			_pursuit_time += delta # Le temps continue pendant un évitement.
 			if not is_instance_valid(target) or not target.alive or target.is_queued_for_deletion() or global_position.distance_to(target.global_position) > target_detection_radius or _pursuit_time >= max_pursuit_duration:
 				_begin_disengage()
@@ -119,6 +130,8 @@ func _nearest_blue_ship() -> BlueShip:
 		if distance <= nearest:
 			selected = ship
 			nearest = distance
+	if presentation_battle and not candidates.is_empty():
+		return _battle_target(candidates)
 	if readable_threats and not candidates.is_empty():
 		return (get_parent().get_parent() as SpaceSimulation).balanced_target(candidates)
 	return selected
@@ -144,6 +157,14 @@ func _forget_target(ship: BlueShip) -> void:
 
 
 func _hostile_separation() -> Vector3:
+	if presentation_battle and _time - _separation_sample_at < 0.06:
+		return _cached_separation
+	_separation_sample_at = _time
+	_cached_separation = _sample_hostile_separation()
+	return _cached_separation
+
+
+func _sample_hostile_separation() -> Vector3:
 	var result: Vector3 = Vector3.ZERO
 	for node: Node in get_tree().get_nodes_in_group("hostile_agents"):
 		var other: CharacterBody3D = node as CharacterBody3D
@@ -168,7 +189,7 @@ func _has_clear_line_of_sight() -> bool:
 
 func _update_fire(delta: float) -> void:
 	_shot_timer = maxf(_shot_timer - delta, 0.0)
-	if not combat_enabled or interceptor_state != InterceptorState.PURSUIT or not is_instance_valid(target) or not target.alive:
+	if not combat_enabled or (_mission_state if presentation_battle else interceptor_state) != InterceptorState.PURSUIT or not is_instance_valid(target) or not target.alive:
 		return
 	var offset: Vector3 = target.global_position - _muzzle.global_position
 	var forward: Vector3 = -_muzzle.global_basis.z.normalized()
@@ -192,6 +213,8 @@ func _update_fire(delta: float) -> void:
 	if direction.dot(forward) < cos(deg_to_rad(departure_cone)):
 		return
 	if ArtilleryZone.dangerous_count(get_tree()) >= dangerous_projectile_limit:
+		return
+	if presentation_battle and not (get_parent().get_parent() as SpaceSimulation).presentation.light_fire_available("interceptor", shots_fired == 0):
 		return
 	var projectile: EnemyLaser = ENEMY_LASER_SCENE.instantiate() as EnemyLaser
 	projectile.visual_variant = [EnemyLaser.VisualVariant.BOLT, EnemyLaser.VisualVariant.BOLT if predictive_targeting or burst_size >= 4 else EnemyLaser.VisualVariant.PULSE, EnemyLaser.VisualVariant.SPEAR][shots_fired % 3]
@@ -225,3 +248,29 @@ func _die(combat_kill: bool = false) -> void:
 	_burst_remaining = 0
 	remove_from_group("interceptors")
 	super._die(combat_kill)
+
+
+func _battle_target(candidates: Array[BlueShip]) -> BlueShip:
+	var core: Array[BlueShip] = []
+	for blue: BlueShip in candidates:
+		if blue.global_position.distance_to(battle_center) <= 100:
+			core.append(blue)
+	if not core.is_empty():
+		candidates = core
+	var selected: BlueShip = null
+	var best: float = INF
+	var slot: int = int(get_meta("presentation_slot", 0))
+	for index: int in range(candidates.size()):
+		var blue: BlueShip = candidates[(index + slot) % candidates.size()]
+		var assigned: int = 0
+		for node: Node in get_tree().get_nodes_in_group("interceptors"):
+			if node != self and (node as Interceptor).target == blue:
+				assigned += 1
+		var score: float = global_position.distance_to(blue.global_position) + assigned * 22 + maxf(blue.global_position.distance_to(battle_center) - 70, 0) * 4
+		var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(global_position, blue.global_position, 2)
+		if not get_world_3d().direct_space_state.intersect_ray(query).is_empty():
+			score += 80
+		if score < best:
+			best = score
+			selected = blue
+	return selected

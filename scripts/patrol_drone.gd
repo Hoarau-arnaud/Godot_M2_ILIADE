@@ -30,15 +30,24 @@ var patrol_projectile_container: Node3D
 var route_waypoints: Array[Vector3] = []
 # Facultatif : les routes historiques gardent leur géométrie par défaut.
 var demonstration_route_offsets: Array[Vector3] = []
+# Mission mobile de la finale seulement : une boucle de waypoints, sans cible poursuivie.
+var presentation_battle: bool = false
+var battle_anchor: Vector3 = Vector3.ZERO
+var battle_center: Vector3 = Vector3.ZERO
+var battle_velocity: Vector3 = Vector3.ZERO
+var _battle_anchor_goal: Vector3 = Vector3.ZERO
 var route_index: int = 0
 var routes_completed: int = 0
 var fire_intensity: float = 1.0
 var dangerous_projectile_limit: int = 50
 var environment_perception_interval: float = 0
 var _obstacle_sample_at: float = -INF
+var _ship_sample_at: float = -INF
+var _cached_ship_avoidance: Vector3 = Vector3.ZERO
 var _cached_obstacle_avoidance: Vector3 = Vector3.ZERO
 var patrol_shots_fired: int = 0
 var _patrol_fire_timer: float = 1.0
+var _battle_fire_sample_at: float = -INF
 
 @export_category("Perceptions locales")
 @export var obstacle_detection_radius: float = 44.0
@@ -82,6 +91,15 @@ func _ready() -> void:
 
 
 func _choose_waypoint() -> void:
+	if presentation_battle and not self is Interceptor:
+		if route_index >= demonstration_route_offsets.size():
+			route_index = 0
+			routes_completed += 1
+		waypoint = battle_anchor + demonstration_route_offsets[route_index]
+		route_index += 1
+		waypoints_selected += 1
+		patrol_state = PatrolState.PATROL
+		return
 	if demonstration_route:
 		if route_waypoints.is_empty() or route_index >= route_waypoints.size():
 			if not route_waypoints.is_empty():
@@ -114,6 +132,9 @@ func _physics_process(delta: float) -> void:
 	if not alive:
 		return
 	_time += delta
+	if presentation_battle:
+		_move_battle_patrol(delta)
+		return
 	if patrol_state == PatrolState.CHANGING_WAYPOINT:
 		_choose_waypoint()
 	elif global_position.distance_to(waypoint) <= maxf(waypoint_reach_distance, 0.1) or global_position.z <= waypoint.z:
@@ -150,13 +171,16 @@ func _update_patrol_fire(delta: float) -> void:
 	_patrol_fire_timer = maxf(_patrol_fire_timer - delta, 0)
 	if _patrol_fire_timer > 0:
 		return
+	if presentation_battle and _time < _battle_fire_sample_at:
+		return
+	_battle_fire_sample_at = _time + 0.08
 	var chosen: BlueShip = null
 	var candidates: Array[BlueShip] = []
 	var distance: float = 70
 	for node: Node in get_tree().get_nodes_in_group("blue_ships"):
 		var ship: BlueShip = node as BlueShip
 		var offset: Vector3 = ship.global_position - global_position
-		var in_cone: bool = not predictive_targeting or offset.normalized().dot(velocity.normalized()) >= cos(deg_to_rad(patrol_firing_cone_degrees))
+		var in_cone: bool = not predictive_targeting or offset.normalized().dot(-_visuals.global_basis.z if presentation_battle else velocity.normalized()) >= cos(deg_to_rad(patrol_firing_cone_degrees))
 		if readable_threats and ship.alive and not ship.is_queued_for_deletion() and in_cone and offset.length() < 70:
 			candidates.append(ship)
 		if ship.alive and not ship.is_queued_for_deletion() and in_cone and offset.length() < distance:
@@ -167,6 +191,8 @@ func _update_patrol_fire(delta: float) -> void:
 	if chosen == null:
 		return
 	if ArtilleryZone.dangerous_count(get_tree()) >= dangerous_projectile_limit:
+		return
+	if presentation_battle and not (get_parent().get_parent() as SpaceSimulation).presentation.light_fire_available("patrol"):
 		return
 	var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(global_position, chosen.global_position, 2)
 	if not get_world_3d().direct_space_state.intersect_ray(query).is_empty():
@@ -249,6 +275,14 @@ func _forget_obstacle(obstacle: SpaceAsteroid) -> void:
 
 
 func _ship_avoidance() -> Vector3:
+	if presentation_battle and _time - _ship_sample_at < 0.06:
+		return _cached_ship_avoidance
+	_ship_sample_at = _time
+	_cached_ship_avoidance = _sample_ship_avoidance()
+	return _cached_ship_avoidance
+
+
+func _sample_ship_avoidance() -> Vector3:
 	perceived_ship_count = 0
 	var result: Vector3 = Vector3.ZERO
 	for node: Node in get_tree().get_nodes_in_group("blue_ships"):
@@ -310,3 +344,31 @@ func _die(combat_kill: bool = false) -> void:
 	died.emit(self)
 	hide()
 	queue_free()
+
+
+func _move_battle_patrol(delta: float) -> void:
+	if battle_anchor.distance_to(battle_center) > 18:
+		_battle_anchor_goal = battle_center
+	var previous_anchor: Vector3 = battle_anchor
+	battle_anchor = battle_anchor.lerp(_battle_anchor_goal, 1 - exp(-3 * delta))
+	patrol_anchor = Vector2(battle_anchor.x, battle_anchor.y)
+	waypoint += battle_anchor - previous_anchor
+	if global_position.distance_to(waypoint) < waypoint_reach_distance:
+		_choose_waypoint()
+	var to_waypoint: Vector3 = waypoint - global_position
+	var steering: Vector3 = _obstacle_avoidance() * avoidance_weight + _ship_avoidance() * ship_avoidance_weight
+	var route_velocity: Vector3 = to_waypoint.normalized() * minf(20, to_waypoint.length() * 1.5)
+	var desired: Vector3 = battle_velocity + route_velocity + steering.limit_length(12)
+	velocity = velocity.move_toward(desired, 35 * delta)
+	var facing: Vector3 = route_velocity.normalized()
+	if facing.length_squared() > 0.01:
+		var up: Vector3 = Vector3.RIGHT if absf(facing.y) > 0.98 else Vector3.UP
+		_visuals.quaternion = _visuals.quaternion.slerp(Basis.looking_at(facing, up).get_rotation_quaternion(), 1 - exp(-4 * delta))
+	patrol_state = PatrolState.AVOIDING if steering.length_squared() > 0.01 else PatrolState.PATROL
+	_left_exhaust.scale.y = 1 + 0.12 * sin(_time * 5 + _phase)
+	_right_exhaust.scale.y = 1 + 0.12 * sin(_time * 5.4 + _phase)
+	var collision: KinematicCollision3D = move_and_collide(velocity * delta, false, 0.001, true)
+	if collision != null and collision.get_collider() is SpaceAsteroid:
+		_die()
+	if alive and patrol_fire_enabled:
+		_update_patrol_fire(delta)

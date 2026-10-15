@@ -3,7 +3,7 @@ extends "res://tests/validate_targeted_evasion.gd"
 func modern(count: int = 15) -> SpaceSimulation:
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
 	FlightTuning.m14_fixture(sim)
-	sim.auto_start_guided_demo = false
+	sim.auto_start_presentation_demo = false
 	sim.ship_count = count
 	sim.simulation_speed_multiplier = 1
 	sim.streaming_enabled = false
@@ -221,11 +221,13 @@ func demonstration_m14(native: bool) -> void:
 		root.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_KEEP
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
 	FlightTuning.m14_fixture(sim)
+	sim.auto_start_presentation_demo = false
 	sim.threat_choreography_enabled = true
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--pace="):
 			sim.guided_simulation_speed = argument.trim_prefix("--pace=").to_float()
 	root.add_child(sim)
+	sim.demonstration.start()
 	await frames(3)
 	if finale_only:
 		sim.demonstration._begin_phase(5, Vector3.ZERO)

@@ -107,6 +107,8 @@ var arcade_visuals_enabled: bool = false
 var death_cause: String = ""
 var gate_opening_choices: int = 0
 var gate_opening_changes: int = 0
+var presentation_combat_interval: float = 0
+var _combat_sample_at: float = -INF
 var _gate_memory: Dictionary[MovingLaserGate, Dictionary] = {}
 var _aura_blend: float = 0
 var _aura: MeshInstance3D
@@ -290,6 +292,9 @@ func _has_clear_line_of_sight(target: Node3D) -> bool:
 
 func _update_combat(delta: float) -> void:
 	_fire_timer = maxf(_fire_timer - delta, 0.0)
+	if _time - _combat_sample_at < presentation_combat_interval:
+		return
+	_combat_sample_at = _time
 	combat_target = null
 	if not combat_enabled or not alive:
 		combat_state = CombatState.NO_TARGET

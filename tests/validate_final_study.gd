@@ -24,7 +24,7 @@ func controls() -> void:
 	var sim: SpaceSimulation = modern()
 	sim.demonstration.start()
 	await frames(3)
-	key(KEY_F5)
+	sim.presentation.guided_phase(4)
 	await frames(3)
 	check(sim.demonstration.phase_index == 4 and sim.capitals.size() == 3 and sim.ships.size() == 15, "F5 n'initialise pas la phase Capital")
 	while sim.demonstration.phase_elapsed < 2.5:
@@ -50,12 +50,12 @@ func controls() -> void:
 	await frames(5)
 	check(not paused and not sim.demo_controls.pause_label.visible and sim.demonstration.phase_elapsed > timer, "Reprise incorrecte")
 	var old_deaths: int = sim.death_count
-	key(KEY_F3)
+	sim.presentation.guided_phase(2)
 	await frames(3)
 	check(sim.demonstration.phase_index == 2 and sim.drones.size() == 4 and sim.capitals.is_empty(), "F3 / nettoyage Capital incorrect")
 	check(get_nodes_in_group("artillery_projectiles").is_empty() and get_nodes_in_group("combat_hazards").is_empty(), "Résidus après saut")
 	check(sim.death_count == old_deaths, "Nettoyage compté comme mort")
-	key(KEY_F6)
+	sim.presentation.guided_phase(5)
 	await frames(3)
 	check(sim.ships.size() == 15 and sim.drones.size() == 4 and sim.interceptors.size() == 4 and sim.capitals.size() == 3, "F6 populations incorrectes")
 	check(sim.camera.mode == SimulationCamera.Mode.CINEMATIC and sim.asteroid_container.storm_enabled, "F6 caméra / environnement incorrect")
@@ -67,12 +67,12 @@ func controls() -> void:
 	await frames(3)
 	check(sim.death_count == 0 and sim.demonstration.phase_index == 0 and sim.simulation_seed == sim.demonstration.demonstration_seed, "Replay ne restaure pas phase/seed/pertes")
 	for index: int in range(6):
-		sim.demo_controls.phase_buttons[index].pressed.emit()
+		sim.presentation.guided_phase(index)
 		await frames(2)
 		check(sim.demonstration.phase_index == index and sim.demonstration.phase_elapsed < 0.1, "Bouton phase / timer incorrect")
 	key(KEY_PAUSE)
 	await frames(2)
-	key(KEY_F2)
+	sim.presentation.guided_phase(1)
 	await frames(2)
 	check(paused and sim.demonstration.phase_index == 1, "Saut pendant pause incorrect")
 	check(sim.camera.global_position.length() < 100, "Caméra loin de la nouvelle scène après saut")
@@ -206,11 +206,13 @@ func demonstration_m16(native: bool) -> void:
 		root.content_scale_size = Vector2i(1920, 1080)
 		root.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_KEEP
 	var sim: SpaceSimulation = MAIN.instantiate() as SpaceSimulation
+	sim.auto_start_presentation_demo = false
 	sim.threat_choreography_enabled = true
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--pace="):
 			sim.guided_simulation_speed = argument.trim_prefix("--pace=").to_float()
 	root.add_child(sim)
+	sim.demonstration.start()
 	await frames(3)
 	var observer: Node = OBSERVER.new()
 	observer.simulation = sim

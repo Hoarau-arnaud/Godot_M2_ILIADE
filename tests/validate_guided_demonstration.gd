@@ -86,7 +86,7 @@ func _test_controls_and_restore() -> void:
 	var spawn_count: int = sim.ship_spawn_count
 	var random_state: int = sim._random.state
 	var field_next: float = sim.asteroid_container._next_z
-	_key(KEY_D)
+	sim.demonstration.toggle()
 	await _advance(1)
 	_check(sim.demonstration.is_guided() and sim.camera.mode == SimulationCamera.Mode.CINEMATIC, "D ne démarre pas GUIDED/CINE.")
 	_check(sim.demo_controls.phase_panel.visible and sim.demo_controls.phase_label.text.begins_with("PHASE 1"), "Label initial absent.")
@@ -98,10 +98,10 @@ func _test_controls_and_restore() -> void:
 	_check(original.position == frozen_position and original._time == frozen_time and not original.is_in_group("blue_ships"), "Simulation libre continue pendant GUIDED.")
 	_check(pursuing.target == pursued and pursuing._mission_state == Interceptor.InterceptorState.PURSUIT and pursuing._pursuit_time == frozen_pursuit_time, "Pause libre perd la cible ou la mémoire de poursuite.")
 	_check(sim.death_count == 0, "Reset de démonstration compté comme mort.")
-	sim.demo_controls.restart_demo_button.pressed.emit()
+	sim.demonstration.restart()
 	await _advance(3)
 	_check(sim.demonstration.phase_index == 0 and sim.demonstration.phase_elapsed < 0.1 and sim.death_count == 0, "Restart ne reprend pas la phase 1.")
-	_key(KEY_D)
+	sim.demonstration.toggle()
 	await _advance(1)
 	_check(not sim.demonstration.is_guided() and sim.ships.has(original) and original.is_in_group("blue_ships"), "D ne restitue pas les mêmes agents.")
 	_check(pursuing.target == pursued and pursuing._mission_state == Interceptor.InterceptorState.PURSUIT, "Reprise libre perd la poursuite précédente.")
@@ -111,7 +111,7 @@ func _test_controls_and_restore() -> void:
 	_check(sim.death_count == death_count and sim.ship_spawn_count == spawn_count and sim._random.state == random_state and sim.asteroid_container._next_z == field_next, "Compteurs/RNG/streaming libre perdus.")
 	_check(sim.camera.mode == SimulationCamera.Mode.FREE and sim.camera.global_transform.is_equal_approx(camera_transform) and not sim.demo_controls.phase_panel.visible, "Caméra/label non restaurés.")
 	_check(sim.demo_controls.speed_slider.editable and not sim.demo_controls.panel.visible == false, "Panneau libre non repris.")
-	sim.demo_controls.guided_button.pressed.emit()
+	sim.demonstration.start()
 	await _advance(2)
 	sim.demo_controls.free_button.pressed.emit()
 	await _advance(2)
@@ -131,7 +131,7 @@ func _test_layout_and_projectiles() -> void:
 	await _advance(3)
 	var blue: Node3D = load("res://scenes/blue_laser.tscn").instantiate() as Node3D
 	FlightTuning.legacy_actor(blue)
-	_check((blue.get_node("Bolt").mesh as BoxMesh).size == Vector3(0.24, 0.24, 3.8), "BlueLaser non épaissi x2.")
+	_check((blue.get_node("Bolt").mesh as BoxMesh).size == Vector3(0.48, 0.48, 3.8), "Nouvelle largeur BlueLaser absente.")
 	blue.free()
 	var pulse: EnemyLaser = load("res://scenes/enemy_laser.tscn").instantiate() as EnemyLaser
 	FlightTuning.legacy_actor(pulse)
