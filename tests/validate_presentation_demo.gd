@@ -249,7 +249,7 @@ func complete_presentation(seed_value: int, native: bool) -> void:
 	check(sim.presentation.automatic_duration >= 150 and sim.presentation.automatic_duration <= 157, "Durée programmée")
 	check(not sim.demonstration.game_over, "Game Over en présentation")
 	if phases.size() == 5:
-		check(phases[0].megas >= 1 and phases[0].colossals == 1 and phases[0].first_events.get("obstacle", 100) < 3, "P1 dangers immédiats")
+		check(phases[0].megas == 0 and phases[0].colossals == 0 and phases[0].meteor_spawned >= 60 and phases[0].first_events.get("obstacle", 100) < 1, "P1 dangers immédiats")
 		check(phases[0].dispersion_end < phases[0].dispersion_peak and phases[0].blue_alive == 15, "P1 récupération / population")
 		check(phases[1].first_events.get("pulse", 100) < 4 and phases[1].first_events.get("waypoint", 100) < 4 and phases[1].green_shots > 18, "P2 waypoints / pulses de quinze patrouilles")
 		check(phases[2].first_events.get("pursuit", 100) < 2 and phases[2].first_events.get("burst", 100) < 4 and phases[2].boosts > 0 and phases[2].first_events.has("disengage"), "P3 poursuite / boost / désengagement")

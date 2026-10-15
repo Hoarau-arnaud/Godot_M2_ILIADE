@@ -36,6 +36,11 @@ var battle_anchor: Vector3 = Vector3.ZERO
 var battle_center: Vector3 = Vector3.ZERO
 var battle_velocity: Vector3 = Vector3.ZERO
 var _battle_anchor_goal: Vector3 = Vector3.ZERO
+var presentation_checkpoints: bool = false
+var current_checkpoint_index: int = 0
+var checkpoint_reached: Array[int] = [0, 0, 0, 0]
+var checkpoint_trace: Array[Dictionary] = []
+var _checkpoint_visits: int = 0
 var route_index: int = 0
 var routes_completed: int = 0
 var fire_intensity: float = 1.0
@@ -88,9 +93,22 @@ func _ready() -> void:
 	waypoint = global_position
 	_choose_waypoint()
 	velocity = Vector3.FORWARD * forward_speed
+	if presentation_checkpoints and not presentation_battle:
+		var cruise: Vector3 = (demonstration_route_offsets[(current_checkpoint_index + 1) % 4] - demonstration_route_offsets[current_checkpoint_index]).normalized() * forward_speed
+		velocity = battle_velocity + cruise
+		_visuals.quaternion = Basis.looking_at(cruise.normalized(), Vector3.UP).get_rotation_quaternion()
 
 
 func _choose_waypoint() -> void:
+	if presentation_checkpoints:
+		route_waypoints.clear()
+		for offset: Vector3 in demonstration_route_offsets:
+			route_waypoints.append(battle_anchor + offset)
+		waypoint = route_waypoints[current_checkpoint_index]
+		route_index = current_checkpoint_index + 1
+		waypoints_selected += 1
+		patrol_state = PatrolState.PATROL
+		return
 	if presentation_battle and not self is Interceptor:
 		if route_index >= demonstration_route_offsets.size():
 			route_index = 0
@@ -132,7 +150,7 @@ func _physics_process(delta: float) -> void:
 	if not alive:
 		return
 	_time += delta
-	if presentation_battle:
+	if presentation_checkpoints or presentation_battle:
 		_move_battle_patrol(delta)
 		return
 	if patrol_state == PatrolState.CHANGING_WAYPOINT:
@@ -180,7 +198,7 @@ func _update_patrol_fire(delta: float) -> void:
 	for node: Node in get_tree().get_nodes_in_group("blue_ships"):
 		var ship: BlueShip = node as BlueShip
 		var offset: Vector3 = ship.global_position - global_position
-		var in_cone: bool = not predictive_targeting or offset.normalized().dot(-_visuals.global_basis.z if presentation_battle else velocity.normalized()) >= cos(deg_to_rad(patrol_firing_cone_degrees))
+		var in_cone: bool = not predictive_targeting or offset.normalized().dot(-_visuals.global_basis.z.normalized() if presentation_battle or presentation_checkpoints else velocity.normalized()) >= cos(deg_to_rad(patrol_firing_cone_degrees))
 		if readable_threats and ship.alive and not ship.is_queued_for_deletion() and in_cone and offset.length() < 70:
 			candidates.append(ship)
 		if ship.alive and not ship.is_queued_for_deletion() and in_cone and offset.length() < distance:
@@ -347,19 +365,32 @@ func _die(combat_kill: bool = false) -> void:
 
 
 func _move_battle_patrol(delta: float) -> void:
-	if battle_anchor.distance_to(battle_center) > 18:
+	if (presentation_checkpoints and not presentation_battle) or battle_anchor.distance_to(battle_center) > 18:
 		_battle_anchor_goal = battle_center
 	var previous_anchor: Vector3 = battle_anchor
 	battle_anchor = battle_anchor.lerp(_battle_anchor_goal, 1 - exp(-3 * delta))
 	patrol_anchor = Vector2(battle_anchor.x, battle_anchor.y)
 	waypoint += battle_anchor - previous_anchor
-	if global_position.distance_to(waypoint) < waypoint_reach_distance:
+	if presentation_checkpoints:
+		for index: int in range(4):
+			route_waypoints[index] = battle_anchor + demonstration_route_offsets[index]
+		waypoint = route_waypoints[current_checkpoint_index]
+		var distance: float = global_position.distance_to(waypoint)
+		if distance <= waypoint_reach_distance:
+			checkpoint_reached[current_checkpoint_index] += 1
+			_checkpoint_visits += 1
+			routes_completed = maxi(0, (_checkpoint_visits - 1) / 4)
+			if checkpoint_trace.size() < 128:
+				checkpoint_trace.append({"checkpoint": current_checkpoint_index, "distance": distance, "time": _time, "position": global_position, "waypoint": waypoint})
+			current_checkpoint_index = (current_checkpoint_index + 1) % 4
+			_choose_waypoint()
+	elif global_position.distance_to(waypoint) < waypoint_reach_distance:
 		_choose_waypoint()
 	var to_waypoint: Vector3 = waypoint - global_position
 	var steering: Vector3 = _obstacle_avoidance() * avoidance_weight + _ship_avoidance() * ship_avoidance_weight
-	var route_velocity: Vector3 = to_waypoint.normalized() * minf(20, to_waypoint.length() * 1.5)
+	var route_velocity: Vector3 = to_waypoint.normalized() * minf(20 if presentation_battle else forward_speed, to_waypoint.length() * 1.5)
 	var desired: Vector3 = battle_velocity + route_velocity + steering.limit_length(12)
-	velocity = velocity.move_toward(desired, 35 * delta)
+	velocity = velocity.move_toward(desired, (35 if presentation_battle else acceleration) * delta)
 	var facing: Vector3 = route_velocity.normalized()
 	if facing.length_squared() > 0.01:
 		var up: Vector3 = Vector3.RIGHT if absf(facing.y) > 0.98 else Vector3.UP

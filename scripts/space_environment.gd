@@ -333,6 +333,7 @@ func set_arcade_mode(enabled: bool) -> void:
 
 
 func set_presentation_detail(enabled: bool) -> void:
+	preload("res://scripts/presentation_backdrop_cache.gd").apply(_backdrop, enabled)
 	presentation_detail = enabled
 	_debris.multimesh.visible_instance_count = 180 if enabled else -1
 	_streaks.multimesh.visible_instance_count = 24 if enabled else -1

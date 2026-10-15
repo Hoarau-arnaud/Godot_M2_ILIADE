@@ -206,7 +206,9 @@ func _update_fire(delta: float) -> void:
 		var sim: SpaceSimulation = get_parent().get_parent() as SpaceSimulation
 		category_value = ThreatPattern.category(sim._threat_serial)
 		aim += ThreatPattern.error(category_value, _fire_random)
-	var direction: Vector3 = ((aim - _muzzle.global_position).normalized() + _muzzle.global_basis.x * spread.x + _muzzle.global_basis.y * spread.y).normalized()
+	# Le scale visuel de Présentation ne modifie ni le cône ni la dispersion des tirs.
+	var aim_basis: Basis = _muzzle.global_basis.orthonormalized() if has_meta("presentation_slot") else _muzzle.global_basis
+	var direction: Vector3 = ((aim - _muzzle.global_position).normalized() + aim_basis.x * spread.x + aim_basis.y * spread.y).normalized()
 	var departure_cone: float = firing_cone_angle
 	if readable_threats and category_value != ThreatPattern.Category.TARGETED:
 		departure_cone = 55 if category_value == ThreatPattern.Category.SUPPRESSION else 32

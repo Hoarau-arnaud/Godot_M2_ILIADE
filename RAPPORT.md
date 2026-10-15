@@ -315,6 +315,12 @@ La présentation utilise les agents et armes existants, avec une horloge propre.
 | 4 | 30 s | 6 Capital Ships |
 | 5 | 30 s, puis sandbox | 15 Patrol + 15 Interceptor + 6 Capital, soit 36 ennemis |
 
+**P1 — barrage de météores.** Les vagues de 3–7 rochers commencent à 0,45 s puis 1,70 s, avec intervalles déterministes de 1,2–1,8 s. Les tailles suivent quatre classes : 1,5–3,5 m (40 %), 3,5–7 m (35 %), 7–12 m (20 %), 12–18 m (5 %). Neuf origines frontales, latérales, verticales et diagonales alimentent des trajectoires balistiques : centre futur prédit au spawn, vitesse ensuite fixe, sans poursuite ni demi-tour. Formes, lobes, palettes et rotations déterministes sont conservés. Environ 70 % des offsets visent le voisinage du futur groupe ; les autres sont périphériques. Les vagues sont moins fortes vers 7–10 s, plus fortes après 18 s et cessent à 27 s pour laisser apparaître le regroupement. Les rochers qui s'éloignent après leur passage sont retirés ; plafond de sécurité : 55. Aucun Mega 40 m ni Colossal 96 m dans cette P1. Leurs fonctions restent disponibles ailleurs.
+
+**P2 — vraie boucle A → B → C → D → A.** Chaque Patrol de Présentation possède exactement quatre offsets fixes autour de son ancre mobile. `current_checkpoint_index` avance modulo quatre uniquement à **5 m ou moins** du checkpoint, jamais au passage d'un plan Z. Les routes P2 sont compactes (segments d’environ 18–22 m). Les Patrol entrent près de leur checkpoint courant, à la vitesse de croisière de la route ; les réglages de vitesse/accélération de P2 sont conservés. Les routes finales restent dans la zone de bataille. Le déplacement vise le checkpoint ; une cible Blue dans le cône peut être attaquée sans remplacer cet objectif. Seuls les slots **0, 7 et 14** affichent leurs quatre sphères/lettres, soit **12 marqueurs**, avec des lignes discrètes. Le checkpoint actif est plus lumineux et signalé par une flèche. Les marqueurs utilisent les positions exactes de l'agent après le pas physique ; les autres Patrol parcourent leur boucle sans marqueurs.
+
+**Lisibilité du combat.** En Présentation uniquement, `Visuals` des Patrol verts et Interceptor rouges passe de **1× à 1,5×**, moteurs et muzzle compris ; le `CharacterBody3D`, ses collisions, vitesses, accélérations et cadences ne sont pas agrandis par ce réglage. L'affectation est absolue et reste identique après respawn et slider 15 → 25. Les directions de tir sont normalisées pour conserver le cône et la dispersion malgré le scale ; en P2/P5, le Patrol tire dans le cône de son nez visuel tout en gardant son checkpoint comme objectif. Une vraie mort Blue utilise le système `explosion.gd` existant : échelle **2,8×**, **22 fragments**, flash blanc/jaune de **0,16 s** (rayon 3 m), boule orange/rouge qui se dissipe, anneau **1 → 4,8 m en 0,5 s**, lumière chaude sans ombre qui décroît en **0,30 s**. La durée totale est **1,2 s réelles**, indépendamment de la vitesse de simulation. Retrait administratif, reset et changement de phase ne créent aucun effet ni perte ; les renforts conservent le compteur de mort. Les fragments utilisent une MultiMesh par explosion. Les moteurs et surfaces lumineuses des unités légères sont également groupés par mesh/matériau : chaque instance garde la pose exacte du nœud animé, sans modifier la physique. Les motifs UV statiques des planètes/nébuleuses sont précalculés en petites textures pendant READY : géométrie, lumière, couleurs et présence du décor sont conservées, les shaders historiques sont restaurés en FREE/GUIDED. Les explosions des autres contextes gardent leur réglage historique.
+
 Les BlueShip combattent en P2–P5 lorsque portée, cône et ligne de vue le permettent ; la sécurité reste prioritaire et leur navigation ne poursuit pas les ennemis. Des fenêtres de Capital à 70–76 m pendant 5–6 s rendent le blindage arrière accessible à la portée Blue existante. Les ennemis disparus sont remplacés après 0,8–1,4 s réelles pour les unités légères et 2–4 s pour les Capital, avec un RNG déterministe. Le HUD affiche cumulativement « Vaisseaux bleus détruits » et « Ennemis abattus ». Seules les destructions de combat augmentent le second compteur ; les retraits, skips et nettoyages ne comptent pas. R recommence avec les deux compteurs à zéro.
 
 Le panneau **LABORATOIRE DE BATAILLE**, distinct de FREE et ancré à gauche, apparaît dès P5. Il affiche les quatre compteurs actifs/détruits et onze réglages : Patrol 0–30, Interceptor 0–30, Capital 0–10, cadence 0,5–4×, largeur projectiles 0,5–3×, épaisseur grilles 0,5–3×, vitesse 0,5–2×, dégâts 1–3, densité 0–2,5×, Mega/Colossal 0–3 et agressivité 0,5–3×. Les volumes physiques et perçus suivent les largeurs. BlueLaser utilise désormais une sphère balayée de rayon 0,7 m, un corps cyan de 0,48 m (ancien : 0,24 m) et une pointe de rayon 0,52 m. Le masque reste rochers + hostiles, sans Blue. Les bases Presentation sont multipliées par 1,75 pour les tirs Interceptor et 1,5 pour les pulses Patrol, avant le slider. Les cibles supplémentaires arrivent progressivement, et les réductions sont administratives.
@@ -336,7 +342,7 @@ Un scheduler indépendant des cycles Capital déclenche les Gate/Grid toutes les
 
 La Presentation utilise des meshes/matériaux partagés pour les tirs et explosions, un rejet de plan avant les contacts des grilles, des perceptions de proximité espacées de 0,06–0,08 s simulée, un pas physique de 90 Hz (0,0222 s simulée à 2×) et MSAA 2×. Les sweeps de projectiles et les collisions de déplacement restent actifs. Les réglages du viewport et de simulation libre sont restaurés à la sortie. Les comptes rendus 1080p précisent ces conditions.
 
-### Mesures du correctif de finale
+### Référence PR #18 : mesures du correctif de finale
 
 Passage natif du 15/10/2026, seed 20261012, rendu et fenêtre **1920×1080**, Intel Arc, MSAA 2×, physique 90 Hz. Chaque fenêtre P4/P5/CHAOS dure 30 s réelles ; aucune destruction n’est injectée dans ces mesures. Les traversées sont des événements agent/grille.
 
@@ -365,3 +371,57 @@ Sliders 15→25, dix unités ajoutées progressivement ; distances à leur appar
 Les dix Interceptor ajoutés ont acquis une cible dès leur premier échantillon ; première rafale après **0,21–1,36 s**, avant 4 s. La distance maximale d’apparition des vingt ajouts vaut **95,79 m** dans ces fenêtres. Le désengagement rejoint la mission locale ; en CHAOS, **99,27 %** des mesures Interceptor sont sous 100 m.
 
 Fixtures séparées : ancien rayon central qui rate / nouvelle sphère Blue qui touche à 1 m de décalage sur une cible de rayon 0,5 m ; décalage 1,4 m qui rate ; tir à 3000 m/s sans tunneling ; rocher bloquant et Blue intercalé intact. Les bases rouge/verte et les multiplicateurs physique/visuel/perçu sont vérifiés. Recyclage hors champ et nettoyages : zéro kill et zéro respawn de mort. Le clic UI vérifie 15/15/6 à l’entrée ; les Mega/Colossal vérifient aussi les hostiles avant leur apparition.
+
+
+### Mesures de lisibilité et du barrage P1
+
+Passage natif du 15/10/2026, **seed 20261012**, fenêtre et rendu **1920×1080**, Intel Arc, MSAA **2×**, physique **90 Hz**. P1 et P2 sont mesurées seules pendant 30 s ; une nouvelle simulation mesure P5 nominale pendant 30 s, puis CHAOS pendant 30 s. Les morts ne sont pas injectées dans ces fenêtres. Le minimum FPS est calculé sur des fenêtres d'une seconde.
+
+| Mesure P1 | Résultat natif |
+|---|---:|
+| Météores générés / vagues | 89 / 18 |
+| Petits / moyens / grands / rares gros | 35 / 31 / 18 / 5 |
+| Taille min / max | 1,65 / 17,76 m |
+| Vitesse min / moyenne / max | 21,07 / 37,40 / 53,37 m/s simulées |
+| Actifs max / visibles simultanément près de la flotte | 15 / 13 |
+| Intervalle moyen des vagues | 1,51 s réelles |
+| Near passes / collisions Blue / pertes Blue | 75 / 0 / 0 |
+| Boosts / réactions d'évitement | 16 / 174 |
+| Dispersion max / finale | 71,09 / 63,40 m |
+| FPS moyen / minimum 1 s | 97,72 / 75,97 |
+| Nodes max | 1211 |
+
+Un « near pass » compte une fois par météore passé à moins de `avoidance_radius + 9 m` d'un Blue, sans collision ; les réactions proviennent des événements locaux `threat_reaction` de famille Meteor. Le maximum visible compte les centres des météores dans le frustum, à moins de 100 m du barycentre Blue. Les neuf directions et quatre classes sont présentes. Les vitesses restent fixes après le spawn. Le RNG et les horaires de vagues sont déterministes ; l'ordre des pas rendu/physique peut faire varier les contacts entre un passage natif et un test headless. Le plafond physique de 55 n'est pas rempli artificiellement : 15 actifs suffisent ici à rendre visibles jusqu'à 13 météores simultanément, avec nettoyage des rochers passés.
+
+**P2 : 15/15** Patrol de la cohorte initiale atteignent plusieurs checkpoints et **15/15** reviennent au premier checkpoint validé au moins une fois. Les destructions et remplacements ultérieurs gardent leurs traces séparées. Les douze marqueurs représentent uniquement les slots 0, 7 et 14 ; une ligne discrète ferme chaque route. Chaque transition mesurée respecte la distance **≤5 m** et l'ordre modulo quatre.
+
+| Slot initial | A | B | C | D | Boucles complètes |
+|---|---:|---:|---:|---:|---:|
+| 0 | 8 | 8 | 8 | 7 | 7 |
+| 1 | 7 | 8 | 8 | 8 | 7 |
+| 2 | 5 | 4 | 5 | 5 | 4 |
+| 3 | 8 | 8 | 8 | 8 | 7 |
+| 4 | 8 | 8 | 8 | 7 | 7 |
+| 5 | 7 | 8 | 7 | 7 | 7 |
+| 6 | 7 | 7 | 8 | 7 | 7 |
+| 7 | 1 | 1 | 1 | 2 | 1 |
+| 8 | 2 | 1 | 1 | 1 | 1 |
+| 9 | 7 | 8 | 8 | 8 | 7 |
+| 10 | 7 | 7 | 8 | 8 | 7 |
+| 11 | 6 | 5 | 5 | 6 | 5 |
+| 12 | 8 | 8 | 8 | 7 | 7 |
+| 13 | 7 | 8 | 8 | 8 | 7 |
+| 14 | 7 | 7 | 8 | 8 | 7 |
+
+Exemples de traces vérifiées : slot 0, A → B → C → D → A ; slot 1, B → C → D → A → B ; slot 2, C → D → A → B → C. Une boucle exige un retour au premier checkpoint effectivement atteint ; choisir un waypoint ne compte pas comme l'atteindre. Les assertions du test comparent aussi les marqueurs aux positions réellement poursuivies.
+
+| Fenêtre native | FPS moyen / min 1 s | Morts Blue / explosions | Explosions simultanées max | Nodes max |
+|---|---:|---:|---:|---:|
+| P5 nominale, 30 s | 99,48 / 96,86 | 42 / mesure dédiée en CHAOS | — | 2368 |
+| CHAOS, 30 s | 92,38 / 64,59 | 117 / 117 | 9 | 2882 |
+
+La fixture de mort contrôlée vérifie séparément **3 morts = 3 explosions**, sans doublon, encore visibles à 0,95 s, nettoyées après 1,2 s, puis **3 renforts** avec pertes conservées. Retrait administratif, changement de phase et reset ne créent aucun effet. Les tailles visuelles Patrol/Interceptor sont vérifiées à 1,5× après remplacement et passage des sliders à 25 ; les transforms GPU des moteurs groupés sont comparées aux nœuds sources dans la fixture native.
+
+Commandes reproductibles : `--headless --path . --fixed-fps 60 --script res://tests/validate_presentation_readability.gd` pour le parcours contrôlé complet ; sans `--headless` ni `--fixed-fps`, ajouter `-- --native` pour ces mesures et captures. Les options `--unit`, `--p1`, `--p2`, `--chaos` sélectionnent une partie. Les captures natives `readability_blue_explosion.png`, `readability_patrol_checkpoints.png` et `readability_meteors_06/18/28.png` sont dans `.godot/validation/`, ignoré. Les JSON natifs/headless gardent les distributions, horaires et traces complètes. Ces résultats concernent uniquement la Présentation ; les sections scientifiques M16 ci-dessus sont inchangées.
+
+Validation finale : les treize suites M1–M16, le parcours automatique M17 complet, Battle Lab, le flux de finale, les nouvelles fixtures headless et natives, les fenêtres P1/P2/P5/CHAOS et l’import éditeur passent sans erreur ni avertissement. La fixture de tir vérifie le cône frontal Patrol en P2/P5 et la même dispersion Interceptor à 1× et 1,5×.
