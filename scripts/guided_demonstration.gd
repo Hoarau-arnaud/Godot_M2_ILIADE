@@ -32,6 +32,7 @@ var _markers: Node3D
 var _phase_sample: Dictionary = {}
 var _marker_drones: Array[PatrolDrone] = []
 var _marker_nodes: Array[MeshInstance3D] = []
+var _route_lines: Array[MeshInstance3D] = []
 var tracers: BattleTracers
 var bomb_explosions: int = 0
 var grid_activations: int = 0
@@ -62,6 +63,7 @@ var _camera_fov: float
 
 
 func _ready() -> void:
+	process_physics_priority = 100
 	process_priority = -10
 
 
@@ -281,6 +283,7 @@ func _clear_stage(keep_blues: bool = false) -> void:
 	_markers = null
 	_marker_drones.clear()
 	_marker_nodes.clear()
+	_route_lines.clear()
 
 
 func _disable_entity(node: Node) -> void:
@@ -388,6 +391,7 @@ func _begin_phase(index: int, center: Vector3, preserve_blues: bool = true, prof
 	_arrived_ids.clear()
 	tracers = null
 	field.presentation_spawn_budget = not profile.is_empty()
+	field.presentation_meteor_barrage = bool(profile.get("meteor_barrage", false))
 	field.initialize_field(demonstration_seed + index * 1091, center, simulation._fleet_z_bounds().x)
 	field.difficulty_override = 3
 	if field.storm_enabled or index == 5:
@@ -473,8 +477,8 @@ func _spawn_patrol(center: Vector3, index: int, markers: bool, replacement: bool
 			drone._patrol_fire_timer = 4.4 + index * 0.4
 		else:
 			offset.z = 30
-	if not _stage_profile.is_empty() and phase_index == 5:
-		offset = simulation.presentation.battle_spawn_offset("patrol", index)
+	if not _stage_profile.is_empty() and phase_index in [2, 5]:
+		offset = simulation.presentation.patrol_checkpoint_offsets(index)[index % 4] if phase_index == 2 else simulation.presentation.battle_spawn_offset("patrol", index)
 		var spawn: Vector3 = simulation.presentation.battle_spawn_position(center, offset, 3)
 		if not spawn.is_finite():
 			drone.free()
@@ -493,7 +497,7 @@ func _spawn_patrol(center: Vector3, index: int, markers: bool, replacement: bool
 	if not _stage_profile.is_empty():
 		simulation.presentation.pack_actor(drone, "patrol")
 	simulation.drones.append(drone)
-	if markers and (_stage_profile.is_empty() or phase_index != 2 or index in [0, 4, 10, 14]):
+	if markers and (_stage_profile.is_empty() or (phase_index == 2 and index in [0, 7, 14])):
 		_add_route_markers(drone)
 
 
@@ -620,6 +624,15 @@ func _add_route_markers(drone: PatrolDrone) -> void:
 		_markers.name = "PatrolRouteMarkers"
 		simulation.add_child(_markers)
 	_marker_drones.append(drone)
+	if drone.presentation_checkpoints:
+		var line: MeshInstance3D = MeshInstance3D.new()
+		line.mesh = ImmediateMesh.new()
+		var line_material: StandardMaterial3D = StandardMaterial3D.new()
+		line_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		line_material.albedo_color = Color(0.1, 0.5, 0.36)
+		line.material_override = line_material
+		_markers.add_child(line)
+		_route_lines.append(line)
 	for index: int in range(4):
 		var marker: MeshInstance3D = MeshInstance3D.new()
 		var sphere: SphereMesh = SphereMesh.new()
@@ -638,11 +651,15 @@ func _add_route_markers(drone: PatrolDrone) -> void:
 		var label: Label3D = Label3D.new()
 		label.text = ["A", "B", "C", "D"][index]
 		label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-		label.font_size = 28
-		label.pixel_size = 0.04
+		label.font_size = 48 if drone.presentation_checkpoints else 28
+		label.pixel_size = 0.045 if drone.presentation_checkpoints else 0.04
+		label.no_depth_test = drone.presentation_checkpoints
+		if drone.presentation_checkpoints:
+			label.outline_size = 10
 		label.modulate = Color(0.4, 1, 0.6)
 		label.position.y = 1.4
 		marker.add_child(label)
+	_update_markers()
 
 
 func _process(delta: float) -> void:
@@ -714,12 +731,31 @@ func _register_hazards() -> void:
 func _update_markers() -> void:
 	for index: int in range(_marker_drones.size()):
 		var drone: PatrolDrone = _marker_drones[index]
+		if index < _route_lines.size():
+			var line: MeshInstance3D = _route_lines[index]
+			line.visible = is_instance_valid(drone) and drone.alive
+			var mesh: ImmediateMesh = line.mesh as ImmediateMesh
+			mesh.clear_surfaces()
+			if line.visible:
+				mesh.surface_begin(Mesh.PRIMITIVE_LINES)
+				for point: int in range(4):
+					mesh.surface_add_vertex(_markers.to_local(drone.route_waypoints[point]))
+					mesh.surface_add_vertex(_markers.to_local(drone.route_waypoints[(point + 1) % 4]))
+				mesh.surface_end()
 		for point: int in range(4):
 			var marker: MeshInstance3D = _marker_nodes[index * 4 + point]
 			marker.visible = is_instance_valid(drone) and drone.alive
 			if marker.visible:
 				marker.global_position = drone.route_waypoints[point]
-				marker.scale = Vector3.ONE * (1.4 if point == drone.route_index - 1 else 0.7)
+				var active_point: bool = point == (drone.current_checkpoint_index if drone.presentation_checkpoints else drone.route_index - 1)
+				marker.scale = Vector3.ONE * ((1.6 if active_point else 0.85) if drone.presentation_checkpoints else (1.4 if active_point else 0.7))
+				if drone.presentation_checkpoints:
+					var material: StandardMaterial3D = marker.material_override as StandardMaterial3D
+					material.albedo_color = Color(0.75, 1, 0.3, 1) if active_point else Color(0.15, 0.9, 0.7, 0.6)
+					material.emission_enabled = true
+					material.emission = material.albedo_color
+					material.emission_energy_multiplier = 3 if active_point else 0.7
+					(marker.get_child(0) as Label3D).text = ["A", "B", "C", "D"][point] + (" ◀" if active_point else "")
 
 
 func _sample_phase() -> void:
@@ -896,3 +932,9 @@ func _update_choreography() -> void:
 			capital.selected_pattern = pattern as CapitalShip.ArtilleryPattern
 			_attack_cursor += 1
 		_next_attack += 5.5 if simulation.arcade_hazards_enabled else 4.5
+
+
+func _physics_process(_delta: float) -> void:
+	# Après le déplacement des agents : marqueurs et cible partagent la même pose physique.
+	if mode == DemoMode.PRESENTATION:
+		_update_markers()

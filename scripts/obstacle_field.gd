@@ -35,6 +35,9 @@ var storm_enabled: bool = false
 var storm_complex: bool = false
 var storm_target: int = 180
 var presentation_spawn_budget: bool = false
+var presentation_meteor_barrage: bool = false
+var meteor_metrics: Dictionary = {}
+var meteor_samples: Array[Dictionary] = []
 var storm_samples: Array[Dictionary] = []
 var storm_speed_min: float = INF
 var storm_speed_max: float = 0
@@ -71,6 +74,8 @@ func initialize_field(seed_value: int, center: Vector3, front_z: float) -> void:
 	_next_z = front_z - maxf(start_distance, 50.0)
 	_pending_pattern = -1
 	_storm_serial = 0
+	meteor_metrics = {"meteor_spawned": 0, "meteor_small": 0, "meteor_medium": 0, "meteor_large": 0, "meteor_rare_large": 0, "meteor_size_min": INF, "meteor_size_max": 0.0, "meteor_speed_min": INF, "meteor_speed_sum": 0.0, "meteor_speed_max": 0.0, "meteor_active_max": 0, "meteor_near_passes": 0, "meteor_collisions": 0, "meteor_avoidance_reactions": 0, "meteor_near_fleet_max": 0}
+	meteor_samples.clear()
 	mega_generated = 0
 	colossal_generated = 0
 	mega_types.clear()
@@ -438,6 +443,14 @@ func _cleanup_passed(rear_z: float) -> void:
 
 
 func advance_storm(center: Vector3) -> void:
+	_ensure_storm_container()
+	if presentation_meteor_barrage:
+		_advance_presentation_meteors(center)
+		return
+	_advance_random_storm(center)
+
+
+func _ensure_storm_container() -> void:
 	if not is_instance_valid(_storm_container):
 		_storm_container = Node3D.new()
 		_storm_container.name = "RandomMeteorStorm"
@@ -445,6 +458,9 @@ func advance_storm(center: Vector3) -> void:
 		_storm_visuals = StormRockVisuals.new()
 		_storm_visuals.name = "PhysicalMeteorMultiMesh"
 		add_child(_storm_visuals)
+
+
+func _advance_random_storm(center: Vector3) -> void:
 	for node: Node in _storm_container.get_children():
 		var rock: SpaceAsteroid = node as SpaceAsteroid
 		if rock.is_queued_for_deletion():
@@ -603,3 +619,136 @@ func _presentation_hazard_spawn_clear(candidate: Vector3, diameter_value: float)
 		if candidate.distance_to((node as Node3D).global_position) < diameter_value * 0.65 + margin:
 			return false
 	return true
+
+
+# Barrage P1 seulement : tirages indépendants du streaming scientifique et des Mega.
+func spawn_presentation_meteor_wave(center: Vector3, fleet_velocity: Vector3, wave_seed: int, intensity: float, wave_index: int) -> void:
+	_ensure_storm_container()
+	var random: RandomNumberGenerator = RandomNumberGenerator.new()
+	random.seed = wave_seed
+	var count: int = clampi(random.randi_range(3, 6) + (1 if intensity > 1 else -1 if intensity < 0.8 else 0), 3, 7)
+	var origins: Array[Vector3] = [Vector3(0, 0, -1), Vector3(-1, 0, -0.3), Vector3(1, 0, -0.3), Vector3(0, 1, -0.3), Vector3(0, -1, -0.3), Vector3(-0.8, 0.7, -0.4), Vector3(0.8, 0.7, -0.4), Vector3(-0.8, -0.7, -0.4), Vector3(0.8, -0.7, -0.4)]
+	for index: int in range(count):
+		if active_asteroid_count >= max_active_asteroids:
+			break
+		var serial: int = int(meteor_metrics.meteor_spawned)
+		# Quotas distribués sur vingt tirages, et dimensions aléatoires dans chaque classe.
+		var quota: int = (serial * 7 + 3) % 20
+		var category: int = 0 if quota < 8 else 1 if quota < 15 else 2 if quota < 19 else 3
+		var sizes: Array[Vector2] = [Vector2(1.5, 3.5), Vector2(3.5, 7), Vector2(7, 12), Vector2(12, 18)]
+		var speeds: Array[Vector2] = [Vector2(30, 55), Vector2(28, 45), Vector2(24, 38), Vector2(20, 32)]
+		var diameter_value: float = random.randf_range(sizes[category].x, sizes[category].y)
+		var speed: float = random.randf_range(speeds[category].x, speeds[category].y)
+		var origin_index: int = (wave_index * 3 + index * 5) % origins.size()
+		var direction: Vector3 = origins[origin_index].normalized()
+		var threatened: bool = serial % 10 < 7
+		var passage: Vector3 = Vector3(random.randf_range(-20, 20), random.randf_range(-14, 14), random.randf_range(-9, 9))
+		if not threatened:
+			passage += Vector3(30 if serial % 2 else -30, 17 if serial % 3 else -17, 0)
+		var start: Vector3 = center + direction * random.randf_range(85, 125)
+		var relative: Vector3 = center + passage - start
+		# Interception d'un centre prédit, puis vitesse définitivement constante.
+		var aa: float = fleet_velocity.length_squared() - speed * speed
+		var bb: float = 2 * relative.dot(fleet_velocity)
+		var cc: float = relative.length_squared()
+		var discriminant: float = bb * bb - 4 * aa * cc
+		var travel_time: float = -1
+		if discriminant >= 0 and absf(aa) > 0.001:
+			for solution: float in [(-bb - sqrt(discriminant)) / (2 * aa), (-bb + sqrt(discriminant)) / (2 * aa)]:
+				if solution > 0.5 and (travel_time < 0 or solution < travel_time):
+					travel_time = solution
+		if travel_time < 0 or travel_time > 8:
+			# Les gros rochers lents arrivent en diagonale avant ; pas de homing correctif.
+			start = center + Vector3(direction.x * 35, direction.y * 35, -100)
+			relative = center + passage - start
+			travel_time = relative.length() / (speed + fleet_velocity.length())
+		var flight: Vector3 = (center + fleet_velocity * travel_time + passage - start).normalized() * speed
+		var clear: bool = true
+		for blue: Node3D in get_tree().get_nodes_in_group("blue_ships"):
+			if blue.global_position.distance_to(start) < diameter_value * 0.65 + 25:
+				clear = false
+		if not clear:
+			continue
+		var rock: SpaceAsteroid = ASTEROID_SCENE.instantiate() as SpaceAsteroid
+		rock.name = "PresentationMeteor_%03d" % serial
+		rock.presentation_meteor = true
+		rock.set_meta("weapon_family", "Meteor")
+		rock.set_meta("meteor_origin", origin_index)
+		rock.set_meta("meteor_start", start)
+		rock.set_meta("meteor_direction", flight.normalized())
+		rock.set_meta("meteor_passed", false)
+		rock.set_meta("meteor_hit", false)
+		rock.set_meta("meteor_near", false)
+		rock.diameter = diameter_value
+		rock.size_category = _size_category(diameter_value)
+		rock.shape_seed = wave_seed + index * 997
+		rock.rotation_speed = random.randf_range(0.3, 0.75)
+		rock.rotation = Vector3(random.randf() * TAU, random.randf() * TAU, random.randf() * TAU)
+		rock.single_convex_envelope = true
+		rock.presentation_skip_unused_shapes = true
+		rock.motion_type = SpaceAsteroid.MotionType.LINEAR
+		rock.motion_velocity = flight
+		rock.position = _storm_container.to_local(start)
+		rock.meteor_blue_contact.connect(func(_blue: BlueShip) -> void:
+			meteor_metrics.meteor_collisions += 1
+			rock.set_meta("meteor_hit", true))
+		_storm_container.add_child(rock)
+		active_asteroid_count += 1
+		active_mobile_count += 1
+		meteor_metrics.meteor_spawned += 1
+		meteor_metrics[["meteor_small", "meteor_medium", "meteor_large", "meteor_rare_large"][category]] += 1
+		meteor_metrics.meteor_size_min = minf(meteor_metrics.meteor_size_min, diameter_value)
+		meteor_metrics.meteor_size_max = maxf(meteor_metrics.meteor_size_max, diameter_value)
+		meteor_metrics.meteor_speed_min = minf(meteor_metrics.meteor_speed_min, speed)
+		meteor_metrics.meteor_speed_max = maxf(meteor_metrics.meteor_speed_max, speed)
+		meteor_metrics.meteor_speed_sum += speed
+		meteor_samples.append({"seed": rock.shape_seed, "wave": wave_index, "category": category, "diameter": diameter_value, "speed": speed, "velocity": flight, "start": start, "center": center, "fleet_velocity": fleet_velocity, "prediction": travel_time, "offset": passage, "origin": origin_index, "threatened": threatened})
+	meteor_metrics.meteor_active_max = maxi(meteor_metrics.meteor_active_max, active_asteroid_count)
+	maximum_active_observed = maxi(maximum_active_observed, active_asteroid_count)
+	maximum_mobile_observed = maxi(maximum_mobile_observed, active_mobile_count)
+
+
+func _advance_presentation_meteors(center: Vector3) -> void:
+	var near_fleet: int = 0
+	for node: Node in _storm_container.get_children():
+		var rock: SpaceAsteroid = node as SpaceAsteroid
+		if rock.is_queued_for_deletion():
+			continue
+		var near: bool = false
+		for blue: Node3D in get_tree().get_nodes_in_group("blue_ships"):
+			if rock.global_position.distance_to(blue.global_position) <= rock.avoidance_radius + 9:
+				near = true
+		if near:
+			rock.set_meta("meteor_near", true)
+		if rock.global_position.distance_to(center) < 80:
+			near_fleet += 1
+		# Après le passage, ne plus garder les rochers qui s'éloignent définitivement.
+		var distance: float = rock.global_position.distance_to(center)
+		var previous: float = float(rock.get_meta("meteor_previous_distance", INF))
+		rock.set_meta("meteor_previous_distance", distance)
+		if distance < previous:
+			rock.set_meta("meteor_approached", true)
+		var passed: bool = bool(rock.get_meta("meteor_approached", false)) and distance > previous
+		if (passed and distance > 100) or rock.motion_elapsed > 24:
+			if bool(rock.get_meta("meteor_near")) and not bool(rock.get_meta("meteor_hit")):
+				meteor_metrics.meteor_near_passes += 1
+			rock.remove_from_group("asteroids")
+			rock.collision_layer = 0
+			active_asteroid_count -= 1
+			active_mobile_count -= 1
+			rock.queue_free()
+	meteor_metrics.meteor_near_fleet_max = maxi(meteor_metrics.meteor_near_fleet_max, near_fleet)
+
+
+func meteor_report() -> Dictionary:
+	var result: Dictionary = meteor_metrics.duplicate(true)
+	if int(result.meteor_spawned) == 0:
+		result.meteor_size_min = 0.0
+		result.meteor_speed_min = 0.0
+	result.meteor_speed_average = float(result.meteor_speed_sum) / maxi(1, int(result.meteor_spawned))
+	# Inclure les passages terminés près de la flotte mais encore en vol à 30 s.
+	if is_instance_valid(_storm_container):
+		for node: Node in _storm_container.get_children():
+			if not node.is_queued_for_deletion() and bool(node.get_meta("meteor_near", false)) and not bool(node.get_meta("meteor_hit", false)):
+				result.meteor_near_passes += 1
+	return result

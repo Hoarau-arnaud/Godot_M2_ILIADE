@@ -1,6 +1,9 @@
 class_name SpaceAsteroid
 extends AnimatableBody3D
 
+signal meteor_blue_contact(blue: BlueShip)
+var presentation_meteor: bool = false
+
 enum SizeCategory { SMALL, MEDIUM, LARGE, MEGA, COLOSSAL }
 enum MegaTrajectory { MEGA_LINEAR, MEGA_DIAGONAL, MEGA_VERTICAL, MEGA_SLOW_CROSSING }
 var mega_trajectory: MegaTrajectory = MegaTrajectory.MEGA_LINEAR
@@ -99,6 +102,8 @@ func trajectory_offset(time: float) -> Vector3:
 	var elapsed: float = maxf(time - motion_start_delay, 0.0)
 	if motion_type == MotionType.STATIC:
 		return Vector3.ZERO
+	if presentation_meteor:
+		return motion_velocity * elapsed
 	if motion_type == MotionType.CIRCULAR:
 		var angle: float = motion_phase + TAU * elapsed / maxf(motion_period, 1.0)
 		return orbit_axis_u * motion_amplitude.x * cos(angle) + orbit_axis_v * motion_amplitude.y * sin(angle)
@@ -114,6 +119,8 @@ func trajectory_velocity(time: float) -> Vector3:
 	if motion_type == MotionType.STATIC or time < motion_start_delay:
 		return Vector3.ZERO
 	var elapsed: float = time - motion_start_delay
+	if presentation_meteor:
+		return motion_velocity
 	if motion_type == MotionType.CIRCULAR:
 		var frequency: float = TAU / maxf(motion_period, 1.0)
 		var angle: float = motion_phase + frequency * elapsed

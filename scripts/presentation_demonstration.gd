@@ -3,6 +3,8 @@ extends Node
 
 # Horloge et mission locale Patrol ; la navigation Blue reste autonome.
 enum State { INACTIVE, READY, RUNNING, TRANSITION, FINISHED, FINAL_SANDBOX }
+const LIGHT_VISUALS: Script = preload("res://scripts/presentation_light_visuals.gd")
+var _light_visuals: Node3D
 const BATTLE_VISUAL_CACHE: Script = preload("res://scripts/battle_visual_cache.gd")
 const DURATIONS: Array[float] = [30.0, 30.0, 30.0, 30.0, 30.0]
 const TITLES: Array[String] = ["ÉVITEMENT COLLECTIF", "PATROUILLE AUTONOME", "INTERCEPTION", "ARTILLERIE CAPITALE", "ASSAUT FINAL"]
@@ -18,6 +20,10 @@ var records: Array[Dictionary] = []
 var _transition_elapsed: float = 0
 var _events: Array[Array] = []
 var _cursor: int = 0
+var _next_meteor_wave: float = 0.45
+var meteor_wave_index: int = 0
+var presentation_meteor_rng: RandomNumberGenerator = RandomNumberGenerator.new()
+var meteor_wave_times: Array[float] = []
 var _sample: Dictionary = {}
 var _camera_segment: int = -1
 var _guide_seed: int = 0
@@ -64,7 +70,7 @@ func active() -> bool:
 
 
 func _profile(index: int) -> Dictionary:
-	return {"storm": index in [0, 4], "rocks": 38 if index == 4 else 0, "rocks_max": 80 if index == 4 else 35, "patrols": 15 if index in [1, 4] else 0, "interceptors": 15 if index in [2, 4] else 0, "capitals": 6 if index in [3, 4] else 0, "fire_intensity": 1.0 if index == 1 else 2.0, "blue_combat": index > 0}
+	return {"meteor_barrage": index == 0, "storm": index in [0, 4], "rocks": 38 if index == 4 else 0, "rocks_max": 80 if index == 4 else 55, "patrols": 15 if index in [1, 4] else 0, "interceptors": 15 if index in [2, 4] else 0, "capitals": 6 if index in [3, 4] else 0, "fire_intensity": 1.0 if index == 1 else 2.0, "blue_combat": index > 0}
 
 
 func prepare() -> void:
@@ -90,6 +96,9 @@ func prepare() -> void:
 	_pending_respawns.clear()
 	respawn_events.clear()
 	_reset_population_stats()
+	_light_visuals = LIGHT_VISUALS.new() as Node3D
+	_light_visuals.name = "PresentationLightVisuals"
+	add_child(_light_visuals)
 	guide.start(_profile(0))
 	Engine.physics_ticks_per_second = 90
 	simulation.space_decor.set_presentation_detail(true)
@@ -158,6 +167,9 @@ func _mode_changed(new_mode: int) -> void:
 		simulation.space_decor.set_presentation_detail(false)
 		simulation.demo_controls.release_battle_panel()
 		_pending_respawns.clear()
+		if is_instance_valid(_light_visuals):
+			_light_visuals.queue_free()
+		_light_visuals = null
 		_generation += 1
 		state = State.INACTIVE
 		user_paused = false
@@ -177,6 +189,10 @@ func _begin_phase(index: int, rebuild: bool = true) -> void:
 	phase_elapsed = 0
 	_camera_segment = -1
 	_cursor = 0
+	_next_meteor_wave = 0.45
+	meteor_wave_index = 0
+	meteor_wave_times.clear()
+	presentation_meteor_rng.seed = presentation_seed + 85219
 	_generation += 1
 	_pending_respawns.clear()
 	_population_random.seed = presentation_seed + index * 1709 + 54001
@@ -198,7 +214,7 @@ func _begin_phase(index: int, rebuild: bool = true) -> void:
 	guide.phase_elapsed = 0
 	_sample = {"phase": index + 1, "title": TITLES[index], "first_events": {}, "boosts_start": simulation.evasive_boost_count, "dispersion_peak": simulation.dispersion, "dispersion_end": simulation.dispersion, "gate_crossings": {}, "events": []}
 	match index:
-		0: _events = [[0.0, "mega", 1], [8.0, "colossal", 0], [18.0, "fast", 0], [23.0, "fast", 0]]
+		0: _events = []
 		1: _events = []
 		2: _events = []
 		3: _events = [[0.0, "capital", 0], [4.0, "capital", 4], [12.0, "capital", 6], [20.0, "capital", 9], [26.0, "capital", 2]]
@@ -227,6 +243,12 @@ func _process(delta: float) -> void:
 	phase_elapsed += real_delta
 	guide.phase_elapsed = phase_elapsed
 	_choreograph()
+	if phase_index == 0:
+		_schedule_meteors()
+	if phase_index == 1:
+		for patrol: PatrolDrone in simulation.drones:
+			patrol.battle_center = simulation._fleet_center()
+			patrol.battle_velocity = _fleet_velocity()
 	_maintain_populations()
 	_update_raids(real_delta)
 	if phase_index in [3, 4]:
@@ -305,7 +327,7 @@ func _update_camera() -> void:
 	match phase_index:
 		0:
 			segment = 2 if phase_elapsed >= 27 else 1 if phase_elapsed >= 8 else 0
-			shots.assign([[1, 0, 11], [5, 8, 5], [5, 3]][segment])
+			shots.assign([[5, 1, 11], [5, 11, 1], [5, 1]][segment])
 		1: shots = [5, 1, 2]
 		2: shots = [0, 11, 5]
 		3: shots = [10, 5, 0, 10]
@@ -329,7 +351,7 @@ func _first(key: String, condition: bool) -> void:
 func _observe() -> void:
 	_sample.dispersion_peak = maxf(_sample.dispersion_peak, simulation.dispersion)
 	_sample.dispersion_end = simulation.dispersion
-	_first("obstacle", simulation.asteroid_container.mega_generated > 0)
+	_first("obstacle", simulation.asteroid_container.mega_generated > 0 or int(simulation.asteroid_container.meteor_metrics.get("meteor_spawned", 0)) > 0)
 	_first("pulse", simulation.drones.any(func(drone: PatrolDrone) -> bool: return drone.patrol_shots_fired > 0))
 	_first("waypoint", simulation.drones.any(func(drone: PatrolDrone) -> bool: return drone.waypoints_selected > 1))
 	_first("pursuit", simulation.interceptors.any(func(hostile: Interceptor) -> bool: return hostile.pursuits_started > 0))
@@ -369,6 +391,9 @@ func _finish_phase(skipped: bool) -> void:
 	record.enemy_populations = _family_stats.duplicate(true)
 	record.boosts = simulation.evasive_boost_count - int(_sample.boosts_start)
 	record.erase("boosts_start")
+	if phase_index == 0:
+		simulation.asteroid_container.meteor_metrics.meteor_avoidance_reactions = int(simulation.weapon_metrics.get("Meteor", {}).get("reactions", 0))
+		record.merge(simulation.asteroid_container.meteor_report(), true)
 	records.append(record)
 
 
@@ -446,6 +471,17 @@ func configure_actor(actor: Node3D, family: String, slot: int) -> void:
 			light.demonstration_route_offsets.assign([Vector3(-45 * mirror, -15 + lift, -35), Vector3(35 * mirror, 12 + lift, -45), Vector3(45 * mirror, -10 + lift, 10), Vector3(-35 * mirror, 18 + lift, 20)])
 			light.route_index = slot % 4
 			light._patrol_fire_timer = 0.2 + (slot % 5) * 0.15
+	if family == "patrol" and phase_index in [1, 4]:
+		var patrol: PatrolDrone = actor as PatrolDrone
+		patrol.presentation_checkpoints = true
+		patrol.current_checkpoint_index = slot % 4
+		patrol.waypoint_reach_distance = 5.0
+		patrol.battle_center = simulation._fleet_center()
+		patrol.battle_anchor = patrol.battle_center
+		patrol._battle_anchor_goal = patrol.battle_center
+		patrol.battle_velocity = _fleet_velocity()
+		if phase_index == 1:
+			patrol.demonstration_route_offsets.assign(patrol_checkpoint_offsets(slot))
 	_configure_actor_settings(actor)
 
 
@@ -672,7 +708,15 @@ func _count_enemy_kill(_actor: Node3D, family: String, generation: int) -> void:
 func pack_actor(actor: Node3D, family: String) -> void:
 	if actor is BlueShip:
 		(actor as BlueShip).presentation_combat_interval = 0.08
+		(actor as BlueShip).presentation_death_effect = true
+	if actor is PatrolDrone:
+		var visual: Node3D = actor.get_node("Visuals") as Node3D
+		if not visual.has_meta("presentation_original_scale"):
+			visual.set_meta("presentation_original_scale", visual.scale)
+		visual.scale = (visual.get_meta("presentation_original_scale") as Vector3) * 1.5
 	BATTLE_VISUAL_CACHE.pack(actor.get_node("Visuals") as Node3D, family)
+	if actor is PatrolDrone and is_instance_valid(_light_visuals):
+		_light_visuals.register_actor(actor)
 
 
 func _warm_visuals() -> void:
@@ -827,3 +871,18 @@ func _cleanup_battle_projectiles() -> void:
 			if offset.length_squared() > limit * limit and offset.dot(flight) > 0:
 				guide._disable_entity(node)
 				node.queue_free()
+
+
+func _schedule_meteors() -> void:
+	if phase_elapsed >= 27.0 or phase_elapsed < _next_meteor_wave:
+		return
+	var intensity: float = 0.65 if phase_elapsed >= 7 and phase_elapsed < 10 else 1.15 if phase_elapsed >= 18 else 1.0
+	simulation.asteroid_container.spawn_presentation_meteor_wave(simulation._fleet_center(), _fleet_velocity(), presentation_meteor_rng.randi(), intensity, meteor_wave_index)
+	meteor_wave_times.append(_next_meteor_wave)
+	meteor_wave_index += 1
+	_next_meteor_wave += 1.25 if meteor_wave_index == 1 else presentation_meteor_rng.randf_range(1.2, 1.8)
+
+
+func patrol_checkpoint_offsets(slot: int) -> Array[Vector3]:
+	var lane: Vector3 = Vector3((slot % 5 - 2) * 17, (slot / 5 % 3 - 1) * 16, -22)
+	return [lane + Vector3(-10, -4, -9), lane + Vector3(10, 4, -9), lane + Vector3(10, 4, 9), lane + Vector3(-10, -4, 9)]

@@ -107,6 +107,7 @@ var arcade_visuals_enabled: bool = false
 var death_cause: String = ""
 var gate_opening_choices: int = 0
 var gate_opening_changes: int = 0
+var presentation_death_effect: bool = false
 var presentation_combat_interval: float = 0
 var _combat_sample_at: float = -INF
 var _gate_memory: Dictionary[MovingLaserGate, Dictionary] = {}
@@ -250,6 +251,8 @@ func _physics_process(delta: float) -> void:
 		var obstacle: SpaceAsteroid = collision.get_collider() as SpaceAsteroid
 		var collider: Node = collision.get_collider() as Node
 		if obstacle != null or (collider != null and collider.is_in_group("hostile_agents")):
+			if obstacle != null and obstacle.presentation_meteor:
+				obstacle.meteor_blue_contact.emit(self)
 			_die("asteroid" if obstacle != null else "hostile_contact")
 	if alive:
 		_update_combat(delta)
@@ -783,8 +786,10 @@ func _die(cause: String = "damage") -> void:
 	_stop_navigation()
 	health = 0
 	var explosion: Node3D = EXPLOSION_SCENE.instantiate() as Node3D
+	if presentation_death_effect:
+		explosion.configure_blue_ship_death()
+	explosion.position = (get_parent() as Node3D).to_local(global_position)
 	get_parent().add_child(explosion)
-	explosion.global_position = global_position
 	died.emit(self)
 	hide()
 	queue_free()
